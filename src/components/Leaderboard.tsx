@@ -39,6 +39,7 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
               <th>Played</th>
               <th>Wins</th>
               <th>Losses</th>
+              <th>Byes</th>
             </tr>
           </thead>
           <tbody>
@@ -50,6 +51,7 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
                 <td>{stats.matchesPlayed}</td>
                 <td>{stats.wins}</td>
                 <td>{stats.losses}</td>
+                <td>{stats.byes}</td>
               </tr>
             ))}
           </tbody>

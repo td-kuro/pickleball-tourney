@@ -10,8 +10,8 @@ Live demo (after deployment): `https://<github-username>.github.io/pickleball-to
 
 - Add, edit, and remove players with a name and rating.
 - Configure the number of courts and match type (Singles or Doubles).
-- Generate a round that assigns players to courts in order, leaving anyone
-  who doesn't fit in the "Waiting / Not Playing This Round" list.
+- Generate a round that assigns players to courts in order, with a fair bye
+  rotation for anyone who doesn't fit (see "Bye / Sitting Out This Round").
 - Enter a score for each match; the app shows the winner and tracks points
   per player across all rounds.
 - A leaderboard ranks players by total points, wins, and rating.
@@ -27,16 +27,31 @@ Live demo (after deployment): `https://<github-username>.github.io/pickleball-to
 The number of courts times the players-per-court determines how many
 players can play each round — e.g. 3 courts in Singles fits 6 players per
 round, 3 courts in Doubles fits 12 players per round. Any players beyond
-that sit out ("wait") for the round.
+that (or left over because they don't fill a complete court) sit out on a
+**bye** for the round.
 
 ## How round generation works
 
-Round generation is intentionally simple for now: players are assigned to
-courts in the order they were added, filling one court at a time (pairs
-for Singles, groups of 4 split into two teams of 2 for Doubles). Anyone
-who doesn't fill a complete court waits out that round. More advanced
-pairing (e.g. balancing by rating, avoiding repeat matchups, rotating who
-sits out) can be layered on top of this later without changing the UI.
+Round generation is intentionally simple for now: players who are playing
+this round are assigned to courts in list order, filling one court at a
+time (pairs for Singles, groups of 4 split into two teams of 2 for
+Doubles). More advanced pairing (e.g. balancing by rating, avoiding repeat
+matchups) can be layered on top of this later without changing the UI.
+
+## How byes work
+
+A bye means a player sits out for the round — no match, no points, no win
+or loss recorded, just a tally of how many byes they've had. When there
+are more players than court capacity, byes are handed out fairly:
+
+- The app tracks each player's total bye count across all rounds so far.
+- When a round needs N players to sit out, it picks the N players with the
+  **fewest** byes so far (ties broken by player-list order).
+- This means no one sits out a second time until everyone else has sat out
+  once, and so on — an even rotation over the course of the tournament.
+
+Byes are shown in the "Bye / Sitting Out This Round" section, and each
+player's total bye count is shown on the leaderboard.
 
 ## How scoring and points work
 
@@ -48,8 +63,8 @@ sits out) can be layered on top of this later without changing the UI.
   total for every round they play — in Doubles, both teammates get the
   full team score (it isn't split between them).
 - The leaderboard shows, per player: rating, total points, matches played,
-  wins, and losses — sorted by total points (highest first), then wins,
-  then rating.
+  wins, losses, and byes — sorted by total points (highest first), then
+  wins, then rating.
 
 ## Current limitations
 

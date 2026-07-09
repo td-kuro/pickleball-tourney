@@ -26,8 +26,9 @@ export interface Round {
   id: string;
   roundNumber: number;
   matches: Match[];
-  // Players who didn't fit on a court this round.
-  waitingPlayerIds: string[];
+  // Players sitting out this round (didn't fit on a court, or were
+  // selected for a fair bye rotation).
+  byePlayerIds: string[];
 }
 
 export interface TournamentSettings {
@@ -47,4 +48,5 @@ export interface PlayerStats {
   matchesPlayed: number;
   wins: number;
   losses: number;
+  byes: number;
 }

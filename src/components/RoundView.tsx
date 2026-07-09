@@ -51,12 +51,12 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
 
       {currentRound && (
         <section className="card">
-          <h2>Waiting / Not Playing This Round</h2>
-          {currentRound.waitingPlayerIds.length === 0 ? (
+          <h2>Bye / Sitting Out This Round</h2>
+          {currentRound.byePlayerIds.length === 0 ? (
             <p className="empty-state">Everyone is playing this round.</p>
           ) : (
-            <ul className="waiting-list">
-              {currentRound.waitingPlayerIds.map((id) => (
+            <ul className="bye-list">
+              {currentRound.byePlayerIds.map((id) => (
                 <li key={id}>{playerNameById.get(id) ?? 'Unknown player'}</li>
               ))}
             </ul>

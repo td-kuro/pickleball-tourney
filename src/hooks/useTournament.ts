@@ -21,7 +21,7 @@ export function useTournament() {
   }
 
   function generateRound(players: Player[]) {
-    const round = createRound(players, settings, rounds.length + 1);
+    const round = createRound(players, settings, rounds.length + 1, rounds);
     setRounds([...rounds, round]);
   }
 
