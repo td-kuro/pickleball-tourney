@@ -1,49 +1,84 @@
 # Pickleball Tourney
 
-A simple static web app for setting up a pickleball tournament: add players
-with a name and skill rating, then (in a future update) generate rounds and
-update them based on match results.
+A simple static web app for running a pickleball tournament: add players
+with a name and skill rating, configure courts and match type, generate
+rounds, enter scores, and track a live leaderboard.
 
 Live demo (after deployment): `https://<github-username>.github.io/pickleball-tourney/`
 
 ## What it does
 
-- Lets you add, edit, and remove players with a name and rating.
-- Saves the player list to your browser's `localStorage`, so it survives a
+- Add, edit, and remove players with a name and rating.
+- Configure the number of courts and match type (Singles or Doubles).
+- Generate a round that assigns players to courts in order, leaving anyone
+  who doesn't fit in the "Waiting / Not Playing This Round" list.
+- Enter a score for each match; the app shows the winner and tracks points
+  per player across all rounds.
+- A leaderboard ranks players by total points, wins, and rating.
+- Everything is saved to your browser's `localStorage`, so it survives a
   page refresh.
-- Provides placeholder sections for "Tournament Rules" and "Generate Rounds",
-  ready to be built out once the tournament engine is implemented.
 
-## Current features
+## Match types
 
-- Add / edit / remove players (name + rating)
-- Player list persisted in `localStorage`
-- Placeholder "Tournament Rules" section
-- Placeholder "Generate Rounds" section
-- Placeholder types and a placeholder engine module for the future tournament
-  logic (see [`src/types`](src/types/index.ts) and
-  [`src/engine/tournamentEngine.ts`](src/engine/tournamentEngine.ts))
+- **Singles** — each court needs 2 players, Player A vs Player B.
+- **Doubles** — each court needs 4 players, grouped into two 2-player
+  teams, Team A vs Team B.
+
+The number of courts times the players-per-court determines how many
+players can play each round — e.g. 3 courts in Singles fits 6 players per
+round, 3 courts in Doubles fits 12 players per round. Any players beyond
+that sit out ("wait") for the round.
+
+## How round generation works
+
+Round generation is intentionally simple for now: players are assigned to
+courts in the order they were added, filling one court at a time (pairs
+for Singles, groups of 4 split into two teams of 2 for Doubles). Anyone
+who doesn't fill a complete court waits out that round. More advanced
+pairing (e.g. balancing by rating, avoiding repeat matchups, rotating who
+sits out) can be layered on top of this later without changing the UI.
+
+## How scoring and points work
+
+- Each match records a score for both sides (Player/Team A and
+  Player/Team B). The side with the higher score is the winner; equal
+  scores mean no winner is recorded for that match.
+- **Points are based on the score achieved, not just who won.** Every
+  player on a side receives that side's full score added to their running
+  total for every round they play — in Doubles, both teammates get the
+  full team score (it isn't split between them).
+- The leaderboard shows, per player: rating, total points, matches played,
+  wins, and losses — sorted by total points (highest first), then wins,
+  then rating.
+
+## Current limitations
+
+- Round pairing is simple ordered pairing, not skill-balanced or
+  matchup-aware.
+- There's no way to edit or regenerate a past round once it's created.
+- No import/export — data lives only in the current browser's
+  `localStorage`.
 
 ## Future features
 
-- Configurable tournament rules (scoring format, number of courts, etc.)
-- Automatic round/match generation from the player list
-- Recording match results and updating standings
-- Generating the next round based on previous results
+- Configurable tournament rules (scoring format, rating-based pairing,
+  avoiding repeat matchups, etc.)
+- Editing/regenerating rounds
+- Exporting tournament results
 
 ## Project structure
 
 ```
 src/
-  types/               Shared TypeScript interfaces (Player, Match, Round, ...)
-  engine/               Placeholder tournament logic, kept separate from the UI
-  hooks/                useLocalStorage + usePlayers (state persisted to localStorage)
-  components/           PlayerForm, PlayerList, RulesSection, RoundsSection
-  App.tsx               Assembles the page from the components above
+  types.ts               Shared TypeScript interfaces (Player, Match, Round, ...)
+  utils/tournament.ts    Pure tournament logic: pairing, validation, stats
+  hooks/                 useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
+  components/            PlayerForm, PlayerList, TournamentSetup, RoundView, Leaderboard
+  App.tsx                Assembles the page from the components above
 ```
 
-Business logic lives in `src/engine` and `src/hooks`, separate from the
-components in `src/components`, so the tournament engine can be built out
+Business logic lives in `src/utils` and `src/hooks`, separate from the
+components in `src/components`, so the pairing/scoring rules can evolve
 later without rewriting the UI.
 
 ## Running locally

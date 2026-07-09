@@ -1,12 +1,15 @@
 import './App.css';
+import { Leaderboard } from './components/Leaderboard';
 import { PlayerForm } from './components/PlayerForm';
 import { PlayerList } from './components/PlayerList';
-import { RoundsSection } from './components/RoundsSection';
-import { RulesSection } from './components/RulesSection';
+import { RoundView } from './components/RoundView';
+import { TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
+import { useTournament } from './hooks/useTournament';
 
 function App() {
   const { players, addPlayer, updatePlayer, removePlayer } = usePlayers();
+  const { settings, updateSettings, rounds, generateRound, setMatchScore } = useTournament();
 
   return (
     <div className="app">
@@ -25,8 +28,17 @@ function App() {
         <PlayerList players={players} onUpdate={updatePlayer} onRemove={removePlayer} />
       </section>
 
-      <RulesSection />
-      <RoundsSection playerCount={players.length} />
+      <TournamentSetup settings={settings} onChange={updateSettings} playerCount={players.length} />
+
+      <RoundView
+        players={players}
+        settings={settings}
+        rounds={rounds}
+        onGenerateRound={() => generateRound(players)}
+        onSetScore={setMatchScore}
+      />
+
+      <Leaderboard players={players} rounds={rounds} />
     </div>
   );
 }

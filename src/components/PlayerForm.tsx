@@ -19,6 +19,7 @@ export function PlayerForm({
 }: PlayerFormProps) {
   const [name, setName] = useState(initialName);
   const [rating, setRating] = useState(String(initialRating));
+  const [error, setError] = useState<string | null>(null);
   // Multiple PlayerForm instances can be on screen at once (the "add" form
   // plus a card being edited), so ids must be unique per instance.
   const id = useId();
@@ -30,8 +31,16 @@ export function PlayerForm({
 
     const trimmedName = name.trim();
     const parsedRating = parseFloat(rating);
-    if (!trimmedName || Number.isNaN(parsedRating)) return;
+    if (!trimmedName) {
+      setError('Enter a player name.');
+      return;
+    }
+    if (Number.isNaN(parsedRating) || parsedRating < 0) {
+      setError('Enter a valid, non-negative rating.');
+      return;
+    }
 
+    setError(null);
     onSubmit(trimmedName, parsedRating);
 
     if (!onCancel) {
@@ -67,6 +76,8 @@ export function PlayerForm({
           required
         />
       </div>
+      {error && <p className="hint error">{error}</p>}
+
       <div className="form-actions">
         <button type="submit">{submitLabel}</button>
         {onCancel && (

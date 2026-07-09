@@ -1,0 +1,60 @@
+import type { Player, Round } from '../types';
+import { computePlayerStats } from '../utils/tournament';
+
+interface LeaderboardProps {
+  players: Player[];
+  rounds: Round[];
+}
+
+export function Leaderboard({ players, rounds }: LeaderboardProps) {
+  if (players.length === 0) {
+    return (
+      <section className="card">
+        <h2>Leaderboard</h2>
+        <p className="empty-state">Add players to see the leaderboard.</p>
+      </section>
+    );
+  }
+
+  const statsByPlayer = new Map(computePlayerStats(players, rounds).map((s) => [s.playerId, s]));
+
+  const rows = players
+    .map((player) => ({ player, stats: statsByPlayer.get(player.id)! }))
+    .sort((a, b) => {
+      if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
+      if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
+      return b.player.rating - a.player.rating;
+    });
+
+  return (
+    <section className="card">
+      <h2>Leaderboard</h2>
+      <div className="leaderboard-scroll">
+        <table className="leaderboard-table">
+          <thead>
+            <tr>
+              <th>Player</th>
+              <th>Rating</th>
+              <th>Points</th>
+              <th>Played</th>
+              <th>Wins</th>
+              <th>Losses</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(({ player, stats }) => (
+              <tr key={player.id}>
+                <td>{player.name}</td>
+                <td>{player.rating}</td>
+                <td>{stats.totalPoints}</td>
+                <td>{stats.matchesPlayed}</td>
+                <td>{stats.wins}</td>
+                <td>{stats.losses}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}

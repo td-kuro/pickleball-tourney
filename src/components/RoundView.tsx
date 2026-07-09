@@ -1,0 +1,138 @@
+import { useState, type FormEvent } from 'react';
+import type { Match, Player, Round, TournamentSettings } from '../types';
+import { canGenerateRound, getMatchWinner } from '../utils/tournament';
+
+interface RoundViewProps {
+  players: Player[];
+  settings: TournamentSettings;
+  rounds: Round[];
+  onGenerateRound: () => void;
+  onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
+}
+
+export function RoundView({ players, settings, rounds, onGenerateRound, onSetScore }: RoundViewProps) {
+  const playerNameById = new Map(players.map((p) => [p.id, p.name]));
+  const currentRound = rounds[rounds.length - 1];
+  const generateCheck = canGenerateRound(players, settings);
+
+  function teamLabel(playerIds: string[]) {
+    return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
+  }
+
+  return (
+    <>
+      <section className="card">
+        <h2>Current Round</h2>
+
+        <button type="button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+          {currentRound ? 'Generate Next Round' : 'Generate First Round'}
+        </button>
+        {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
+
+        {!currentRound && <p className="empty-state">No round generated yet.</p>}
+
+        {currentRound && (
+          <>
+            <h3 className="round-title">Round {currentRound.roundNumber}</h3>
+            <div className="match-list">
+              {currentRound.matches.map((match) => (
+                <MatchCard
+                  key={match.id}
+                  match={match}
+                  teamALabel={teamLabel(match.teamA.playerIds)}
+                  teamBLabel={teamLabel(match.teamB.playerIds)}
+                  onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </section>
+
+      {currentRound && (
+        <section className="card">
+          <h2>Waiting / Not Playing This Round</h2>
+          {currentRound.waitingPlayerIds.length === 0 ? (
+            <p className="empty-state">Everyone is playing this round.</p>
+          ) : (
+            <ul className="waiting-list">
+              {currentRound.waitingPlayerIds.map((id) => (
+                <li key={id}>{playerNameById.get(id) ?? 'Unknown player'}</li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+    </>
+  );
+}
+
+interface MatchCardProps {
+  match: Match;
+  teamALabel: string;
+  teamBLabel: string;
+  onSetScore: (scoreA: number, scoreB: number) => void;
+}
+
+function MatchCard({ match, teamALabel, teamBLabel, onSetScore }: MatchCardProps) {
+  const [scoreA, setScoreA] = useState(match.scoreA != null ? String(match.scoreA) : '');
+  const [scoreB, setScoreB] = useState(match.scoreB != null ? String(match.scoreB) : '');
+  const [error, setError] = useState<string | null>(null);
+
+  const winner = getMatchWinner(match);
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+
+    const parsedA = Number(scoreA);
+    const parsedB = Number(scoreB);
+    if (scoreA.trim() === '' || scoreB.trim() === '' || Number.isNaN(parsedA) || Number.isNaN(parsedB)) {
+      setError('Enter a valid score for both sides.');
+      return;
+    }
+    if (parsedA < 0 || parsedB < 0) {
+      setError('Scores cannot be negative.');
+      return;
+    }
+
+    setError(null);
+    onSetScore(parsedA, parsedB);
+  }
+
+  return (
+    <form className="match-card" onSubmit={handleSubmit}>
+      <div className="match-header">Court {match.court}</div>
+
+      <div className="match-teams">
+        <div className={winner === 'A' ? 'match-team winner' : 'match-team'}>
+          <span className="match-team-name">{teamALabel}</span>
+          <input
+            type="number"
+            min={0}
+            value={scoreA}
+            onChange={(event) => setScoreA(event.target.value)}
+            aria-label={`${teamALabel} score`}
+          />
+        </div>
+        <div className="match-vs">vs</div>
+        <div className={winner === 'B' ? 'match-team winner' : 'match-team'}>
+          <span className="match-team-name">{teamBLabel}</span>
+          <input
+            type="number"
+            min={0}
+            value={scoreB}
+            onChange={(event) => setScoreB(event.target.value)}
+            aria-label={`${teamBLabel} score`}
+          />
+        </div>
+      </div>
+
+      {error && <p className="hint error">{error}</p>}
+      {winner && <p className="hint winner-hint">Winner: {winner === 'A' ? teamALabel : teamBLabel}</p>}
+
+      <button type="submit" className="secondary">
+        Save Score
+      </button>
+    </form>
+  );
+}
