@@ -13,57 +13,38 @@ interface RoundViewProps {
 export function RoundView({ players, settings, rounds, onGenerateRound, onSetScore }: RoundViewProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const currentRound = rounds[rounds.length - 1];
-  const generateCheck = canGenerateRound(players, settings);
+  const generateCheck = canGenerateRound(players, settings, currentRound);
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
   }
 
   return (
-    <>
-      <section className="card">
-        <h2>Current Round</h2>
-
+    <section className="card">
+      <div className="section-heading-row">
+        <h2>{currentRound ? `Current Round — Round ${currentRound.roundNumber}` : 'Current Round'}</h2>
         <button type="button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
-          {currentRound ? 'Generate Next Round' : 'Generate First Round'}
+          Generate Next Round
         </button>
-        {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
+      </div>
+      {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
 
-        {!currentRound && <p className="empty-state">No round generated yet.</p>}
-
-        {currentRound && (
-          <>
-            <h3 className="round-title">Round {currentRound.roundNumber}</h3>
-            <div className="match-list">
-              {currentRound.matches.map((match) => (
-                <MatchCard
-                  key={match.id}
-                  match={match}
-                  teamALabel={teamLabel(match.teamA.playerIds)}
-                  teamBLabel={teamLabel(match.teamB.playerIds)}
-                  onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
-                />
-              ))}
-            </div>
-          </>
-        )}
-      </section>
+      {!currentRound && <p className="empty-state">No round generated yet.</p>}
 
       {currentRound && (
-        <section className="card">
-          <h2>Bye / Sitting Out This Round</h2>
-          {currentRound.byePlayerIds.length === 0 ? (
-            <p className="empty-state">Everyone is playing this round.</p>
-          ) : (
-            <ul className="bye-list">
-              {currentRound.byePlayerIds.map((id) => (
-                <li key={id}>{playerNameById.get(id) ?? 'Unknown player'}</li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <div className="match-list">
+          {currentRound.matches.map((match) => (
+            <MatchCard
+              key={match.id}
+              match={match}
+              teamALabel={teamLabel(match.teamA.playerIds)}
+              teamBLabel={teamLabel(match.teamB.playerIds)}
+              onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
+            />
+          ))}
+        </div>
       )}
-    </>
+    </section>
   );
 }
 

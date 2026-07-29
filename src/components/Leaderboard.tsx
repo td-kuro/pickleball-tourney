@@ -23,6 +23,7 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
     .sort((a, b) => {
       if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
       if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
+      if (a.stats.byes !== b.stats.byes) return a.stats.byes - b.stats.byes;
       return b.player.rating - a.player.rating;
     });
 
@@ -33,6 +34,7 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
         <table className="leaderboard-table">
           <thead>
             <tr>
+              <th>#</th>
               <th>Player</th>
               <th>Rating</th>
               <th>Points</th>
@@ -43,8 +45,9 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ player, stats }) => (
-              <tr key={player.id}>
+            {rows.map(({ player, stats }, index) => (
+              <tr key={player.id} className={index === 0 ? 'leaderboard-top' : undefined}>
+                <td>{index + 1}</td>
                 <td>{player.name}</td>
                 <td>{player.rating}</td>
                 <td>{stats.totalPoints}</td>

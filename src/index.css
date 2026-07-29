@@ -5,8 +5,10 @@
   --border: #e5e4e7;
   --code-bg: #f4f3ec;
   --accent: #aa3bff;
+  --accent-hover: #9420f0;
   --accent-bg: rgba(170, 59, 255, 0.1);
   --accent-border: rgba(170, 59, 255, 0.5);
+  --shadow: 0 1px 2px rgba(16, 12, 24, 0.04), 0 4px 12px rgba(16, 12, 24, 0.06);
 
   font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
@@ -26,8 +28,10 @@
     --border: #2e303a;
     --code-bg: #1f2028;
     --accent: #c084fc;
+    --accent-hover: #d3a3fd;
     --accent-bg: rgba(192, 132, 252, 0.15);
     --accent-border: rgba(192, 132, 252, 0.5);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.25);
   }
 }
 
@@ -50,5 +54,26 @@ button {
   background: var(--accent);
   color: #fff;
   font-size: 14px;
+  font-family: inherit;
   cursor: pointer;
+  transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
+}
+
+button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-color: var(--accent);
 }
