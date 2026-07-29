@@ -1,27 +1,16 @@
 import { useId, useState, type FormEvent } from 'react';
 
 interface PlayerFormProps {
-  initialName?: string;
-  initialRating?: number;
-  submitLabel: string;
-  onSubmit: (name: string, rating: number) => void;
-  onCancel?: () => void;
+  onSubmit: (name: string, rating?: number) => void;
 }
 
-// A single form used both for adding a new player and editing an
-// existing one (PlayerList passes initialName/initialRating when editing).
-export function PlayerForm({
-  initialName = '',
-  initialRating = 3.5,
-  submitLabel,
-  onSubmit,
-  onCancel,
-}: PlayerFormProps) {
-  const [name, setName] = useState(initialName);
-  const [rating, setRating] = useState(String(initialRating));
+// Quick "add one player" form. Rating is optional — leave it blank for an
+// unrated player. (Editing existing players happens inline in PlayerList,
+// not here.)
+export function PlayerForm({ onSubmit }: PlayerFormProps) {
+  const [name, setName] = useState('');
+  const [rating, setRating] = useState('');
   const [error, setError] = useState<string | null>(null);
-  // Multiple PlayerForm instances can be on screen at once (the "add" form
-  // plus a card being edited), so ids must be unique per instance.
   const id = useId();
   const nameFieldId = `${id}-name`;
   const ratingFieldId = `${id}-rating`;
@@ -30,24 +19,26 @@ export function PlayerForm({
     event.preventDefault();
 
     const trimmedName = name.trim();
-    const parsedRating = parseFloat(rating);
     if (!trimmedName) {
       setError('Enter a player name.');
       return;
     }
-    if (Number.isNaN(parsedRating) || parsedRating < 0) {
-      setError('Enter a valid, non-negative rating.');
-      return;
+
+    let parsedRating: number | undefined;
+    const trimmedRating = rating.trim();
+    if (trimmedRating !== '') {
+      const parsed = parseFloat(trimmedRating);
+      if (Number.isNaN(parsed) || parsed < 0) {
+        setError('Rating must be a valid, non-negative number, or left blank.');
+        return;
+      }
+      parsedRating = parsed;
     }
 
     setError(null);
     onSubmit(trimmedName, parsedRating);
-
-    if (!onCancel) {
-      // Reset the form after adding a new player (edit mode unmounts instead).
-      setName('');
-      setRating(String(initialRating));
-    }
+    setName('');
+    setRating('');
   }
 
   return (
@@ -64,7 +55,7 @@ export function PlayerForm({
         />
       </div>
       <div className="form-row">
-        <label htmlFor={ratingFieldId}>Rating</label>
+        <label htmlFor={ratingFieldId}>Rating (optional)</label>
         <input
           id={ratingFieldId}
           type="number"
@@ -72,19 +63,13 @@ export function PlayerForm({
           min="0"
           value={rating}
           onChange={(event) => setRating(event.target.value)}
-          placeholder="e.g. 3.5"
-          required
+          placeholder="Unrated"
         />
       </div>
       {error && <p className="hint error">{error}</p>}
 
       <div className="form-actions">
-        <button type="submit">{submitLabel}</button>
-        {onCancel && (
-          <button type="button" className="secondary" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
+        <button type="submit">Add Player</button>
       </div>
     </form>
   );

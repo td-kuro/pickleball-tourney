@@ -3,19 +3,31 @@ import { useLocalStorage } from './useLocalStorage';
 
 const STORAGE_KEY = 'pickleball-tourney:players';
 
-function makePlayerId(): string {
-  return `player-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+function makePlayerId(salt = 0): string {
+  return `player-${Date.now()}-${salt}-${Math.floor(Math.random() * 10000)}`;
 }
 
 // Manages the player list and keeps it saved to localStorage.
 export function usePlayers() {
   const [players, setPlayers] = useLocalStorage<Player[]>(STORAGE_KEY, []);
 
-  function addPlayer(name: string, rating: number) {
+  function addPlayer(name: string, rating?: number) {
     setPlayers([...players, { id: makePlayerId(), name, rating }]);
   }
 
-  function updatePlayer(id: string, name: string, rating: number) {
+  // Quickly generates `count` empty player slots (named "Player N") so the
+  // user can fill in names/ratings afterward instead of adding one by one.
+  function addPlayersBulk(count: number) {
+    const startNumber = players.length + 1;
+    const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
+      id: makePlayerId(i),
+      name: `Player ${startNumber + i}`,
+      rating: undefined,
+    }));
+    setPlayers([...players, ...newPlayers]);
+  }
+
+  function updatePlayer(id: string, name: string, rating?: number) {
     setPlayers(players.map((player) => (player.id === id ? { ...player, name, rating } : player)));
   }
 
@@ -23,5 +35,5 @@ export function usePlayers() {
     setPlayers(players.filter((player) => player.id !== id));
   }
 
-  return { players, addPlayer, updatePlayer, removePlayer };
+  return { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer };
 }

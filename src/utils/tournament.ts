@@ -41,6 +41,10 @@ export function canGenerateRound(
     };
   }
 
+  if (players.some((player) => player.name.trim() === '')) {
+    return { ok: false, reason: 'Every player needs a name before starting matches.' };
+  }
+
   if (currentRound && !isRoundComplete(currentRound)) {
     return {
       ok: false,

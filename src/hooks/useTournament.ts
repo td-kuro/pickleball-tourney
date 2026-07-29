@@ -40,5 +40,11 @@ export function useTournament() {
     );
   }
 
-  return { settings, updateSettings, rounds, generateRound, setMatchScore };
+  // Clears all rounds/results so the app falls back to the Setup screen.
+  // Players and tournament settings (courts/match type) are left as-is.
+  function resetTournament() {
+    setRounds([]);
+  }
+
+  return { settings, updateSettings, rounds, generateRound, setMatchScore, resetTournament };
 }

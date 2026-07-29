@@ -8,42 +8,89 @@ Live demo (after deployment): `https://<github-username>.github.io/pickleball-to
 
 ## What it does
 
-- **Setup screen** — add, edit, and remove players (name + rating), and
-  configure the number of courts and match type (Singles or Doubles).
-- **Start Matches** — once setup is valid, generates Round 1 and switches
-  you to the Current Round screen.
-- **Current Round screen** — shows each court's match with score entry,
-  who's on a bye this round, and a live leaderboard.
+- **Setup screen** — the app's starting point every time: add players
+  (with an optional rating) and configure the number of courts and match
+  type (Singles or Doubles).
+- **Start Matches** — once setup is valid, generates Round 1 and unlocks
+  the Current Round and Leaderboard screens.
+- **Current Round screen** — each court's match with score entry, plus
+  who's on a bye this round.
+- **Leaderboard screen** — total points, wins, losses, and byes per
+  player.
 - Everything is saved to your browser's `localStorage`, so it survives a
-  page refresh — including which screen you were on.
+  page refresh.
+
+## Setup must be completed before matches start
+
+The app always opens on the Setup screen — the **Current Round** and
+**Leaderboard** tabs are disabled (greyed out, unclickable) until you've
+clicked **Start Matches** at least once. This isn't just the tabs being
+hidden: the app also can't be steered into those screens by any other
+means, since they only ever render once a round actually exists, and a
+guard automatically snaps the view back to Setup if it's ever showing a
+gated screen without one.
+
+Setup is valid — and **Start Matches** becomes clickable — once:
+
+- Match type is Singles or Doubles.
+- Number of courts is at least 1.
+- There are enough players for the match type (2+ for Singles, 4+ for
+  Doubles).
+- Every player has a name (rating is always optional).
+
+If setup is incomplete, reopening the app always lands you back on Setup.
+If you've already started a tournament, reopening the app takes you
+straight back to the Current Round screen.
 
 ## Setup screen
 
-The app opens on the setup screen (unless a tournament is already in
-progress). It has:
-
-- **Add Player** / **Players** — two columns on desktop, stacked on mobile.
+- **Add Player** / **Players** — two columns on desktop, stacked on
+  mobile. The player list is directly editable: click into any name or
+  rating field and edit it in place — no separate "Edit" button.
+- **Generate player slots** — instead of adding players one at a time,
+  enter a number (e.g. `12`) and click **Generate Player Slots** to create
+  that many rows at once, named "Player 1", "Player 2", etc. Fill in real
+  names (and optional ratings) directly in the list afterward. You can
+  still use the **Add Player** form above it to add one player at a time.
 - **Tournament Setup** — number of courts and Singles/Doubles.
-- **Start Matches** — validates that setup is valid (see Validation below),
-  generates Round 1, and takes you to the Current Round screen. Once a
-  tournament has started, this becomes a **Go to Current Round** shortcut
-  instead, and you can still come back to Setup at any time (via the tab
-  bar) to add a player or tweak settings — changes there only affect
-  rounds generated *after* the change.
+- **Start Matches** — disabled with an explanatory message until setup is
+  valid; generates Round 1 and switches you to the Current Round screen.
+  Once a tournament has started, this becomes a **Go to Current Round**
+  shortcut instead, and you can still come back to Setup at any time (via
+  the tab bar) to add a player or tweak settings — changes there only
+  affect rounds generated *after* the change.
+
+## Player ratings are optional
+
+A player can be added (one at a time or via generated slots) without a
+rating. An unrated player shows as **Unrated** on the leaderboard instead
+of a number. Rating is only used as a tie-breaker for leaderboard sorting,
+and only when it's actually set — unrated players sort after rated
+players in a tie, never ahead of them.
 
 ## Current Round screen
-
-Two columns on desktop (stacked on mobile, in this order):
 
 1. **Current Round** — each court's match, with a score input for both
    sides. Saving a score shows the winner (highest score) right on the
    match card.
 2. **Bye / Sitting Out This Round** — anyone not playing this round.
-3. **Leaderboard** — shown beside the round on desktop, below it on
-   mobile.
 
 **Generate Next Round** is disabled until every match in the current round
 has a saved score (see Validation).
+
+## Leaderboard screen
+
+Player name, rating (or "Unrated"), total points, matches played, wins,
+losses, and byes — sorted by total points, then wins, then fewest byes,
+then rating (see Validation and "How scoring and points work" below).
+
+## Resetting a tournament
+
+Once a tournament has started, a **Reset Tournament** button appears next
+to the tabs. It asks for confirmation, then clears all rounds and match
+results and returns you to the Setup screen — your player list and
+courts/match-type settings are kept, so you can start a new tournament
+with the same group without re-entering everyone.
 
 ## Match types
 
@@ -112,10 +159,12 @@ are more players than court capacity, byes are handed out fairly:
 ## Validation
 
 - Number of courts must be at least 1.
-- Player rating must be a valid, non-negative number.
 - Singles requires at least 2 players; Doubles requires at least 4.
+- Every player needs a name (rating is optional — leave it blank).
+- If a rating is entered, it must be a valid, non-negative number.
 - Match scores must be valid, non-negative numbers.
-- **Start Matches** is disabled until setup is valid.
+- **Start Matches** is disabled, with a message explaining why, until all
+  of the above are satisfied.
 - **Generate Next Round** is disabled until every match in the current
   round has a saved score.
 
@@ -148,7 +197,7 @@ src/
   utils/tournament.ts    Pure tournament logic: pairing, bye rotation, validation, stats
   hooks/                 useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
   components/            PlayerForm, PlayerList, TournamentSetup, RoundView, ByeList, Leaderboard
-  App.tsx                Setup / Current Round views and layout
+  App.tsx                Setup / Current Round / Leaderboard views, tab gating, and layout
 ```
 
 Business logic lives in `src/utils` and `src/hooks`, separate from the

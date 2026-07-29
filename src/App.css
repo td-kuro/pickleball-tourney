@@ -24,10 +24,18 @@
 
 /* Tab navigation */
 
+.tab-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
 .tabs {
   display: flex;
   gap: 6px;
-  margin-bottom: 24px;
   padding: 4px;
   background: var(--code-bg);
   border-radius: 10px;
@@ -59,6 +67,21 @@
 .tab:disabled {
   color: var(--border);
   cursor: not-allowed;
+}
+
+.reset-button {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.reset-button:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  border-color: #c0392b;
 }
 
 /* Cards */
@@ -120,25 +143,6 @@
   font-weight: 600;
 }
 
-/* Round view layout */
-
-.round-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
-  align-items: start;
-}
-
-@media (min-width: 800px) {
-  .round-grid {
-    grid-template-columns: 2fr 1fr;
-  }
-}
-
-.round-main .card:last-child {
-  margin-bottom: 0;
-}
-
 /* Player form */
 
 .player-form {
@@ -174,82 +178,134 @@
   gap: 8px;
 }
 
-.form-actions button,
-.player-actions button {
+.form-actions button {
   padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: var(--accent);
-  color: #fff;
   font-size: 14px;
-  cursor: pointer;
 }
 
-.form-actions button.secondary,
-.player-actions button {
+/* Generic button modifiers (used across forms, player rows, match cards) */
+
+button.secondary {
   background: var(--accent-bg);
   color: var(--accent);
   border-color: var(--accent-border);
 }
 
-.form-actions button.secondary:hover:not(:disabled),
-.player-actions button:hover:not(:disabled) {
+button.secondary:hover:not(:disabled) {
   background: var(--accent-border);
 }
 
-.player-actions button.danger {
+button.danger {
   background: transparent;
   color: #c0392b;
   border-color: #c0392b;
 }
 
-.player-actions button.danger:hover:not(:disabled) {
+button.danger:hover:not(:disabled) {
   background: rgba(192, 57, 43, 0.1);
 }
 
-/* Player list */
+/* Quick "generate multiple player slots" form */
+
+.bulk-add {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.bulk-add-label {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.bulk-add-form {
+  display: flex;
+  gap: 8px;
+}
+
+.bulk-add-form input {
+  width: 90px;
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+.bulk-add-form button {
+  flex: 1;
+  font-size: 14px;
+  padding: 8px 16px;
+}
+
+/* Player list — always-editable rows */
 
 .player-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
-.player-card {
+.player-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 8px;
   border: 1px solid var(--border);
   border-radius: 8px;
   flex-wrap: wrap;
 }
 
-.player-info {
-  display: flex;
-  flex-direction: column;
+.player-row-invalid {
+  border-color: #c0392b;
 }
 
-.player-name {
-  font-weight: 600;
+.player-row-index {
+  width: 20px;
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 13px;
+  text-align: right;
+}
+
+.player-row input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
   color: var(--text-h);
 }
 
-.player-rating {
-  font-size: 14px;
-  color: var(--text);
+.player-row-name {
+  flex: 2;
+  min-width: 120px;
 }
 
-.player-actions {
-  display: flex;
-  gap: 8px;
+.player-row-rating {
+  flex: 1;
+  min-width: 80px;
+}
+
+.player-row button.danger {
+  flex-shrink: 0;
+  padding: 8px 14px;
+  font-size: 13px;
 }
 
 .empty-state {
   color: var(--text);
   font-style: italic;
   margin: 0;
+}
+
+.unrated {
+  color: var(--text);
+  font-style: italic;
 }
 
 .hint {
@@ -269,12 +325,11 @@
 
 .card > button:disabled,
 .match-card button:disabled,
-.section-heading-row button:disabled {
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--border);
+.section-heading-row button:disabled,
+.bulk-add-form button:disabled {
   background: var(--code-bg);
   color: var(--text);
+  border-color: var(--border);
   cursor: not-allowed;
 }
 
@@ -379,17 +434,6 @@
 
 .match-card button.secondary {
   margin-top: 10px;
-  padding: 8px 16px;
-  border-radius: 6px;
-  border: 1px solid var(--accent-border);
-  background: var(--accent-bg);
-  color: var(--accent);
-  font-size: 14px;
-  cursor: pointer;
-}
-
-.match-card button.secondary:hover:not(:disabled) {
-  background: var(--accent-border);
 }
 
 /* Bye list */
@@ -466,11 +510,6 @@
 }
 
 @media (max-width: 480px) {
-  .player-card {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
   .match-teams {
     flex-direction: column;
     align-items: stretch;
@@ -478,5 +517,9 @@
 
   .match-vs {
     text-align: center;
+  }
+
+  .player-row-name {
+    flex-basis: 100%;
   }
 }

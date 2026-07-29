@@ -3,7 +3,9 @@
 export interface Player {
   id: string;
   name: string;
-  rating: number;
+  // Optional: a player can be added without a rating ("Unrated"). Used for
+  // leaderboard sort tie-breaking only when present.
+  rating?: number;
 }
 
 export type MatchType = 'singles' | 'doubles';

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import './App.css';
 import { ByeList } from './components/ByeList';
 import { Leaderboard } from './components/Leaderboard';
@@ -10,19 +10,49 @@ import { usePlayers } from './hooks/usePlayers';
 import { useTournament } from './hooks/useTournament';
 import { canGenerateRound } from './utils/tournament';
 
-type View = 'setup' | 'round';
+type View = 'setup' | 'round' | 'leaderboard';
 
 function App() {
-  const { players, addPlayer, updatePlayer, removePlayer } = usePlayers();
-  const { settings, updateSettings, rounds, generateRound, setMatchScore } = useTournament();
+  const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
+  const { settings, updateSettings, rounds, generateRound, setMatchScore, resetTournament } = useTournament();
   const [view, setView] = useState<View>(rounds.length > 0 ? 'round' : 'setup');
+  const [bulkCount, setBulkCount] = useState('');
 
+  const tournamentStarted = rounds.length > 0;
   const currentRound = rounds[rounds.length - 1];
   const startCheck = canGenerateRound(players, settings);
+  const bulkCountValue = parseInt(bulkCount, 10);
+
+  // Defense in depth: Current Round / Leaderboard are only ever reachable
+  // once Start Matches has actually run (rounds.length > 0). If `view` ever
+  // ends up on one of those without an active tournament — e.g. leftover
+  // state — snap back to Setup instead of rendering a broken screen.
+  useEffect(() => {
+    if (view !== 'setup' && !tournamentStarted) {
+      setView('setup');
+    }
+  }, [view, tournamentStarted]);
 
   function handleStartMatches() {
     generateRound(players);
     setView('round');
+  }
+
+  function handleGenerateSlots(event: FormEvent) {
+    event.preventDefault();
+    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
+    addPlayersBulk(bulkCountValue);
+    setBulkCount('');
+  }
+
+  function handleReset() {
+    const confirmed = window.confirm(
+      'Reset the tournament? This clears all rounds and match results. Players and settings are kept.',
+    );
+    if (confirmed) {
+      resetTournament();
+      setView('setup');
+    }
   }
 
   return (
@@ -32,30 +62,59 @@ function App() {
         <p className="subtitle">Set up your players, then run rounds and track the leaderboard.</p>
       </header>
 
-      <nav className="tabs" aria-label="View">
-        <button
-          type="button"
-          className={view === 'setup' ? 'tab active' : 'tab'}
-          onClick={() => setView('setup')}
-        >
-          Setup
-        </button>
-        <button
-          type="button"
-          className={view === 'round' ? 'tab active' : 'tab'}
-          onClick={() => setView('round')}
-          disabled={rounds.length === 0}
-        >
-          Current Round
-        </button>
-      </nav>
+      <div className="tab-bar">
+        <nav className="tabs" aria-label="View">
+          <button type="button" className={view === 'setup' ? 'tab active' : 'tab'} onClick={() => setView('setup')}>
+            Setup
+          </button>
+          <button
+            type="button"
+            className={view === 'round' ? 'tab active' : 'tab'}
+            onClick={() => setView('round')}
+            disabled={!tournamentStarted}
+          >
+            Current Round
+          </button>
+          <button
+            type="button"
+            className={view === 'leaderboard' ? 'tab active' : 'tab'}
+            onClick={() => setView('leaderboard')}
+            disabled={!tournamentStarted}
+          >
+            Leaderboard
+          </button>
+        </nav>
+
+        {tournamentStarted && (
+          <button type="button" className="reset-button" onClick={handleReset}>
+            Reset Tournament
+          </button>
+        )}
+      </div>
 
       {view === 'setup' && (
         <div className="setup-view">
           <div className="setup-grid">
             <section className="card">
               <h2>Add Player</h2>
-              <PlayerForm submitLabel="Add Player" onSubmit={addPlayer} />
+              <PlayerForm onSubmit={addPlayer} />
+
+              <div className="bulk-add">
+                <p className="bulk-add-label">Or generate multiple player slots</p>
+                <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={bulkCount}
+                    onChange={(event) => setBulkCount(event.target.value)}
+                    placeholder="e.g. 12"
+                    aria-label="Number of players to generate"
+                  />
+                  <button type="submit" className="secondary" disabled={Number.isNaN(bulkCountValue) || bulkCountValue < 1}>
+                    Generate Player Slots
+                  </button>
+                </form>
+              </div>
             </section>
 
             <section className="card">
@@ -67,7 +126,7 @@ function App() {
           <TournamentSetup settings={settings} onChange={updateSettings} playerCount={players.length} />
 
           <section className="card start-matches-card">
-            {rounds.length === 0 ? (
+            {!tournamentStarted ? (
               <>
                 <button
                   type="button"
@@ -88,22 +147,20 @@ function App() {
         </div>
       )}
 
-      {view === 'round' && (
-        <div className="round-grid">
-          <div className="round-main">
-            <RoundView
-              players={players}
-              settings={settings}
-              rounds={rounds}
-              onGenerateRound={() => generateRound(players)}
-              onSetScore={setMatchScore}
-            />
-            {currentRound && <ByeList round={currentRound} players={players} />}
-          </div>
-
-          <Leaderboard players={players} rounds={rounds} />
-        </div>
+      {view === 'round' && tournamentStarted && (
+        <>
+          <RoundView
+            players={players}
+            settings={settings}
+            rounds={rounds}
+            onGenerateRound={() => generateRound(players)}
+            onSetScore={setMatchScore}
+          />
+          {currentRound && <ByeList round={currentRound} players={players} />}
+        </>
       )}
+
+      {view === 'leaderboard' && tournamentStarted && <Leaderboard players={players} rounds={rounds} />}
     </div>
   );
 }

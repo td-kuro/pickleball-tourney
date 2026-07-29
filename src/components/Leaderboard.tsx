@@ -24,7 +24,10 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
       if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
       if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
       if (a.stats.byes !== b.stats.byes) return a.stats.byes - b.stats.byes;
-      return b.player.rating - a.player.rating;
+      // Unrated players sort after any rated player in a tie.
+      const ratingA = a.player.rating ?? -Infinity;
+      const ratingB = b.player.rating ?? -Infinity;
+      return ratingB - ratingA;
     });
 
   return (
@@ -49,7 +52,7 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
               <tr key={player.id} className={index === 0 ? 'leaderboard-top' : undefined}>
                 <td>{index + 1}</td>
                 <td>{player.name}</td>
-                <td>{player.rating}</td>
+                <td>{player.rating != null ? player.rating : <span className="unrated">Unrated</span>}</td>
                 <td>{stats.totalPoints}</td>
                 <td>{stats.matchesPlayed}</td>
                 <td>{stats.wins}</td>
