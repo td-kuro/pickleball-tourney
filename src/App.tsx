@@ -8,8 +8,10 @@ import { PlayerList } from './components/PlayerList';
 import { PlayerStats } from './components/PlayerStats';
 import { RoundHistory } from './components/RoundHistory';
 import { RoundView } from './components/RoundView';
+import { ThemeToggle } from './components/ThemeToggle';
 import { TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
+import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { canGenerateRound } from './utils/tournament';
 
@@ -18,6 +20,7 @@ type View = 'setup' | 'round' | 'results' | 'history';
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
   const { settings, updateSettings, rounds, generateRound, setMatchScore, resetTournament } = useTournament();
+  const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<View>(rounds.length > 0 ? 'round' : 'setup');
   const [bulkCount, setBulkCount] = useState('');
 
@@ -63,12 +66,15 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <div className="brand">
-          <PickleballLogo size={40} />
-          <div>
-            <h1>Pickleball Tourney</h1>
-            <p className="subtitle">Set up your players, then run rounds and track results.</p>
+        <div className="app-header-row">
+          <div className="brand">
+            <PickleballLogo size={40} />
+            <div>
+              <h1>Pickleball Tourney</h1>
+              <p className="subtitle">Set up your players, then run rounds and track results.</p>
+            </div>
           </div>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
         </div>
         <div className="brand-bar" aria-hidden="true" />
       </header>

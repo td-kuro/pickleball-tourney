@@ -43,36 +43,38 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --brand-blue: #60a5fa;
-    --brand-blue-dark: #93c5fd;
-    --brand-blue-tint: rgba(96, 165, 250, 0.16);
-    --brand-blue-border: rgba(96, 165, 250, 0.4);
+/* Theme is explicit (data-theme attribute, set by the header toggle via
+   useTheme + persisted to localStorage) rather than following the OS's
+   prefers-color-scheme directly — see index.html for the inline script
+   that applies it before first paint, and src/hooks/useTheme.ts. */
+:root[data-theme='dark'] {
+  --brand-blue: #60a5fa;
+  --brand-blue-dark: #93c5fd;
+  --brand-blue-tint: rgba(96, 165, 250, 0.16);
+  --brand-blue-border: rgba(96, 165, 250, 0.4);
 
-    --brand-green: #4ade80;
-    --brand-green-dark: #86efac;
-    --brand-green-tint: rgba(74, 222, 128, 0.16);
-    --brand-green-border: rgba(74, 222, 128, 0.4);
+  --brand-green: #4ade80;
+  --brand-green-dark: #86efac;
+  --brand-green-tint: rgba(74, 222, 128, 0.16);
+  --brand-green-border: rgba(74, 222, 128, 0.4);
 
-    --text: #9ca7b4;
-    --text-h: #f2f5f8;
-    --bg: #0f151c;
-    --border: #29323d;
-    --code-bg: #1a222b;
+  --text: #9ca7b4;
+  --text-h: #f2f5f8;
+  --bg: #0f151c;
+  --border: #29323d;
+  --code-bg: #1a222b;
 
-    --accent: var(--brand-blue);
-    --accent-hover: var(--brand-blue-dark);
-    --accent-bg: var(--brand-blue-tint);
-    --accent-border: var(--brand-blue-border);
+  --accent: var(--brand-blue);
+  --accent-hover: var(--brand-blue-dark);
+  --accent-bg: var(--brand-blue-tint);
+  --accent-border: var(--brand-blue-border);
 
-    --accent-2: var(--brand-green);
-    --accent-2-hover: var(--brand-green-dark);
-    --accent-2-bg: var(--brand-green-tint);
-    --accent-2-border: var(--brand-green-border);
+  --accent-2: var(--brand-green);
+  --accent-2-hover: var(--brand-green-dark);
+  --accent-2-bg: var(--brand-green-tint);
+  --accent-2-border: var(--brand-green-border);
 
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
-  }
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
 body {

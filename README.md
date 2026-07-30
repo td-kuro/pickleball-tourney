@@ -292,14 +292,24 @@ applied consistently rather than hardcoded per element:
 Both colours (plus their hover/tint/border shades) are defined once as CSS
 custom properties in [`src/index.css`](src/index.css) (`--brand-blue`,
 `--brand-green`, and the `--accent`/`--accent-2` aliases used throughout
-[`src/App.css`](src/App.css)) with separate light/dark-mode values, so the
-whole theme can be re-tuned from one place.
+[`src/App.css`](src/App.css)) with separate light/dark values, so the whole
+theme can be re-tuned from one place.
 
 The header carries a simple pickleball-ball logo/icon — a blue-to-green
 circle with the small round holes a pickleball is known for, built as
 inline SVG in [`src/components/PickleballLogo.tsx`](src/components/PickleballLogo.tsx)
 (no image asset needed, so it stays crisp at any size and costs nothing
 extra to host on GitHub Pages).
+
+### Light / dark mode
+
+The sun/moon button in the header switches between light and dark theme.
+The first time you open the app it follows your OS/browser's preferred
+colour scheme; once you use the toggle, your choice is remembered in
+`localStorage` (`src/hooks/useTheme.ts`) and used on every visit after
+that, regardless of the OS setting. A small inline script in
+[`index.html`](index.html) applies the saved theme before the page paints,
+so there's no flash of the wrong theme on load.
 
 ## Project structure
 
