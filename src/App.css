@@ -113,6 +113,22 @@
   margin: 0;
 }
 
+.mode-badge {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.mode-badge.tournament {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
 /* Setup view layout */
 
 .setup-grid {
@@ -337,6 +353,7 @@ button.danger:hover:not(:disabled) {
 
 .toggle-group {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -507,6 +524,62 @@ button.danger:hover:not(:disabled) {
 .leaderboard-table tbody tr.leaderboard-top td:first-child {
   color: var(--accent);
   font-weight: 700;
+}
+
+.stats-table td.stats-names {
+  white-space: normal;
+  max-width: 220px;
+  color: var(--text);
+}
+
+/* Round history */
+
+.round-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.round-history-entry {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.round-history-entry h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+.round-history-matches {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.round-history-match {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.round-history-score {
+  color: var(--text);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.round-history-byes {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text);
 }
 
 @media (max-width: 480px) {

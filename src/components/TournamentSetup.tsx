@@ -1,6 +1,6 @@
 import type { ChangeEvent } from 'react';
-import type { MatchType, TournamentSettings } from '../types';
-import { maxPlayersForRound, playersNeededPerMatch } from '../utils/tournament';
+import type { MatchType, PlayMode, SocialScoringMode, TournamentSettings } from '../types';
+import { maxPlayersForRound, playersNeededPerMatch, socialScoringModeLabel } from '../utils/tournament';
 
 interface TournamentSetupProps {
   settings: TournamentSettings;
@@ -8,9 +8,19 @@ interface TournamentSetupProps {
   playerCount: number;
 }
 
+const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scoresAndWins'];
+
 export function TournamentSetup({ settings, onChange, playerCount }: TournamentSetupProps) {
   const perCourt = playersNeededPerMatch(settings.matchType);
   const maxPlayers = maxPlayersForRound(settings);
+
+  function handlePlayModeChange(playMode: PlayMode) {
+    onChange({ ...settings, playMode });
+  }
+
+  function handleSocialScoringChange(socialScoringMode: SocialScoringMode) {
+    onChange({ ...settings, socialScoringMode });
+  }
 
   function handleCourtsChange(event: ChangeEvent<HTMLInputElement>) {
     const parsed = parseInt(event.target.value, 10);
@@ -24,7 +34,58 @@ export function TournamentSetup({ settings, onChange, playerCount }: TournamentS
 
   return (
     <section className="card">
-      <h2>Tournament Setup</h2>
+      <h2>Session Setup</h2>
+
+      <div className="form-row">
+        <span>Play Mode</span>
+        <div className="toggle-group" role="group" aria-label="Play mode">
+          <button
+            type="button"
+            className={settings.playMode === 'tournament' ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handlePlayModeChange('tournament')}
+          >
+            Tournament Mode
+          </button>
+          <button
+            type="button"
+            className={settings.playMode === 'social' ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handlePlayModeChange('social')}
+          >
+            Social Play Mode
+          </button>
+        </div>
+        <p className="hint">
+          {settings.playMode === 'tournament'
+            ? 'Competitive: tracks points, wins/losses, and a ranked leaderboard.'
+            : 'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'}
+        </p>
+      </div>
+
+      {settings.playMode === 'social' && (
+        <div className="form-row">
+          <span>Scoring</span>
+          <div className="toggle-group" role="group" aria-label="Social scoring mode">
+            {SOCIAL_SCORING_MODES.map((mode) => (
+              <button
+                key={mode}
+                type="button"
+                className={settings.socialScoringMode === mode ? 'toggle-option active' : 'toggle-option'}
+                onClick={() => handleSocialScoringChange(mode)}
+              >
+                {socialScoringModeLabel(mode)}
+              </button>
+            ))}
+          </div>
+          <p className="hint">
+            {settings.socialScoringMode === 'none' &&
+              'No score entry — just generate rounds and rotate players fairly.'}
+            {settings.socialScoringMode === 'scoresOnly' &&
+              'Scores and total points are tracked, but players are not ranked competitively.'}
+            {settings.socialScoringMode === 'scoresAndWins' &&
+              'Scores, points, wins, and losses are tracked — still shown as casual Player Stats, not a leaderboard.'}
+          </p>
+        </div>
+      )}
 
       <div className="form-row">
         <label htmlFor="courts">Number of Courts</label>

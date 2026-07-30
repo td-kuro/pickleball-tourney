@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { Match, Player, Round, TournamentSettings } from '../types';
-import { canGenerateRound, getMatchWinner } from '../utils/tournament';
+import { canGenerateRound, getMatchWinner, isScoringEnabled, socialScoringModeLabel } from '../utils/tournament';
 
 interface RoundViewProps {
   players: Player[];
@@ -14,6 +14,7 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const currentRound = rounds[rounds.length - 1];
   const generateCheck = canGenerateRound(players, settings, currentRound);
+  const showScoring = isScoringEnabled(settings);
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
@@ -22,7 +23,14 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
   return (
     <section className="card">
       <div className="section-heading-row">
-        <h2>{currentRound ? `Current Round — Round ${currentRound.roundNumber}` : 'Current Round'}</h2>
+        <div>
+          <h2>{currentRound ? `Current Round — Round ${currentRound.roundNumber}` : 'Current Round'}</h2>
+          <span className={settings.playMode === 'tournament' ? 'mode-badge tournament' : 'mode-badge social'}>
+            {settings.playMode === 'tournament'
+              ? 'Tournament Mode'
+              : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
+          </span>
+        </div>
         <button type="button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
           Generate Next Round
         </button>
@@ -39,6 +47,7 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
               match={match}
               teamALabel={teamLabel(match.teamA.playerIds)}
               teamBLabel={teamLabel(match.teamB.playerIds)}
+              showScoring={showScoring}
               onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
             />
           ))}
@@ -52,10 +61,46 @@ interface MatchCardProps {
   match: Match;
   teamALabel: string;
   teamBLabel: string;
+  showScoring: boolean;
   onSetScore: (scoreA: number, scoreB: number) => void;
 }
 
-function MatchCard({ match, teamALabel, teamBLabel, onSetScore }: MatchCardProps) {
+function MatchCard({ match, teamALabel, teamBLabel, showScoring, onSetScore }: MatchCardProps) {
+  if (!showScoring) {
+    return (
+      <div className="match-card">
+        <div className="match-header">Court {match.court}</div>
+        <div className="match-teams">
+          <div className="match-team">
+            <span className="match-team-name">{teamALabel}</span>
+          </div>
+          <div className="match-vs">vs</div>
+          <div className="match-team">
+            <span className="match-team-name">{teamBLabel}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <ScoredMatchCard
+      match={match}
+      teamALabel={teamALabel}
+      teamBLabel={teamBLabel}
+      onSetScore={onSetScore}
+    />
+  );
+}
+
+interface ScoredMatchCardProps {
+  match: Match;
+  teamALabel: string;
+  teamBLabel: string;
+  onSetScore: (scoreA: number, scoreB: number) => void;
+}
+
+function ScoredMatchCard({ match, teamALabel, teamBLabel, onSetScore }: ScoredMatchCardProps) {
   const [scoreA, setScoreA] = useState(match.scoreA != null ? String(match.scoreA) : '');
   const [scoreB, setScoreB] = useState(match.scoreB != null ? String(match.scoreB) : '');
   const [error, setError] = useState<string | null>(null);

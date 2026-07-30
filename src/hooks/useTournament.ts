@@ -6,6 +6,8 @@ const SETTINGS_KEY = 'pickleball-tourney:settings';
 const ROUNDS_KEY = 'pickleball-tourney:rounds';
 
 const defaultSettings: TournamentSettings = {
+  playMode: 'tournament',
+  socialScoringMode: 'scoresAndWins',
   courts: 1,
   matchType: 'singles',
 };

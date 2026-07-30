@@ -2,7 +2,7 @@
 // No React or localStorage here, so this can be reused/extended (and
 // eventually replaced with smarter pairing rules) without touching the UI.
 
-import type { Match, MatchType, Player, PlayerStats, Round, TournamentSettings } from '../types';
+import type { Match, MatchType, Player, PlayerStats, Round, SocialScoringMode, TournamentSettings } from '../types';
 
 const PLAYERS_PER_COURT: Record<MatchType, number> = {
   singles: 2,
@@ -45,7 +45,10 @@ export function canGenerateRound(
     return { ok: false, reason: 'Every player needs a name before starting matches.' };
   }
 
-  if (currentRound && !isRoundComplete(currentRound)) {
+  // Only Tournament Mode requires the current round to be fully scored
+  // before moving on — Social Play is casual, so you can advance rounds
+  // even if some scores (or all of them, in "No scoring") weren't entered.
+  if (settings.playMode === 'tournament' && currentRound && !isRoundComplete(currentRound)) {
     return {
       ok: false,
       reason: 'Enter scores for every match in the current round before generating the next one.',
@@ -53,6 +56,27 @@ export function canGenerateRound(
   }
 
   return { ok: true };
+}
+
+// Whether match cards should collect scores at all.
+export function isScoringEnabled(settings: TournamentSettings): boolean {
+  return settings.playMode === 'tournament' || settings.socialScoringMode !== 'none';
+}
+
+// Whether wins/losses should be tracked and shown.
+export function isWinLossTracked(settings: TournamentSettings): boolean {
+  return settings.playMode === 'tournament' || settings.socialScoringMode === 'scoresAndWins';
+}
+
+export function socialScoringModeLabel(mode: SocialScoringMode): string {
+  switch (mode) {
+    case 'none':
+      return 'No Scoring';
+    case 'scoresOnly':
+      return 'Track Scores Only';
+    case 'scoresAndWins':
+      return 'Track Scores and Wins';
+  }
 }
 
 function makeId(prefix: string): string {
@@ -311,20 +335,34 @@ export function getMatchWinner(match: Match): 'A' | 'B' | undefined {
 // Points are the score achieved, not just win/loss: every player on a team
 // gets that team's full score added to their total, every round. Byes don't
 // add points, matches played, wins, or losses — only the bye count.
+//
+// "Games played", partners, and opponents are tracked from participation
+// alone (not from whether a score was entered) so Social Play's "No
+// scoring" mode still has meaningful stats to show.
 export function computePlayerStats(players: Player[], rounds: Round[]): PlayerStats[] {
   const statsByPlayer = new Map<string, PlayerStats>(
     players.map((player) => [
       player.id,
-      { playerId: player.id, totalPoints: 0, matchesPlayed: 0, wins: 0, losses: 0, byes: 0 },
+      {
+        playerId: player.id,
+        totalPoints: 0,
+        matchesPlayed: 0,
+        wins: 0,
+        losses: 0,
+        byes: 0,
+        partnerIds: [],
+        opponentIds: [],
+      },
     ]),
   );
+  const partnerSets = new Map<string, Set<string>>(players.map((p) => [p.id, new Set<string>()]));
+  const opponentSets = new Map<string, Set<string>>(players.map((p) => [p.id, new Set<string>()]));
 
-  function applyResult(playerIds: string[], points: number, won: boolean, lost: boolean) {
+  function applyPoints(playerIds: string[], points: number, won: boolean, lost: boolean) {
     for (const id of playerIds) {
       const stats = statsByPlayer.get(id);
       if (!stats) continue;
       stats.totalPoints += points;
-      stats.matchesPlayed += 1;
       if (won) stats.wins += 1;
       if (lost) stats.losses += 1;
     }
@@ -332,16 +370,40 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
 
   for (const round of rounds) {
     for (const match of round.matches) {
+      for (const id of [...match.teamA.playerIds, ...match.teamB.playerIds]) {
+        const stats = statsByPlayer.get(id);
+        if (stats) stats.matchesPlayed += 1;
+      }
+
+      for (const team of [match.teamA, match.teamB]) {
+        if (team.playerIds.length === 2) {
+          const [a, b] = team.playerIds;
+          partnerSets.get(a)?.add(b);
+          partnerSets.get(b)?.add(a);
+        }
+      }
+      for (const a of match.teamA.playerIds) {
+        for (const b of match.teamB.playerIds) {
+          opponentSets.get(a)?.add(b);
+          opponentSets.get(b)?.add(a);
+        }
+      }
+
       if (match.scoreA == null || match.scoreB == null) continue;
       const winner = getMatchWinner(match);
-      applyResult(match.teamA.playerIds, match.scoreA, winner === 'A', winner === 'B');
-      applyResult(match.teamB.playerIds, match.scoreB, winner === 'B', winner === 'A');
+      applyPoints(match.teamA.playerIds, match.scoreA, winner === 'A', winner === 'B');
+      applyPoints(match.teamB.playerIds, match.scoreB, winner === 'B', winner === 'A');
     }
 
     for (const id of round.byePlayerIds) {
       const stats = statsByPlayer.get(id);
       if (stats) stats.byes += 1;
     }
+  }
+
+  for (const stats of statsByPlayer.values()) {
+    stats.partnerIds = Array.from(partnerSets.get(stats.playerId) ?? []);
+    stats.opponentIds = Array.from(opponentSets.get(stats.playerId) ?? []);
   }
 
   return Array.from(statsByPlayer.values());

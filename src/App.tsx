@@ -4,13 +4,15 @@ import { ByeList } from './components/ByeList';
 import { Leaderboard } from './components/Leaderboard';
 import { PlayerForm } from './components/PlayerForm';
 import { PlayerList } from './components/PlayerList';
+import { PlayerStats } from './components/PlayerStats';
+import { RoundHistory } from './components/RoundHistory';
 import { RoundView } from './components/RoundView';
 import { TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
 import { useTournament } from './hooks/useTournament';
 import { canGenerateRound } from './utils/tournament';
 
-type View = 'setup' | 'round' | 'leaderboard';
+type View = 'setup' | 'round' | 'results' | 'history';
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
@@ -22,11 +24,13 @@ function App() {
   const currentRound = rounds[rounds.length - 1];
   const startCheck = canGenerateRound(players, settings);
   const bulkCountValue = parseInt(bulkCount, 10);
+  const resultsLabel = settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
 
-  // Defense in depth: Current Round / Leaderboard are only ever reachable
-  // once Start Matches has actually run (rounds.length > 0). If `view` ever
-  // ends up on one of those without an active tournament — e.g. leftover
-  // state — snap back to Setup instead of rendering a broken screen.
+  // Defense in depth: Current Round / results / history are only ever
+  // reachable once Start Matches has actually run (rounds.length > 0). If
+  // `view` ever ends up on one of those without an active tournament — e.g.
+  // leftover state — snap back to Setup instead of rendering a broken
+  // screen.
   useEffect(() => {
     if (view !== 'setup' && !tournamentStarted) {
       setView('setup');
@@ -59,7 +63,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>Pickleball Tourney</h1>
-        <p className="subtitle">Set up your players, then run rounds and track the leaderboard.</p>
+        <p className="subtitle">Set up your players, then run rounds and track results.</p>
       </header>
 
       <div className="tab-bar">
@@ -77,11 +81,19 @@ function App() {
           </button>
           <button
             type="button"
-            className={view === 'leaderboard' ? 'tab active' : 'tab'}
-            onClick={() => setView('leaderboard')}
+            className={view === 'results' ? 'tab active' : 'tab'}
+            onClick={() => setView('results')}
             disabled={!tournamentStarted}
           >
-            Leaderboard
+            {resultsLabel}
+          </button>
+          <button
+            type="button"
+            className={view === 'history' ? 'tab active' : 'tab'}
+            onClick={() => setView('history')}
+            disabled={!tournamentStarted}
+          >
+            Round History
           </button>
         </nav>
 
@@ -160,7 +172,17 @@ function App() {
         </>
       )}
 
-      {view === 'leaderboard' && tournamentStarted && <Leaderboard players={players} rounds={rounds} />}
+      {view === 'results' &&
+        tournamentStarted &&
+        (settings.playMode === 'tournament' ? (
+          <Leaderboard players={players} rounds={rounds} />
+        ) : (
+          <PlayerStats players={players} rounds={rounds} settings={settings} />
+        ))}
+
+      {view === 'history' && tournamentStarted && (
+        <RoundHistory rounds={rounds} players={players} settings={settings} />
+      )}
     </div>
   );
 }
