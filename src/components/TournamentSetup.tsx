@@ -48,7 +48,7 @@ export function TournamentSetup({ settings, onChange, playerCount }: TournamentS
           </button>
           <button
             type="button"
-            className={settings.playMode === 'social' ? 'toggle-option active' : 'toggle-option'}
+            className={settings.playMode === 'social' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
             onClick={() => handlePlayModeChange('social')}
           >
             Social Play Mode

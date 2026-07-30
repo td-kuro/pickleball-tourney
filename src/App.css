@@ -8,7 +8,16 @@
 .app-header {
   margin-bottom: 20px;
   padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.brand svg {
+  flex-shrink: 0;
 }
 
 .app-header h1 {
@@ -20,6 +29,13 @@
 .subtitle {
   margin: 0;
   color: var(--text);
+}
+
+.brand-bar {
+  margin-top: 16px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--brand-blue), var(--brand-green));
 }
 
 /* Tab navigation */
@@ -71,16 +87,15 @@
 
 .reset-button {
   background: transparent;
-  color: var(--text);
-  border: 1px solid var(--border);
-  font-weight: 600;
+  color: #c0392b;
+  border: 1.5px solid rgba(192, 57, 43, 0.4);
+  font-weight: 700;
   font-size: 13px;
   padding: 8px 14px;
 }
 
 .reset-button:hover:not(:disabled) {
   background: rgba(192, 57, 43, 0.1);
-  color: #c0392b;
   border-color: #c0392b;
 }
 
@@ -89,7 +104,7 @@
 .card {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow: var(--shadow);
   padding: 20px;
   margin-bottom: 20px;
@@ -129,6 +144,11 @@
   color: var(--accent);
 }
 
+.mode-badge.social {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+
 /* Setup view layout */
 
 .setup-grid {
@@ -153,10 +173,20 @@
   text-align: center;
 }
 
+/* Primary "go" actions (Start Matches, Generate Next Round) get their own
+   green accent so they stand out from the blue default button colour. */
+.cta-button {
+  background: var(--accent-2);
+  font-weight: 700;
+}
+
+.cta-button:hover:not(:disabled) {
+  background: var(--accent-2-hover);
+}
+
 .start-button {
   padding: 14px 32px;
   font-size: 16px;
-  font-weight: 600;
 }
 
 /* Player form */
@@ -335,7 +365,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .hint.winner-hint {
-  color: var(--accent);
+  color: var(--accent-2);
   font-weight: 600;
 }
 
@@ -379,6 +409,13 @@ button.danger:hover:not(:disabled) {
   border-color: var(--accent);
 }
 
+/* Social Play's toggle reuses the green accent so the blue/green pairing
+   also reads as "Tournament vs. Social", matching the mode badge colours. */
+.toggle-option.active.toggle-option-green {
+  background: var(--accent-2);
+  border-color: var(--accent-2);
+}
+
 /* Round / match cards */
 
 .match-list {
@@ -389,6 +426,7 @@ button.danger:hover:not(:disabled) {
 
 .match-card {
   border: 1px solid var(--border);
+  border-top: 3px solid var(--accent-border);
   border-radius: 10px;
   padding: 14px;
 }
@@ -419,8 +457,8 @@ button.danger:hover:not(:disabled) {
 }
 
 .match-team.winner {
-  background: var(--accent-bg);
-  border-color: var(--accent-border);
+  background: var(--accent-2-bg);
+  border-color: var(--accent-2-border);
 }
 
 .match-team-name {
@@ -467,9 +505,9 @@ button.danger:hover:not(:disabled) {
 .bye-chip {
   padding: 6px 14px;
   border-radius: 999px;
-  background: var(--code-bg);
-  border: 1px solid var(--border);
-  color: var(--text);
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent-hover);
   font-size: 14px;
   font-weight: 600;
 }
@@ -492,6 +530,10 @@ button.danger:hover:not(:disabled) {
   padding: 10px;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+}
+
+.leaderboard-table thead tr {
+  border-bottom: 2px solid var(--accent-border);
 }
 
 .leaderboard-table th {
@@ -518,11 +560,11 @@ button.danger:hover:not(:disabled) {
 }
 
 .leaderboard-table tbody tr.leaderboard-top {
-  background: var(--accent-bg);
+  background: var(--accent-2-bg);
 }
 
 .leaderboard-table tbody tr.leaderboard-top td:first-child {
-  color: var(--accent);
+  color: var(--accent-2);
   font-weight: 700;
 }
 
@@ -542,6 +584,7 @@ button.danger:hover:not(:disabled) {
 
 .round-history-entry {
   border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-border);
   border-radius: 8px;
   padding: 12px 14px;
 }

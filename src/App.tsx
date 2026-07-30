@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import './App.css';
 import { ByeList } from './components/ByeList';
 import { Leaderboard } from './components/Leaderboard';
+import { PickleballLogo } from './components/PickleballLogo';
 import { PlayerForm } from './components/PlayerForm';
 import { PlayerList } from './components/PlayerList';
 import { PlayerStats } from './components/PlayerStats';
@@ -62,8 +63,14 @@ function App() {
   return (
     <div className="app">
       <header className="app-header">
-        <h1>Pickleball Tourney</h1>
-        <p className="subtitle">Set up your players, then run rounds and track results.</p>
+        <div className="brand">
+          <PickleballLogo size={40} />
+          <div>
+            <h1>Pickleball Tourney</h1>
+            <p className="subtitle">Set up your players, then run rounds and track results.</p>
+          </div>
+        </div>
+        <div className="brand-bar" aria-hidden="true" />
       </header>
 
       <div className="tab-bar">
@@ -142,7 +149,7 @@ function App() {
               <>
                 <button
                   type="button"
-                  className="start-button"
+                  className="cta-button start-button"
                   onClick={handleStartMatches}
                   disabled={!startCheck.ok}
                 >
@@ -151,7 +158,7 @@ function App() {
                 {!startCheck.ok && <p className="hint error">{startCheck.reason}</p>}
               </>
             ) : (
-              <button type="button" className="start-button" onClick={() => setView('round')}>
+              <button type="button" className="cta-button start-button" onClick={() => setView('round')}>
                 Go to Current Round
               </button>
             )}

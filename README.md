@@ -6,6 +6,11 @@ players and courts, start matches, optionally enter scores round by round,
 and track results — with fair bye rotation and matchup variety built in
 for both modes.
 
+The UI uses a pickleball-inspired **blue and green** theme (court blue for
+primary actions/navigation, court green for "go" actions and wins), and
+the header carries a simple pickleball-ball logo as the app's branding —
+see "UI theme and branding" below.
+
 Live demo (after deployment): `https://<github-username>.github.io/pickleball-tourney/`
 
 ## Tournament Mode vs. Social Play Mode
@@ -268,6 +273,34 @@ handed out fairly:
 - Exporting session results.
 - Configurable tournament rules beyond courts/match type.
 
+## UI theme and branding
+
+The app uses a pickleball-inspired **blue and green** colour palette,
+applied consistently rather than hardcoded per element:
+
+- **Court blue** is the primary/interactive colour — header accents,
+  default buttons, active tabs, active toggle options, focus rings, the
+  bye chip, and the Tournament Mode badge.
+- **Court green** is reserved for "go" and positive states — the **Start
+  Matches** and **Generate Next Round** buttons, a saved match's winner
+  highlight, the top row of the Leaderboard, and the Social Play Mode
+  badge/toggle (so the blue/green pairing doubles as a visual cue for
+  "Tournament vs. Social").
+- **Reset Tournament** deliberately breaks from blue/green with a red
+  outline, since it's a destructive action and should read as one.
+
+Both colours (plus their hover/tint/border shades) are defined once as CSS
+custom properties in [`src/index.css`](src/index.css) (`--brand-blue`,
+`--brand-green`, and the `--accent`/`--accent-2` aliases used throughout
+[`src/App.css`](src/App.css)) with separate light/dark-mode values, so the
+whole theme can be re-tuned from one place.
+
+The header carries a simple pickleball-ball logo/icon — a blue-to-green
+circle with the small round holes a pickleball is known for, built as
+inline SVG in [`src/components/PickleballLogo.tsx`](src/components/PickleballLogo.tsx)
+(no image asset needed, so it stays crisp at any size and costs nothing
+extra to host on GitHub Pages).
+
 ## Project structure
 
 ```
@@ -276,7 +309,7 @@ src/
   utils/tournament.ts      Pure logic: pairing, bye rotation, validation, stats, mode helpers
   hooks/                   useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
   components/              PlayerForm, PlayerList, TournamentSetup, RoundView, ByeList,
-                            Leaderboard, PlayerStats, RoundHistory
+                            Leaderboard, PlayerStats, RoundHistory, PickleballLogo
   App.tsx                  Setup / Current Round / results / history views, tab gating, and layout
 ```
 

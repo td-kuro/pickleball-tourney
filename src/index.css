@@ -1,14 +1,37 @@
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
+  /* Pickleball-inspired theme: court blue is the primary/interactive
+     colour (buttons, tabs, focus rings); court green is reserved for
+     "go"/positive states (Start Matches, Generate Next Round, winners,
+     top of the leaderboard, Social Play accents). Keep using these
+     variables rather than new hardcoded colours so the palette stays in
+     one place. */
+  --brand-blue: #1e88e5;
+  --brand-blue-dark: #1565c0;
+  --brand-blue-tint: #e8f3fd;
+  --brand-blue-border: rgba(30, 136, 229, 0.35);
+
+  --brand-green: #16a34a;
+  --brand-green-dark: #15803d;
+  --brand-green-tint: #e7f8ee;
+  --brand-green-border: rgba(22, 163, 74, 0.35);
+
+  --text: #5b6472;
+  --text-h: #10151b;
   --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-hover: #9420f0;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --shadow: 0 1px 2px rgba(16, 12, 24, 0.04), 0 4px 12px rgba(16, 12, 24, 0.06);
+  --border: #dfe4ea;
+  --code-bg: #f2f5f8;
+
+  --accent: var(--brand-blue);
+  --accent-hover: var(--brand-blue-dark);
+  --accent-bg: var(--brand-blue-tint);
+  --accent-border: var(--brand-blue-border);
+
+  --accent-2: var(--brand-green);
+  --accent-2-hover: var(--brand-green-dark);
+  --accent-2-bg: var(--brand-green-tint);
+  --accent-2-border: var(--brand-green-border);
+
+  --shadow: 0 1px 2px rgba(10, 20, 35, 0.05), 0 4px 14px rgba(10, 20, 35, 0.07);
 
   font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
   color-scheme: light dark;
@@ -22,16 +45,33 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-hover: #d3a3fd;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.2), 0 4px 12px rgba(0, 0, 0, 0.25);
+    --brand-blue: #60a5fa;
+    --brand-blue-dark: #93c5fd;
+    --brand-blue-tint: rgba(96, 165, 250, 0.16);
+    --brand-blue-border: rgba(96, 165, 250, 0.4);
+
+    --brand-green: #4ade80;
+    --brand-green-dark: #86efac;
+    --brand-green-tint: rgba(74, 222, 128, 0.16);
+    --brand-green-border: rgba(74, 222, 128, 0.4);
+
+    --text: #9ca7b4;
+    --text-h: #f2f5f8;
+    --bg: #0f151c;
+    --border: #29323d;
+    --code-bg: #1a222b;
+
+    --accent: var(--brand-blue);
+    --accent-hover: var(--brand-blue-dark);
+    --accent-bg: var(--brand-blue-tint);
+    --accent-border: var(--brand-blue-border);
+
+    --accent-2: var(--brand-green);
+    --accent-2-hover: var(--brand-green-dark);
+    --accent-2-bg: var(--brand-green-tint);
+    --accent-2-border: var(--brand-green-border);
+
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
   }
 }
 

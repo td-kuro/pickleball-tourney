@@ -31,7 +31,7 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
               : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
           </span>
         </div>
-        <button type="button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+        <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
           Generate Next Round
         </button>
       </div>
