@@ -668,28 +668,59 @@ button.danger:hover:not(:disabled) {
   color: var(--text);
 }
 
-/* Round history */
+/* Rounds tab: Current Round / All Rounds toggle */
 
-.round-history-list {
+.rounds-subnav {
+  margin-bottom: 16px;
+}
+
+.rounds-toggle {
+  max-width: 360px;
+}
+
+/* All Rounds (round-by-round history, including the current round) */
+
+.all-rounds-list {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
 
-.round-history-entry {
+.all-rounds-entry {
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent-border);
   border-radius: 8px;
   padding: 12px 14px;
 }
 
-.round-history-entry h3 {
-  margin: 0 0 8px;
+.all-rounds-entry-current {
+  border-left-color: var(--accent-2);
+  background: var(--accent-2-bg);
+}
+
+.all-rounds-entry-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.all-rounds-entry-heading h3 {
+  margin: 0;
   font-size: 15px;
   color: var(--text-h);
 }
 
-.round-history-matches {
+.all-rounds-match-type {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.all-rounds-matches {
   list-style: none;
   margin: 0;
   padding: 0;
@@ -698,7 +729,7 @@ button.danger:hover:not(:disabled) {
   gap: 6px;
 }
 
-.round-history-match {
+.all-rounds-match {
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -707,13 +738,13 @@ button.danger:hover:not(:disabled) {
   color: var(--text-h);
 }
 
-.round-history-score {
+.all-rounds-score {
   color: var(--text);
   font-weight: 600;
   white-space: nowrap;
 }
 
-.round-history-byes {
+.all-rounds-byes {
   margin: 8px 0 0;
   font-size: 13px;
   color: var(--text);

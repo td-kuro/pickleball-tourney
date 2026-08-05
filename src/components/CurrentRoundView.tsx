@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import type { Match, Player, Round, TournamentSettings } from '../types';
 import { canGenerateRound, getMatchWinner, isScoringEnabled, socialScoringModeLabel } from '../utils/tournament';
+import { ByeList } from './ByeList';
 
-interface RoundViewProps {
+interface CurrentRoundViewProps {
   players: Player[];
   settings: TournamentSettings;
   rounds: Round[];
@@ -12,7 +13,9 @@ interface RoundViewProps {
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
 }
 
-export function RoundView({
+// The live/active round: matches, score entry, and who's on a bye. This is
+// the default sub-view under the "Rounds" tab — see RoundsPage.
+export function CurrentRoundView({
   players,
   settings,
   rounds,
@@ -20,7 +23,7 @@ export function RoundView({
   onGenerateRound,
   onFinishSession,
   onSetScore,
-}: RoundViewProps) {
+}: CurrentRoundViewProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const currentRound = rounds[rounds.length - 1];
   const generateCheck = canGenerateRound(players, settings, currentRound);
@@ -34,62 +37,66 @@ export function RoundView({
   }
 
   return (
-    <section className="card">
-      <div className="section-heading-row">
-        <div>
-          <h2>
-            {currentRound
-              ? `Current Round — Round ${currentRound.roundNumber}${plannedRounds != null ? ` of ${plannedRounds}` : ''}`
-              : 'Current Round'}
-          </h2>
-          <span className={settings.playMode === 'tournament' ? 'mode-badge tournament' : 'mode-badge social'}>
-            {settings.playMode === 'tournament'
-              ? 'Tournament Mode'
-              : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
-          </span>
+    <>
+      <section className="card">
+        <div className="section-heading-row">
+          <div>
+            <h2>
+              {currentRound
+                ? `Current Round — Round ${currentRound.roundNumber}${plannedRounds != null ? ` of ${plannedRounds}` : ''}`
+                : 'Current Round'}
+            </h2>
+            <span className={settings.playMode === 'tournament' ? 'mode-badge tournament' : 'mode-badge social'}>
+              {settings.playMode === 'tournament'
+                ? 'Tournament Mode'
+                : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
+            </span>
+          </div>
+          {!isPastPlannedRounds && (
+            <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+              Generate Next Round
+            </button>
+          )}
         </div>
-        {!isPastPlannedRounds && (
-          <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
-            Generate Next Round
-          </button>
+        {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
+
+        {isFinalPlannedRound && (
+          <p className="hint session-timing-notice">
+            This is the estimated final round based on your session timing.
+          </p>
         )}
-      </div>
-      {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
 
-      {isFinalPlannedRound && (
-        <p className="hint session-timing-notice">
-          This is the estimated final round based on your session timing.
-        </p>
-      )}
+        {isPastPlannedRounds && (
+          <div className="session-end-actions">
+            <button type="button" className="cta-button" onClick={onFinishSession}>
+              Finish Session
+            </button>
+            <button type="button" className="secondary" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+              Generate Extra Round
+            </button>
+          </div>
+        )}
 
-      {isPastPlannedRounds && (
-        <div className="session-end-actions">
-          <button type="button" className="cta-button" onClick={onFinishSession}>
-            Finish Session
-          </button>
-          <button type="button" className="secondary" onClick={onGenerateRound} disabled={!generateCheck.ok}>
-            Generate Extra Round
-          </button>
-        </div>
-      )}
+        {!currentRound && <p className="empty-state">No round generated yet.</p>}
 
-      {!currentRound && <p className="empty-state">No round generated yet.</p>}
+        {currentRound && (
+          <div className="match-list">
+            {currentRound.matches.map((match) => (
+              <MatchCard
+                key={match.id}
+                match={match}
+                teamALabel={teamLabel(match.teamA.playerIds)}
+                teamBLabel={teamLabel(match.teamB.playerIds)}
+                showScoring={showScoring}
+                onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
 
-      {currentRound && (
-        <div className="match-list">
-          {currentRound.matches.map((match) => (
-            <MatchCard
-              key={match.id}
-              match={match}
-              teamALabel={teamLabel(match.teamA.playerIds)}
-              teamBLabel={teamLabel(match.teamB.playerIds)}
-              showScoring={showScoring}
-              onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
-            />
-          ))}
-        </div>
-      )}
-    </section>
+      {currentRound && <ByeList round={currentRound} players={players} />}
+    </>
   );
 }
 

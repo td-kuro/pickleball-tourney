@@ -88,14 +88,14 @@ run approximately **10 rounds** with 0 minutes remaining."* **Start
 Matches** is disabled (with a validation message) if the timing fields
 are out of range or don't add up to at least one round.
 
-### Round count and the Current Round screen
+### Round count and the Current Round view
 
 Clicking **Start Matches** in Social Play Mode snapshots the estimated
-round count for that session — the Current Round screen then shows e.g.
-**"Round 3 of 10"**, and editing the timing fields afterward (from
-Setup) doesn't change that target, so an in-progress session stays
-consistent. Round generation still works exactly as before — one round
-at a time, never all upfront.
+round count for that session — the Current Round view (see "The Rounds
+tab" below) then shows e.g. **"Round 3 of 10"**, and editing the timing
+fields afterward (from Setup) doesn't change that target, so an
+in-progress session stays consistent. Round generation still works
+exactly as before — one round at a time, never all upfront.
 
 When you reach the estimated final round, a notice appears: *"This is
 the estimated final round based on your session timing."* From that
@@ -117,24 +117,23 @@ being entered.
   rating), and configure the number of courts and match type (Singles or
   Doubles).
 - **Start Matches** — once setup is valid, generates Round 1 and unlocks
-  the Current Round, results, and Round History screens.
-- **Current Round screen** — each court's match (with score entry, unless
-  Social Play's "No Scoring" is active), plus who's on a bye this round. A
-  badge shows which mode/scoring setting is active.
+  the **Rounds** and results tabs.
+- **Rounds tab** — **Current Round** (each court's match, with score entry
+  unless Social Play's "No Scoring" is active, plus who's on a bye) and
+  **All Rounds** (every round played so far, including the current one).
+  See "The Rounds tab" below.
 - **Leaderboard** (Tournament Mode) or **Player Stats** (Social Play) —
   see "Difference between Leaderboard and Player Stats" below.
-- **Round History screen** — every round played so far, most recent
-  first, with matches, scores (if tracked), and who was on a bye.
 - Everything is saved to your browser's `localStorage`, so it survives a
   page refresh.
 
 ## Setup must be completed before matches start
 
-The app always opens on the Setup screen — the **Current Round**,
-**Leaderboard**/**Player Stats**, and **Round History** tabs are disabled
-(greyed out, unclickable) until you've clicked **Start Matches** at least
-once. This isn't just the tabs being hidden: the app also can't be steered
-into those screens by any other means, since they only ever render once a
+The app always opens on the Setup screen — the **Rounds** and
+**Leaderboard**/**Player Stats** tabs are disabled (greyed out,
+unclickable) until you've clicked **Start Matches** at least once. This
+isn't just the tabs being hidden: the app also can't be steered into
+those screens by any other means, since they only ever render once a
 round actually exists, and a guard automatically snaps the view back to
 Setup if it's ever showing a gated screen without one.
 
@@ -149,7 +148,7 @@ Setup is valid — and **Start Matches** becomes clickable — once:
 
 If setup is incomplete, reopening the app always lands you back on Setup.
 If you've already started a session, reopening the app takes you straight
-back to the Current Round screen.
+back to the Rounds tab (defaulting to Current Round).
 
 ## Setup screen
 
@@ -165,11 +164,11 @@ back to the Current Round screen.
   Session Timing (Social Play only — see "Social Play session timing"
   above), number of courts, and Singles/Doubles.
 - **Start Matches** — disabled with an explanatory message until setup is
-  valid; generates Round 1 and switches you to the Current Round screen.
-  Once a session has started, this becomes a **Go to Current Round**
-  shortcut instead, and you can still come back to Setup at any time (via
-  the tab bar) to add a player or tweak settings — changes there only
-  affect rounds generated *after* the change.
+  valid; generates Round 1 and switches you to the Rounds tab (Current
+  Round view). Once a session has started, this becomes a **Go to
+  Rounds** shortcut instead, and you can still come back to Setup at any
+  time (via the tab bar) to add a player or tweak settings — changes
+  there only affect rounds generated *after* the change.
 
 ## Player ratings are optional
 
@@ -179,7 +178,15 @@ Tournament Mode, rating is only used as a tie-breaker for leaderboard
 sorting, and only when it's actually set — unrated players sort after
 rated players in a tie, never ahead of them.
 
-## Current Round screen
+## The Rounds tab
+
+Once a session has started, the **Rounds** tab holds a small **Current
+Round** / **All Rounds** toggle at the top — a segmented control, not a
+separate page, so switching between them is instant and never loses your
+place. It always opens on **Current Round**, whichever way you got there
+(clicking the tab, **Go to Rounds**, or reopening the app mid-session).
+
+### Current Round
 
 1. **Current Round** — each court's match. In Tournament Mode, or Social
    Play with a scoring option other than "No Scoring", there's a score
@@ -196,6 +203,20 @@ in the current round has a saved score. Social Play never blocks on this
 reaches its estimated final round, this button is replaced by **Finish
 Session** and **Generate Extra Round**.
 
+### All Rounds
+
+Every round played so far, most recent first — **including the current
+round**, clearly marked with a **Current Round** badge and a green
+highlight so it's obvious it's still in progress. Each entry shows the
+round number, match type (Singles/Doubles), every match's court, teams,
+score and winner (if scoring is enabled and entered), and who was on a
+bye. Past rounds are shown exactly as recorded — there's no way to edit a
+score from this view, it's read-only; score entry only happens on the
+Current Round view. If no rounds exist yet, it shows a friendly empty
+state instead ("No completed rounds yet…") — in practice this only
+happens for a moment, since Start Matches always generates Round 1
+immediately.
+
 ## Difference between Leaderboard and Player Stats
 
 - **Leaderboard** (Tournament Mode only) — ranked. Shows rank #, player
@@ -207,13 +228,6 @@ Session** and **Generate Extra Round**.
   Always shows games played, byes, and opponents played against (plus
   partners, for Doubles). Total points appears only if scoring is enabled;
   wins/losses appear only with "Track Scores and Wins".
-
-## Round History screen
-
-A read-only log of every round so far, newest first: each match's court,
-teams, and score (if scoring is enabled and it was entered), plus who was
-on a bye that round. Useful for reviewing a whole session after the fact
-in either mode.
 
 ## Resetting a tournament
 
@@ -335,7 +349,7 @@ handed out fairly:
 - There's no way to edit or regenerate a past round once it's created.
 - Removing a player who has already played doesn't rewrite their match
   history — their past matches/byes stay in the data, but they drop off
-  the current player list and show as "Unknown player" in Round History.
+  the current player list and show as "Unknown player" in All Rounds.
 - Partners/opponents in Player Stats are shown as plain name lists, which
   can get long in a big, long-running session.
 - No import/export — data lives only in the current browser's
@@ -393,9 +407,10 @@ src/
   types.ts                 Shared TypeScript interfaces (Player, Match, Round, PlayMode, SessionTiming, ...)
   utils/tournament.ts      Pure logic: pairing, bye rotation, validation, stats, mode helpers, session timing
   hooks/                   useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
-  components/              PlayerForm, PlayerList, TournamentSetup, RoundView, ByeList,
-                            Leaderboard, PlayerStats, RoundHistory, PickleballLogo
-  App.tsx                  Setup / Current Round / results / history views, tab gating, and layout
+  components/              PlayerForm, PlayerList, TournamentSetup, RoundsPage,
+                            CurrentRoundView, AllRoundsView, ByeList, Leaderboard,
+                            PlayerStats, PickleballLogo
+  App.tsx                  Setup / Rounds / results views, tab gating, and layout
 ```
 
 Business logic lives in `src/utils` and `src/hooks`, separate from the

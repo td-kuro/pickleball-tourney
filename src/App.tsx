@@ -1,13 +1,11 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import './App.css';
-import { ByeList } from './components/ByeList';
 import { Leaderboard } from './components/Leaderboard';
 import { PickleballLogo } from './components/PickleballLogo';
 import { PlayerForm } from './components/PlayerForm';
 import { PlayerList } from './components/PlayerList';
 import { PlayerStats } from './components/PlayerStats';
-import { RoundHistory } from './components/RoundHistory';
-import { RoundView } from './components/RoundView';
+import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
 import { TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
@@ -15,27 +13,25 @@ import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { canGenerateRound } from './utils/tournament';
 
-type View = 'setup' | 'round' | 'results' | 'history';
+type View = 'setup' | 'rounds' | 'results';
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
   const { settings, updateSettings, rounds, plannedRounds, generateRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const { theme, toggleTheme } = useTheme();
-  const [view, setView] = useState<View>(rounds.length > 0 ? 'round' : 'setup');
+  const [view, setView] = useState<View>(rounds.length > 0 ? 'rounds' : 'setup');
   const [bulkCount, setBulkCount] = useState('');
 
   const tournamentStarted = rounds.length > 0;
-  const currentRound = rounds[rounds.length - 1];
   const startCheck = canGenerateRound(players, settings);
   const bulkCountValue = parseInt(bulkCount, 10);
   const resultsLabel = settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
 
-  // Defense in depth: Current Round / results / history are only ever
-  // reachable once Start Matches has actually run (rounds.length > 0). If
-  // `view` ever ends up on one of those without an active tournament — e.g.
-  // leftover state — snap back to Setup instead of rendering a broken
-  // screen.
+  // Defense in depth: Rounds / results are only ever reachable once Start
+  // Matches has actually run (rounds.length > 0). If `view` ever ends up on
+  // one of those without an active tournament — e.g. leftover state — snap
+  // back to Setup instead of rendering a broken screen.
   useEffect(() => {
     if (view !== 'setup' && !tournamentStarted) {
       setView('setup');
@@ -44,7 +40,7 @@ function App() {
 
   function handleStartMatches() {
     startSession(players);
-    setView('round');
+    setView('rounds');
   }
 
   function handleFinishSession() {
@@ -91,11 +87,11 @@ function App() {
           </button>
           <button
             type="button"
-            className={view === 'round' ? 'tab active' : 'tab'}
-            onClick={() => setView('round')}
+            className={view === 'rounds' ? 'tab active' : 'tab'}
+            onClick={() => setView('rounds')}
             disabled={!tournamentStarted}
           >
-            Current Round
+            Rounds
           </button>
           <button
             type="button"
@@ -104,14 +100,6 @@ function App() {
             disabled={!tournamentStarted}
           >
             {resultsLabel}
-          </button>
-          <button
-            type="button"
-            className={view === 'history' ? 'tab active' : 'tab'}
-            onClick={() => setView('history')}
-            disabled={!tournamentStarted}
-          >
-            Round History
           </button>
         </nav>
 
@@ -169,27 +157,24 @@ function App() {
                 {!startCheck.ok && <p className="hint error">{startCheck.reason}</p>}
               </>
             ) : (
-              <button type="button" className="cta-button start-button" onClick={() => setView('round')}>
-                Go to Current Round
+              <button type="button" className="cta-button start-button" onClick={() => setView('rounds')}>
+                Go to Rounds
               </button>
             )}
           </section>
         </div>
       )}
 
-      {view === 'round' && tournamentStarted && (
-        <>
-          <RoundView
-            players={players}
-            settings={settings}
-            rounds={rounds}
-            plannedRounds={plannedRounds}
-            onGenerateRound={() => generateRound(players)}
-            onFinishSession={handleFinishSession}
-            onSetScore={setMatchScore}
-          />
-          {currentRound && <ByeList round={currentRound} players={players} />}
-        </>
+      {view === 'rounds' && tournamentStarted && (
+        <RoundsPage
+          players={players}
+          settings={settings}
+          rounds={rounds}
+          plannedRounds={plannedRounds}
+          onGenerateRound={() => generateRound(players)}
+          onFinishSession={handleFinishSession}
+          onSetScore={setMatchScore}
+        />
       )}
 
       {view === 'results' &&
@@ -199,10 +184,6 @@ function App() {
         ) : (
           <PlayerStats players={players} rounds={rounds} settings={settings} />
         ))}
-
-      {view === 'history' && tournamentStarted && (
-        <RoundHistory rounds={rounds} players={players} settings={settings} />
-      )}
     </div>
   );
 }
