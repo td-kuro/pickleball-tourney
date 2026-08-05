@@ -19,7 +19,8 @@ type View = 'setup' | 'round' | 'results' | 'history';
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
-  const { settings, updateSettings, rounds, generateRound, setMatchScore, resetTournament } = useTournament();
+  const { settings, updateSettings, rounds, plannedRounds, generateRound, startSession, setMatchScore, resetTournament } =
+    useTournament();
   const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<View>(rounds.length > 0 ? 'round' : 'setup');
   const [bulkCount, setBulkCount] = useState('');
@@ -42,8 +43,12 @@ function App() {
   }, [view, tournamentStarted]);
 
   function handleStartMatches() {
-    generateRound(players);
+    startSession(players);
     setView('round');
+  }
+
+  function handleFinishSession() {
+    setView('results');
   }
 
   function handleGenerateSlots(event: FormEvent) {
@@ -178,7 +183,9 @@ function App() {
             players={players}
             settings={settings}
             rounds={rounds}
+            plannedRounds={plannedRounds}
             onGenerateRound={() => generateRound(players)}
+            onFinishSession={handleFinishSession}
             onSetScore={setMatchScore}
           />
           {currentRound && <ByeList round={currentRound} players={players} />}

@@ -1,6 +1,14 @@
 import type { ChangeEvent } from 'react';
-import type { MatchType, PlayMode, SocialScoringMode, TournamentSettings } from '../types';
-import { maxPlayersForRound, playersNeededPerMatch, socialScoringModeLabel } from '../utils/tournament';
+import type { MatchType, PlayMode, SessionTiming, SocialScoringMode, TournamentSettings } from '../types';
+import {
+  calculateSessionPlan,
+  maxPlayersForRound,
+  MAX_GAME_TIME_MINUTES,
+  MIN_GAME_TIME_MINUTES,
+  playersNeededPerMatch,
+  socialScoringModeLabel,
+  validateSessionTiming,
+} from '../utils/tournament';
 
 interface TournamentSetupProps {
   settings: TournamentSettings;
@@ -87,6 +95,8 @@ export function TournamentSetup({ settings, onChange, playerCount }: TournamentS
         </div>
       )}
 
+      {settings.playMode === 'social' && <SessionTimingSection settings={settings} onChange={onChange} />}
+
       <div className="form-row">
         <label htmlFor="courts">Number of Courts</label>
         <input id="courts" type="number" min={1} value={settings.courts} onChange={handleCourtsChange} />
@@ -117,5 +127,83 @@ export function TournamentSetup({ settings, onChange, playerCount }: TournamentS
         {maxPlayers} players per round ({playerCount} player{playerCount === 1 ? '' : 's'} added).
       </p>
     </section>
+  );
+}
+
+interface SessionTimingSectionProps {
+  settings: TournamentSettings;
+  onChange: (settings: TournamentSettings) => void;
+}
+
+// Social Play only: lets the user enter their booked court time and how
+// long each game + changeover takes, and shows the resulting estimated
+// round count up front. Purely a planning aid — see calculateSessionPlan;
+// there's no live countdown timer.
+function SessionTimingSection({ settings, onChange }: SessionTimingSectionProps) {
+  const timing = settings.sessionTiming;
+  const plan = calculateSessionPlan(timing);
+  const validation = validateSessionTiming(timing);
+
+  function handleTimingChange(field: keyof SessionTiming, event: ChangeEvent<HTMLInputElement>) {
+    const parsed = parseInt(event.target.value, 10);
+    onChange({
+      ...settings,
+      sessionTiming: { ...timing, [field]: Number.isNaN(parsed) ? 0 : parsed },
+    });
+  }
+
+  return (
+    <div className="form-row">
+      <span>Session Timing</span>
+
+      <div className="timing-grid">
+        <label className="timing-field">
+          Session time (minutes)
+          <input
+            type="number"
+            min={1}
+            value={timing.sessionTimeMinutes}
+            onChange={(event) => handleTimingChange('sessionTimeMinutes', event)}
+            aria-label="Session time in minutes"
+          />
+        </label>
+        <label className="timing-field">
+          Game time (minutes)
+          <input
+            type="number"
+            min={MIN_GAME_TIME_MINUTES}
+            max={MAX_GAME_TIME_MINUTES}
+            value={timing.gameTimeMinutes}
+            onChange={(event) => handleTimingChange('gameTimeMinutes', event)}
+            aria-label="Game time in minutes"
+          />
+        </label>
+        <label className="timing-field">
+          Buffer time (minutes)
+          <input
+            type="number"
+            min={0}
+            value={timing.bufferTimeMinutes}
+            onChange={(event) => handleTimingChange('bufferTimeMinutes', event)}
+            aria-label="Buffer time in minutes"
+          />
+        </label>
+      </div>
+
+      <p className="session-timing-summary">
+        Based on a {timing.sessionTimeMinutes}-minute session, {timing.gameTimeMinutes}-minute games, and{' '}
+        {timing.bufferTimeMinutes}-minute buffers, you can run approximately{' '}
+        <strong>
+          {plan.estimatedRounds} round{plan.estimatedRounds === 1 ? '' : 's'}
+        </strong>{' '}
+        with {plan.remainingTimeMinutes} minute{plan.remainingTimeMinutes === 1 ? '' : 's'} remaining.
+      </p>
+
+      {!validation.ok && <p className="hint error">{validation.reason}</p>}
+      <p className="hint">
+        Game time must be {MIN_GAME_TIME_MINUTES}–{MAX_GAME_TIME_MINUTES} minutes. A 1–2 minute buffer is
+        suggested (0 is allowed).
+      </p>
+    </div>
   );
 }

@@ -1,15 +1,17 @@
 import type { Player, Round, TournamentSettings } from '../types';
-import { createRound } from '../utils/tournament';
+import { calculateSessionPlan, createRound, DEFAULT_SESSION_TIMING } from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:settings';
 const ROUNDS_KEY = 'pickleball-tourney:rounds';
+const PLANNED_ROUNDS_KEY = 'pickleball-tourney:plannedRounds';
 
 const defaultSettings: TournamentSettings = {
   playMode: 'tournament',
   socialScoringMode: 'scoresAndWins',
   courts: 1,
   matchType: 'singles',
+  sessionTiming: DEFAULT_SESSION_TIMING,
 };
 
 // Manages tournament settings and rounds, persisted to localStorage.
@@ -17,6 +19,7 @@ const defaultSettings: TournamentSettings = {
 export function useTournament() {
   const [settings, setSettings] = useLocalStorage<TournamentSettings>(SETTINGS_KEY, defaultSettings);
   const [rounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
+  const [plannedRounds, setPlannedRounds] = useLocalStorage<number | null>(PLANNED_ROUNDS_KEY, null);
 
   function updateSettings(next: TournamentSettings) {
     setSettings(next);
@@ -25,6 +28,15 @@ export function useTournament() {
   function generateRound(players: Player[]) {
     const round = createRound(players, settings, rounds.length + 1, rounds);
     setRounds([...rounds, round]);
+  }
+
+  // Called by "Start Matches": snapshots the estimated round count from the
+  // current Session Timing settings (Social Play only) so later edits to
+  // those settings don't retroactively change an in-progress session's
+  // target, then generates Round 1.
+  function startSession(players: Player[]) {
+    setPlannedRounds(settings.playMode === 'social' ? calculateSessionPlan(settings.sessionTiming).estimatedRounds : null);
+    generateRound(players);
   }
 
   function setMatchScore(roundId: string, matchId: string, scoreA: number, scoreB: number) {
@@ -46,7 +58,17 @@ export function useTournament() {
   // Players and tournament settings (courts/match type) are left as-is.
   function resetTournament() {
     setRounds([]);
+    setPlannedRounds(null);
   }
 
-  return { settings, updateSettings, rounds, generateRound, setMatchScore, resetTournament };
+  return {
+    settings,
+    updateSettings,
+    rounds,
+    plannedRounds,
+    generateRound,
+    startSession,
+    setMatchScore,
+    resetTournament,
+  };
 }

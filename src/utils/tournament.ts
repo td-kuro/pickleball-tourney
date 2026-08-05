@@ -2,12 +2,68 @@
 // No React or localStorage here, so this can be reused/extended (and
 // eventually replaced with smarter pairing rules) without touching the UI.
 
-import type { Match, MatchType, Player, PlayerStats, Round, SocialScoringMode, TournamentSettings } from '../types';
+import type {
+  Match,
+  MatchType,
+  Player,
+  PlayerStats,
+  Round,
+  SessionPlan,
+  SessionTiming,
+  SocialScoringMode,
+  TournamentSettings,
+} from '../types';
 
 const PLAYERS_PER_COURT: Record<MatchType, number> = {
   singles: 2,
   doubles: 4,
 };
+
+export const DEFAULT_SESSION_TIMING: SessionTiming = {
+  sessionTimeMinutes: 120,
+  gameTimeMinutes: 10,
+  bufferTimeMinutes: 2,
+};
+
+export const MIN_GAME_TIME_MINUTES = 8;
+export const MAX_GAME_TIME_MINUTES = 12;
+
+// Divides the booked session time into game+buffer "round blocks" to
+// estimate how many rounds fit. `estimatedRounds` is clamped to 0 (rather
+// than going negative) so the Setup screen can show a live preview even
+// while the timing fields are still invalid/mid-edit.
+export function calculateSessionPlan(timing: SessionTiming): SessionPlan {
+  const roundBlockMinutes = timing.gameTimeMinutes + timing.bufferTimeMinutes;
+  if (roundBlockMinutes <= 0) {
+    return { estimatedRounds: 0, remainingTimeMinutes: Math.max(0, timing.sessionTimeMinutes) };
+  }
+
+  const estimatedRounds = Math.max(0, Math.floor(timing.sessionTimeMinutes / roundBlockMinutes));
+  const remainingTimeMinutes = Math.max(0, timing.sessionTimeMinutes - estimatedRounds * roundBlockMinutes);
+  return { estimatedRounds, remainingTimeMinutes };
+}
+
+export function validateSessionTiming(timing: SessionTiming): { ok: true } | { ok: false; reason: string } {
+  if (timing.sessionTimeMinutes <= 0) {
+    return { ok: false, reason: 'Session time must be greater than 0 minutes.' };
+  }
+  if (timing.gameTimeMinutes < MIN_GAME_TIME_MINUTES || timing.gameTimeMinutes > MAX_GAME_TIME_MINUTES) {
+    return {
+      ok: false,
+      reason: `Game time must be between ${MIN_GAME_TIME_MINUTES} and ${MAX_GAME_TIME_MINUTES} minutes.`,
+    };
+  }
+  if (timing.bufferTimeMinutes < 0) {
+    return { ok: false, reason: 'Buffer time must be 0 or greater.' };
+  }
+  if (calculateSessionPlan(timing).estimatedRounds < 1) {
+    return {
+      ok: false,
+      reason: 'Session time is too short to fit even one round at this game + buffer time.',
+    };
+  }
+  return { ok: true };
+}
 
 export function playersNeededPerMatch(matchType: MatchType): number {
   return PLAYERS_PER_COURT[matchType];
@@ -43,6 +99,11 @@ export function canGenerateRound(
 
   if (players.some((player) => player.name.trim() === '')) {
     return { ok: false, reason: 'Every player needs a name before starting matches.' };
+  }
+
+  if (settings.playMode === 'social') {
+    const timingCheck = validateSessionTiming(settings.sessionTiming);
+    if (!timingCheck.ok) return timingCheck;
   }
 
   // Only Tournament Mode requires the current round to be fully scored

@@ -47,6 +47,25 @@ export interface Round {
   byePlayerIds: string[];
 }
 
+// Social Play session timing: the total booked court time, split into
+// fixed-length games with a buffer between them. Used to estimate how many
+// rounds fit into the session (see calculateSessionPlan in
+// utils/tournament.ts). Not used in Tournament Mode, but kept on
+// TournamentSettings unconditionally for the same reason as
+// socialScoringMode above.
+export interface SessionTiming {
+  sessionTimeMinutes: number;
+  gameTimeMinutes: number;
+  bufferTimeMinutes: number;
+}
+
+// Result of dividing a SessionTiming's session time into game+buffer
+// "round blocks" — see calculateSessionPlan.
+export interface SessionPlan {
+  estimatedRounds: number;
+  remainingTimeMinutes: number;
+}
+
 export interface TournamentSettings {
   playMode: PlayMode;
   // Always present (even in Tournament Mode, where it's ignored) so
@@ -54,11 +73,18 @@ export interface TournamentSettings {
   socialScoringMode: SocialScoringMode;
   courts: number;
   matchType: MatchType;
+  sessionTiming: SessionTiming;
 }
 
 export interface TournamentState {
   settings: TournamentSettings;
   rounds: Round[];
+  // Estimated total rounds for the session, snapshotted from the Session
+  // Timing settings when Start Matches is clicked (Social Play only) so it
+  // doesn't drift if timing settings are edited mid-session. The current
+  // round number is just the active round's `roundNumber` — no separate
+  // field needed.
+  plannedRounds: number | null;
 }
 
 // Aggregated stats for one player across all rounds played so far.

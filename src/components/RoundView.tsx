@@ -6,15 +6,28 @@ interface RoundViewProps {
   players: Player[];
   settings: TournamentSettings;
   rounds: Round[];
+  plannedRounds: number | null;
   onGenerateRound: () => void;
+  onFinishSession: () => void;
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
 }
 
-export function RoundView({ players, settings, rounds, onGenerateRound, onSetScore }: RoundViewProps) {
+export function RoundView({
+  players,
+  settings,
+  rounds,
+  plannedRounds,
+  onGenerateRound,
+  onFinishSession,
+  onSetScore,
+}: RoundViewProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const currentRound = rounds[rounds.length - 1];
   const generateCheck = canGenerateRound(players, settings, currentRound);
   const showScoring = isScoringEnabled(settings);
+
+  const isFinalPlannedRound = plannedRounds != null && currentRound?.roundNumber === plannedRounds;
+  const isPastPlannedRounds = plannedRounds != null && (currentRound?.roundNumber ?? 0) >= plannedRounds;
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
@@ -24,18 +37,41 @@ export function RoundView({ players, settings, rounds, onGenerateRound, onSetSco
     <section className="card">
       <div className="section-heading-row">
         <div>
-          <h2>{currentRound ? `Current Round — Round ${currentRound.roundNumber}` : 'Current Round'}</h2>
+          <h2>
+            {currentRound
+              ? `Current Round — Round ${currentRound.roundNumber}${plannedRounds != null ? ` of ${plannedRounds}` : ''}`
+              : 'Current Round'}
+          </h2>
           <span className={settings.playMode === 'tournament' ? 'mode-badge tournament' : 'mode-badge social'}>
             {settings.playMode === 'tournament'
               ? 'Tournament Mode'
               : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
           </span>
         </div>
-        <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
-          Generate Next Round
-        </button>
+        {!isPastPlannedRounds && (
+          <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+            Generate Next Round
+          </button>
+        )}
       </div>
       {!generateCheck.ok && <p className="hint error">{generateCheck.reason}</p>}
+
+      {isFinalPlannedRound && (
+        <p className="hint session-timing-notice">
+          This is the estimated final round based on your session timing.
+        </p>
+      )}
+
+      {isPastPlannedRounds && (
+        <div className="session-end-actions">
+          <button type="button" className="cta-button" onClick={onFinishSession}>
+            Finish Session
+          </button>
+          <button type="button" className="secondary" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+            Generate Extra Round
+          </button>
+        </div>
+      )}
 
       {!currentRound && <p className="empty-state">No round generated yet.</p>}
 

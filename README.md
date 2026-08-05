@@ -48,6 +48,68 @@ When Social Play Mode is selected, pick one of three **Scoring** settings:
   all tracked and shown in Player Stats — still presented as casual stats,
   deliberately not called a "Leaderboard".
 
+## Social Play session timing
+
+Social Play Mode has a **Session Timing** section on the Setup screen,
+which estimates how many rounds fit into your booked court time. It's a
+*planning* tool — it doesn't run a live clock (see "Current limitations"
+below) — but it turns "we booked 2 hours" into "that's about 10 rounds",
+so you know what to expect before you start.
+
+Three fields, each editable in minutes:
+
+- **Session time** — the total booked court time. E.g. a 2-hour booking
+  is `120`. Must be greater than 0. Default: `120`.
+- **Game time** — how long each game/match takes. Must be between `8`
+  and `12` minutes. Default: `10`.
+- **Buffer time** — the changeover between games (grabbing a drink,
+  switching courts, etc.). Suggested range is `1`–`2` minutes, but `0` is
+  allowed. Default: `2`.
+
+### How estimated rounds are calculated
+
+```
+round block time = game time + buffer time
+estimated rounds = floor(session time / round block time)
+remaining time    = session time − (estimated rounds × round block time)
+```
+
+**Example:** a 120-minute session with 10-minute games and a 2-minute
+buffer gives a 12-minute round block, so `floor(120 / 12) = 10 rounds`
+with `0` minutes remaining.
+
+**Example with remainder:** the same 120-minute session with 10-minute
+games but only a 1-minute buffer gives an 11-minute round block, so
+`floor(120 / 11) = 10 rounds` with `10` minutes remaining.
+
+The Setup screen shows this live as you adjust the fields, e.g. *"Based
+on a 120-minute session, 10-minute games, and 2-minute buffers, you can
+run approximately **10 rounds** with 0 minutes remaining."* **Start
+Matches** is disabled (with a validation message) if the timing fields
+are out of range or don't add up to at least one round.
+
+### Round count and the Current Round screen
+
+Clicking **Start Matches** in Social Play Mode snapshots the estimated
+round count for that session — the Current Round screen then shows e.g.
+**"Round 3 of 10"**, and editing the timing fields afterward (from
+Setup) doesn't change that target, so an in-progress session stays
+consistent. Round generation still works exactly as before — one round
+at a time, never all upfront.
+
+When you reach the estimated final round, a notice appears: *"This is
+the estimated final round based on your session timing."* From that
+round onward, **Generate Next Round** is replaced with two options:
+
+- **Finish Session** — jumps to Player Stats.
+- **Generate Extra Round** — generates another round anyway, if you still
+  have court time; the same two options stay available after it, so you
+  can add as many extra rounds as you like.
+
+Tournament Mode doesn't show Session Timing or a round target — it isn't
+time-boxed the same way, and rounds there are already gated on scores
+being entered.
+
 ## What it does
 
 - **Setup screen** — the app's starting point every time: choose a Play
@@ -100,7 +162,8 @@ back to the Current Round screen.
   names (and optional ratings) directly in the list afterward. You can
   still use the **Add Player** form above it to add one player at a time.
 - **Session Setup** — Play Mode, Social Scoring (Social Play only),
-  number of courts, and Singles/Doubles.
+  Session Timing (Social Play only — see "Social Play session timing"
+  above), number of courts, and Singles/Doubles.
 - **Start Matches** — disabled with an explanatory message until setup is
   valid; generates Round 1 and switches you to the Current Round screen.
   Once a session has started, this becomes a **Go to Current Round**
@@ -122,12 +185,16 @@ rated players in a tie, never ahead of them.
    Play with a scoring option other than "No Scoring", there's a score
    input for both sides and saving a score shows the winner (highest
    score) right on the match card. With Social Play's "No Scoring", match
-   cards just show who's playing — no inputs.
+   cards just show who's playing — no inputs. In Social Play Mode, the
+   heading also shows the round count against the session's estimated
+   total, e.g. "Round 3 of 10" (see "Social Play session timing" above).
 2. **Bye / Sitting Out This Round** — anyone not playing this round.
 
 **Generate Next Round** is disabled in Tournament Mode until every match
 in the current round has a saved score. Social Play never blocks on this
-— you can move on whenever you're ready.
+— you can move on whenever you're ready. Once a Social Play session
+reaches its estimated final round, this button is replaced by **Finish
+Session** and **Generate Extra Round**.
 
 ## Difference between Leaderboard and Player Stats
 
@@ -245,6 +312,9 @@ handed out fairly:
 - Match scores must be valid, non-negative numbers, whenever scoring is
   enabled for the current mode. In Social Play's "No Scoring", no score
   entry is required or possible.
+- In Social Play Mode, Session Timing must also be valid: session time
+  greater than 0, game time between 8 and 12 minutes, buffer time 0 or
+  greater, and the resulting estimated round count at least 1.
 - **Start Matches** is disabled, with a message explaining why, until all
   of the above are satisfied.
 - **Generate Next Round** is disabled in Tournament Mode until every match
@@ -252,6 +322,11 @@ handed out fairly:
 
 ## Current limitations
 
+- Session Timing is a planning estimate only — the app doesn't run a
+  live countdown or clock, and it doesn't automatically move you to the
+  next round or notify you when a game's time is up. It just calculates
+  how many rounds should fit and tracks the round count against that
+  estimate; enforcing an actual timer would be a separate feature.
 - Matchup-avoidance pairing is a greedy heuristic with random restarts,
   not a guaranteed-optimal matching — for larger or unusual player counts
   it may occasionally settle for a repeat when a cleverer arrangement
@@ -315,8 +390,8 @@ so there's no flash of the wrong theme on load.
 
 ```
 src/
-  types.ts                 Shared TypeScript interfaces (Player, Match, Round, PlayMode, ...)
-  utils/tournament.ts      Pure logic: pairing, bye rotation, validation, stats, mode helpers
+  types.ts                 Shared TypeScript interfaces (Player, Match, Round, PlayMode, SessionTiming, ...)
+  utils/tournament.ts      Pure logic: pairing, bye rotation, validation, stats, mode helpers, session timing
   hooks/                   useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
   components/              PlayerForm, PlayerList, TournamentSetup, RoundView, ByeList,
                             Leaderboard, PlayerStats, RoundHistory, PickleballLogo
