@@ -27,7 +27,7 @@ export function PickleballLogo({ size = 32, className }: PickleballLogoProps) {
       viewBox="0 0 48 48"
       className={className}
       role="img"
-      aria-label="Pickleball Tourney logo"
+      aria-label="PickleRounds logo"
     >
       <defs>
         <linearGradient id="pickleball-logo-gradient" x1="4" y1="4" x2="44" y2="44" gradientUnits="userSpaceOnUse">

@@ -71,8 +71,8 @@ function App() {
           <div className="brand">
             <PickleballLogo size={40} />
             <div>
-              <h1>Pickleball Tourney</h1>
-              <p className="subtitle">Set up your players, then run rounds and track results.</p>
+              <h1>PickleRounds</h1>
+              <p className="subtitle">Fair pickleball rounds for social play and tournaments.</p>
             </div>
           </div>
           <ThemeToggle theme={theme} onToggle={toggleTheme} />

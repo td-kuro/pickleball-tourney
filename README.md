@@ -1,4 +1,6 @@
-# Pickleball Tourney
+# PickleRounds
+
+*Fair pickleball rounds for social play and tournaments.*
 
 A simple static web app for running a pickleball session — either a
 competitive **Tournament Mode** or a casual **Social Play Mode**. Set up
@@ -12,6 +14,8 @@ the header carries a simple pickleball-ball logo as the app's branding —
 see "UI theme and branding" below.
 
 Live demo (after deployment): `https://<github-username>.github.io/pickleball-tourney/`
+(the GitHub repo is still named `pickleball-tourney` — see "Renaming the
+repo to `pickle-rounds`" under "Deploying to GitHub Pages" below).
 
 ## Tournament Mode vs. Social Play Mode
 
@@ -448,7 +452,10 @@ the app and deploys it to GitHub Pages on every push to `main`.
 
 To enable it:
 
-1. Push this repo to GitHub as `pickleball-tourney`.
+1. Push this repo to GitHub. The repo is currently named
+   `pickleball-tourney`; the suggested name going forward is
+   `pickle-rounds`, matching the **PickleRounds** app name — see
+   "Renaming the repo to `pickle-rounds`" below if you're doing that now.
 2. In the repo, go to **Settings → Pages**.
 3. Under **Build and deployment → Source**, select **GitHub Actions**.
 4. Push to `main` (or run the workflow manually from the **Actions** tab).
@@ -457,4 +464,19 @@ To enable it:
 
 The Vite config ([`vite.config.ts`](vite.config.ts)) sets
 `base: "/pickleball-tourney/"` so asset URLs resolve correctly under that
-subpath — this must match the repository name if you rename it.
+subpath — this must match the repository name exactly.
+
+### Renaming the repo to `pickle-rounds`
+
+The app is branded **PickleRounds**, but the GitHub repository hasn't
+been renamed yet — it's still `pickleball-tourney`, so the base path and
+live demo URL above are unchanged for now. Once the repo is renamed to
+`pickle-rounds` on GitHub:
+
+1. Update `base` in [`vite.config.ts`](vite.config.ts) from
+   `'/pickleball-tourney/'` to `'/pickle-rounds/'`.
+2. Update the live demo URL at the top of this README and step 5 above to
+   `https://<github-username>.github.io/pickle-rounds/`.
+3. No other code changes are needed for the rename — GitHub Pages' base
+   path just has to match the new repo name exactly, or asset URLs will
+   404 after deployment.
