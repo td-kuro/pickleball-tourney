@@ -17,7 +17,16 @@ const defaultSettings: TournamentSettings = {
 // Manages tournament settings and rounds, persisted to localStorage.
 // Round pairing logic itself lives in src/utils/tournament.ts.
 export function useTournament() {
-  const [settings, setSettings] = useLocalStorage<TournamentSettings>(SETTINGS_KEY, defaultSettings);
+  const [storedSettings, setSettings] = useLocalStorage<TournamentSettings>(SETTINGS_KEY, defaultSettings);
+  // Backfills sessionTiming for settings saved by a version of the app from
+  // before Session Timing existed — localStorage only falls back to
+  // defaultSettings when nothing is stored at all, so an old settings
+  // object read back in would otherwise have `sessionTiming: undefined`
+  // and crash validateSessionTiming/calculateSessionPlan.
+  const settings: TournamentSettings = {
+    ...storedSettings,
+    sessionTiming: storedSettings.sessionTiming ?? DEFAULT_SESSION_TIMING,
+  };
   const [rounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const [plannedRounds, setPlannedRounds] = useLocalStorage<number | null>(PLANNED_ROUNDS_KEY, null);
 
