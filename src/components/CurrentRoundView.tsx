@@ -8,7 +8,7 @@ interface CurrentRoundViewProps {
   settings: TournamentSettings;
   rounds: Round[];
   plannedRounds: number | null;
-  onGenerateRound: () => void;
+  onNextRound: () => void;
   onFinishSession: () => void;
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
 }
@@ -20,12 +20,14 @@ export function CurrentRoundView({
   settings,
   rounds,
   plannedRounds,
-  onGenerateRound,
+  onNextRound,
   onFinishSession,
   onSetScore,
 }: CurrentRoundViewProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
-  const currentRound = rounds[rounds.length - 1];
+  // Not necessarily the last entry in `rounds` — Social Play pre-generates
+  // "upcoming" rounds after this one, see useTournament.startSession.
+  const currentRound = rounds.find((round) => round.status === 'current');
   const generateCheck = canGenerateRound(players, settings, currentRound);
   const showScoring = isScoringEnabled(settings);
 
@@ -53,8 +55,8 @@ export function CurrentRoundView({
             </span>
           </div>
           {!isPastPlannedRounds && (
-            <button type="button" className="cta-button" onClick={onGenerateRound} disabled={!generateCheck.ok}>
-              Generate Next Round
+            <button type="button" className="cta-button" onClick={onNextRound} disabled={!generateCheck.ok}>
+              Next Round
             </button>
           )}
         </div>
@@ -71,7 +73,7 @@ export function CurrentRoundView({
             <button type="button" className="cta-button" onClick={onFinishSession}>
               Finish Session
             </button>
-            <button type="button" className="secondary" onClick={onGenerateRound} disabled={!generateCheck.ok}>
+            <button type="button" className="secondary" onClick={onNextRound} disabled={!generateCheck.ok}>
               Generate Extra Round
             </button>
           </div>

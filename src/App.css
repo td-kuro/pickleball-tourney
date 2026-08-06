@@ -698,6 +698,31 @@ button.danger:hover:not(:disabled) {
   background: var(--accent-2-bg);
 }
 
+.all-rounds-entry-upcoming {
+  border-left-color: var(--border);
+  opacity: 0.85;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--code-bg);
+  color: var(--text);
+}
+
+.status-badge-current {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+
+.status-badge-completed {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
 .all-rounds-entry-heading {
   display: flex;
   align-items: center;

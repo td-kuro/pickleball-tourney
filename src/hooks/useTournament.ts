@@ -14,6 +14,18 @@ const defaultSettings: TournamentSettings = {
   sessionTiming: DEFAULT_SESSION_TIMING,
 };
 
+// Backfills `status` for rounds saved by a version of the app from before
+// round status existed: the last round becomes "current" (mirroring the
+// old "last round in the array is the active one" behaviour) and every
+// round before it becomes "completed".
+function normalizeRounds(rounds: Round[]): Round[] {
+  if (rounds.length === 0 || rounds.every((round) => round.status)) return rounds;
+  return rounds.map((round, index) => ({
+    ...round,
+    status: round.status ?? (index === rounds.length - 1 ? 'current' : 'completed'),
+  }));
+}
+
 // Manages tournament settings and rounds, persisted to localStorage.
 // Round pairing logic itself lives in src/utils/tournament.ts.
 export function useTournament() {
@@ -27,25 +39,68 @@ export function useTournament() {
     ...storedSettings,
     sessionTiming: storedSettings.sessionTiming ?? DEFAULT_SESSION_TIMING,
   };
-  const [rounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
+  const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
+  const rounds = normalizeRounds(storedRounds);
   const [plannedRounds, setPlannedRounds] = useLocalStorage<number | null>(PLANNED_ROUNDS_KEY, null);
 
   function updateSettings(next: TournamentSettings) {
     setSettings(next);
   }
 
-  function generateRound(players: Player[]) {
-    const round = createRound(players, settings, rounds.length + 1, rounds);
-    setRounds([...rounds, round]);
+  // Called by "Start Matches". Tournament Mode isn't time-boxed, so it just
+  // generates Round 1. Social Play is: the pairing engine only needs to
+  // know who played/sat out each round, not match results, so the entire
+  // session's schedule can be generated up front — every round from 1 to
+  // the session's estimated round count is created in one pass (each using
+  // the previously-generated rounds as history, for fair bye/matchup
+  // rotation across the whole session), Round 1 is marked "current", and
+  // the rest are "upcoming" placeholders that already hold their real
+  // matchups.
+  function startSession(players: Player[]) {
+    if (settings.playMode !== 'social') {
+      setPlannedRounds(null);
+      setRounds([createRound(players, settings, 1, [], 'current')]);
+      return;
+    }
+
+    const estimatedRounds = calculateSessionPlan(settings.sessionTiming).estimatedRounds;
+    if (estimatedRounds < 1) return;
+
+    const generated: Round[] = [];
+    for (let roundNumber = 1; roundNumber <= estimatedRounds; roundNumber++) {
+      generated.push(
+        createRound(players, settings, roundNumber, generated, roundNumber === 1 ? 'current' : 'upcoming'),
+      );
+    }
+    setPlannedRounds(estimatedRounds);
+    setRounds(generated);
   }
 
-  // Called by "Start Matches": snapshots the estimated round count from the
-  // current Session Timing settings (Social Play only) so later edits to
-  // those settings don't retroactively change an in-progress session's
-  // target, then generates Round 1.
-  function startSession(players: Player[]) {
-    setPlannedRounds(settings.playMode === 'social' ? calculateSessionPlan(settings.sessionTiming).estimatedRounds : null);
-    generateRound(players);
+  // Called by "Next Round"/"Generate Extra Round": marks the active round
+  // completed, then either promotes the next pre-generated "upcoming"
+  // round to "current" (Social Play, still within the planned schedule) or
+  // generates a brand new round (Tournament Mode, which never pre-plans;
+  // or Social Play once it's run past its planned rounds).
+  function nextRound(players: Player[]) {
+    const currentIndex = rounds.findIndex((round) => round.status === 'current');
+    if (currentIndex === -1) return;
+
+    const withCompleted = rounds.map((round, index) =>
+      index === currentIndex ? { ...round, status: 'completed' as const } : round,
+    );
+
+    const upcomingIndex = withCompleted.findIndex((round) => round.status === 'upcoming');
+    if (upcomingIndex !== -1) {
+      setRounds(
+        withCompleted.map((round, index) =>
+          index === upcomingIndex ? { ...round, status: 'current' as const } : round,
+        ),
+      );
+      return;
+    }
+
+    const newRound = createRound(players, settings, withCompleted.length + 1, withCompleted, 'current');
+    setRounds([...withCompleted, newRound]);
   }
 
   function setMatchScore(roundId: string, matchId: string, scoreA: number, scoreB: number) {
@@ -75,7 +130,7 @@ export function useTournament() {
     updateSettings,
     rounds,
     plannedRounds,
-    generateRound,
+    nextRound,
     startSession,
     setMatchScore,
     resetTournament,

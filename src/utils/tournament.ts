@@ -8,6 +8,7 @@ import type {
   Player,
   PlayerStats,
   Round,
+  RoundStatus,
   SessionPlan,
   SessionTiming,
   SocialScoringMode,
@@ -336,6 +337,7 @@ export function createRound(
   settings: TournamentSettings,
   roundNumber: number,
   priorRounds: Round[] = [],
+  status: RoundStatus = 'current',
 ): Round {
   const perCourt = playersNeededPerMatch(settings.matchType);
 
@@ -383,6 +385,7 @@ export function createRound(
     roundNumber,
     matches,
     byePlayerIds,
+    status,
   };
 }
 

@@ -1,4 +1,4 @@
-import type { Player, Round, TournamentSettings } from '../types';
+import type { Player, Round, RoundStatus, TournamentSettings } from '../types';
 import { getMatchWinner, isScoringEnabled } from '../utils/tournament';
 
 interface AllRoundsViewProps {
@@ -7,24 +7,32 @@ interface AllRoundsViewProps {
   settings: TournamentSettings;
 }
 
-// Read-only record of every round so far (most recent first), for both
-// Tournament and Social Play — useful for reviewing a session live or after
-// the fact. The current/active round is included too (clearly badged)
-// rather than only completed ones, since it's the same `rounds` state
-// CurrentRoundView reads — no separate history is tracked.
+const STATUS_LABEL: Record<RoundStatus, string> = {
+  current: 'Current',
+  upcoming: 'Upcoming',
+  completed: 'Completed',
+};
+
+// Read-only record of every planned round, in order. In Social Play, the
+// full session schedule (matches and byes included) is pre-generated at
+// Start Matches — see useTournament.startSession — so this shows all of
+// it up front, each round clearly badged Completed / Current / Upcoming.
+// In Tournament Mode, rounds are still generated one at a time, so only
+// rounds generated so far appear here (the last one always "current").
+// Score entry only ever happens on Current Round — this view never lets
+// you edit a score, even for the current round.
 export function AllRoundsView({ rounds, players, settings }: AllRoundsViewProps) {
   if (rounds.length === 0) {
     return (
       <section className="card">
         <h2>All Rounds</h2>
-        <p className="empty-state">No completed rounds yet. Start or complete a round to see round history here.</p>
+        <p className="empty-state">No rounds yet. Start matches to see the round schedule here.</p>
       </section>
     );
   }
 
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const showScoring = isScoringEnabled(settings);
-  const currentRoundId = rounds[rounds.length - 1].id;
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
@@ -41,21 +49,20 @@ export function AllRoundsView({ rounds, players, settings }: AllRoundsViewProps)
     return round.matches[0]?.teamA.playerIds.length === 2 ? 'Doubles' : 'Singles';
   }
 
-  const orderedRounds = [...rounds].reverse();
-
   return (
     <section className="card">
       <h2>All Rounds</h2>
       <div className="all-rounds-list">
-        {orderedRounds.map((round) => {
-          const isCurrent = round.id === currentRoundId;
-          return (
-            <div key={round.id} className={isCurrent ? 'all-rounds-entry all-rounds-entry-current' : 'all-rounds-entry'}>
-              <div className="all-rounds-entry-heading">
-                <h3>Round {round.roundNumber}</h3>
-                {isCurrent && <span className="mode-badge social">Current Round</span>}
-                <span className="all-rounds-match-type">{matchTypeLabel(round)}</span>
-              </div>
+        {rounds.map((round) => (
+          <div key={round.id} className={`all-rounds-entry all-rounds-entry-${round.status}`}>
+            <div className="all-rounds-entry-heading">
+              <h3>Round {round.roundNumber}</h3>
+              <span className={`status-badge status-badge-${round.status}`}>{STATUS_LABEL[round.status]}</span>
+              <span className="all-rounds-match-type">{matchTypeLabel(round)}</span>
+            </div>
+            {round.matches.length === 0 ? (
+              <p className="empty-state">No matchups for this round.</p>
+            ) : (
               <ul className="all-rounds-matches">
                 {round.matches.map((match) => {
                   const teamALabel = teamLabel(match.teamA.playerIds);
@@ -78,12 +85,12 @@ export function AllRoundsView({ rounds, players, settings }: AllRoundsViewProps)
                   );
                 })}
               </ul>
-              <p className="all-rounds-byes">
-                {round.byePlayerIds.length > 0 ? `Bye: ${byeLabel(round.byePlayerIds)}` : 'Everyone played this round.'}
-              </p>
-            </div>
-          );
-        })}
+            )}
+            <p className="all-rounds-byes">
+              {round.byePlayerIds.length > 0 ? `Bye: ${byeLabel(round.byePlayerIds)}` : 'Everyone played this round.'}
+            </p>
+          </div>
+        ))}
       </div>
     </section>
   );

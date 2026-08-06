@@ -10,7 +10,7 @@ interface RoundsPageProps {
   settings: TournamentSettings;
   rounds: Round[];
   plannedRounds: number | null;
-  onGenerateRound: () => void;
+  onNextRound: () => void;
   onFinishSession: () => void;
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
 }
@@ -26,7 +26,7 @@ export function RoundsPage({
   settings,
   rounds,
   plannedRounds,
-  onGenerateRound,
+  onNextRound,
   onFinishSession,
   onSetScore,
 }: RoundsPageProps) {
@@ -59,7 +59,7 @@ export function RoundsPage({
           settings={settings}
           rounds={rounds}
           plannedRounds={plannedRounds}
-          onGenerateRound={onGenerateRound}
+          onNextRound={onNextRound}
           onFinishSession={onFinishSession}
           onSetScore={onSetScore}
         />

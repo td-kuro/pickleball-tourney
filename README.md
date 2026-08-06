@@ -92,27 +92,37 @@ run approximately **10 rounds** with 0 minutes remaining."* **Start
 Matches** is disabled (with a validation message) if the timing fields
 are out of range or don't add up to at least one round.
 
-### Round count and the Current Round view
+### Round count and pre-generated rounds
 
 Clicking **Start Matches** in Social Play Mode snapshots the estimated
-round count for that session — the Current Round view (see "The Rounds
-tab" below) then shows e.g. **"Round 3 of 10"**, and editing the timing
-fields afterward (from Setup) doesn't change that target, so an
-in-progress session stays consistent. Round generation still works
-exactly as before — one round at a time, never all upfront.
+round count for that session and immediately generates **every planned
+round**, not just Round 1 — e.g. a 120-minute session at 10-minute games
+and a 2-minute buffer generates all 10 rounds in one pass, each with its
+own fair matchups and byes, using the same matchup-avoidance/bye-rotation
+engine as before (see "How round generation works" below). This works
+because the pairing engine only needs to know who played and who sat out
+each round — not match results — so the whole session's schedule can be
+planned upfront. Round 1 is marked **Current**; the rest are **Upcoming**.
+Editing the timing fields afterward (from Setup) doesn't change an
+in-progress session's plan.
+
+The Current Round view (see "The Rounds tab" below) shows e.g. **"Round 3
+of 10"**. Clicking **Next Round** marks the round you just finished
+**Completed** and promotes the next pre-generated **Upcoming** round to
+**Current** — instant, since its matchups already exist.
 
 When you reach the estimated final round, a notice appears: *"This is
 the estimated final round based on your session timing."* From that
-round onward, **Generate Next Round** is replaced with two options:
+round onward, **Next Round** is replaced with two options:
 
 - **Finish Session** — jumps to Player Stats.
-- **Generate Extra Round** — generates another round anyway, if you still
-  have court time; the same two options stay available after it, so you
-  can add as many extra rounds as you like.
+- **Generate Extra Round** — generates another round beyond the plan, if
+  you still have court time; the same two options stay available after
+  it, so you can add as many extra rounds as you like.
 
 Tournament Mode doesn't show Session Timing or a round target — it isn't
-time-boxed the same way, and rounds there are already gated on scores
-being entered.
+time-boxed the same way, and rounds there are still generated one at a
+time (gated on scores being entered), same as before.
 
 ## What it does
 
@@ -120,12 +130,14 @@ being entered.
   Mode (and Social Scoring, if applicable), add players (with an optional
   rating), and configure the number of courts and match type (Singles or
   Doubles).
-- **Start Matches** — once setup is valid, generates Round 1 and unlocks
-  the **Rounds** and results tabs.
+- **Start Matches** — once setup is valid, generates the round schedule
+  (Round 1 only in Tournament Mode; the full planned schedule in Social
+  Play — see "Round count and pre-generated rounds" above) and unlocks the
+  **Rounds** and results tabs.
 - **Rounds tab** — **Current Round** (each court's match, with score entry
   unless Social Play's "No Scoring" is active, plus who's on a bye) and
-  **All Rounds** (every round played so far, including the current one).
-  See "The Rounds tab" below.
+  **All Rounds** (the full round-by-round schedule, each marked Completed,
+  Current, or Upcoming). See "The Rounds tab" below.
 - **Leaderboard** (Tournament Mode) or **Player Stats** (Social Play) —
   see "Difference between Leaderboard and Player Stats" below.
 - Everything is saved to your browser's `localStorage`, so it survives a
@@ -168,11 +180,14 @@ back to the Rounds tab (defaulting to Current Round).
   Session Timing (Social Play only — see "Social Play session timing"
   above), number of courts, and Singles/Doubles.
 - **Start Matches** — disabled with an explanatory message until setup is
-  valid; generates Round 1 and switches you to the Rounds tab (Current
-  Round view). Once a session has started, this becomes a **Go to
+  valid; generates the round schedule and switches you to the Rounds tab
+  (Current Round view). Once a session has started, this becomes a **Go to
   Rounds** shortcut instead, and you can still come back to Setup at any
-  time (via the tab bar) to add a player or tweak settings — changes
-  there only affect rounds generated *after* the change.
+  time (via the tab bar) to add a player or tweak settings. In Tournament
+  Mode, changes there only affect rounds generated *after* the change,
+  same as before. In Social Play, the full schedule is already generated,
+  so settings changes don't retroactively rewrite it — they only apply if
+  you later generate an extra round beyond the plan.
 
 ## Player ratings are optional
 
@@ -201,25 +216,34 @@ place. It always opens on **Current Round**, whichever way you got there
    total, e.g. "Round 3 of 10" (see "Social Play session timing" above).
 2. **Bye / Sitting Out This Round** — anyone not playing this round.
 
-**Generate Next Round** is disabled in Tournament Mode until every match
-in the current round has a saved score. Social Play never blocks on this
-— you can move on whenever you're ready. Once a Social Play session
-reaches its estimated final round, this button is replaced by **Finish
-Session** and **Generate Extra Round**.
+**Next Round** is disabled in Tournament Mode until every match in the
+current round has a saved score. Social Play never blocks on this — you
+can move on whenever you're ready. Once a Social Play session reaches its
+estimated final round, this button is replaced by **Finish Session** and
+**Generate Extra Round**.
 
 ### All Rounds
 
-Every round played so far, most recent first — **including the current
-round**, clearly marked with a **Current Round** badge and a green
-highlight so it's obvious it's still in progress. Each entry shows the
-round number, match type (Singles/Doubles), every match's court, teams,
-score and winner (if scoring is enabled and entered), and who was on a
-bye. Past rounds are shown exactly as recorded — there's no way to edit a
-score from this view, it's read-only; score entry only happens on the
-Current Round view. If no rounds exist yet, it shows a friendly empty
-state instead ("No completed rounds yet…") — in practice this only
-happens for a moment, since Start Matches always generates Round 1
-immediately.
+The full round-by-round schedule, in order, each one badged with its
+status:
+
+- **Completed** — a round you've moved past. Shown exactly as recorded:
+  every match's court, teams, and score/winner (if scoring is enabled and
+  was entered), plus who was on a bye. Read-only — there's no way to edit
+  a score from this view; score entry only happens on the Current Round
+  view.
+- **Current** — the active round, highlighted in green, matching what's
+  shown on the Current Round view (including any scores already saved).
+- **Upcoming** — a round that hasn't been reached yet. In Social Play,
+  these already have their real matchups and byes, pre-generated at Start
+  Matches (see "Round count and pre-generated rounds" above) — no scores,
+  since they haven't been played. In Tournament Mode, upcoming rounds
+  don't exist yet (rounds are generated one at a time), so you'll only
+  ever see Completed and Current here.
+
+If no rounds exist yet, it shows a friendly empty state instead — in
+practice this only happens for a moment, since Start Matches always
+generates at least Round 1 immediately.
 
 ## Difference between Leaderboard and Player Stats
 
@@ -334,9 +358,14 @@ handed out fairly:
   greater than 0, game time between 8 and 12 minutes, buffer time 0 or
   greater, and the resulting estimated round count at least 1.
 - **Start Matches** is disabled, with a message explaining why, until all
-  of the above are satisfied.
-- **Generate Next Round** is disabled in Tournament Mode until every match
-  in the current round has a saved score. Social Play never requires this.
+  of the above are satisfied. In Social Play, this also means the session
+  timing must produce at least 1 estimated round — a session too short for
+  even one round block won't start.
+- **Next Round** is disabled in Tournament Mode until every match in the
+  current round has a saved score. Social Play never requires this.
+- Resetting a tournament, or changing setup before a session has started,
+  clears any previously planned rounds — the schedule is only (re)built
+  from the current settings the moment **Start Matches** is clicked.
 
 ## Current limitations
 
@@ -375,10 +404,11 @@ applied consistently rather than hardcoded per element:
   default buttons, active tabs, active toggle options, focus rings, the
   bye chip, and the Tournament Mode badge.
 - **Court green** is reserved for "go" and positive states — the **Start
-  Matches** and **Generate Next Round** buttons, a saved match's winner
-  highlight, the top row of the Leaderboard, and the Social Play Mode
-  badge/toggle (so the blue/green pairing doubles as a visual cue for
-  "Tournament vs. Social").
+  Matches** and **Next Round** buttons, a saved match's winner highlight,
+  the current round's highlight and status badge in All Rounds, the top
+  row of the Leaderboard, and the Social Play Mode badge/toggle (so the
+  blue/green pairing doubles as a visual cue for "Tournament vs.
+  Social").
 - **Reset Tournament** deliberately breaks from blue/green with a red
   outline, since it's a destructive action and should read as one.
 

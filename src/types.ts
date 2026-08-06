@@ -38,6 +38,12 @@ export interface Match {
   scoreB?: number;
 }
 
+// 'upcoming' rounds are pre-generated placeholders (Social Play — see
+// SessionTiming below) that haven't been reached yet; 'current' is the
+// single active round; 'completed' rounds are read-only history. Exactly
+// one round should be 'current' at a time.
+export type RoundStatus = 'upcoming' | 'current' | 'completed';
+
 export interface Round {
   id: string;
   roundNumber: number;
@@ -45,6 +51,7 @@ export interface Round {
   // Players sitting out this round (didn't fit on a court, or were
   // selected for a fair bye rotation).
   byePlayerIds: string[];
+  status: RoundStatus;
 }
 
 // Social Play session timing: the total booked court time, split into

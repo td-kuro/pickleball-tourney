@@ -17,13 +17,14 @@ type View = 'setup' | 'rounds' | 'results';
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
-  const { settings, updateSettings, rounds, plannedRounds, generateRound, startSession, setMatchScore, resetTournament } =
+  const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const { theme, toggleTheme } = useTheme();
   const [view, setView] = useState<View>(rounds.length > 0 ? 'rounds' : 'setup');
   const [bulkCount, setBulkCount] = useState('');
 
   const tournamentStarted = rounds.length > 0;
+  const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
   const startCheck = canGenerateRound(players, settings);
   const bulkCountValue = parseInt(bulkCount, 10);
   const resultsLabel = settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
@@ -171,7 +172,7 @@ function App() {
           settings={settings}
           rounds={rounds}
           plannedRounds={plannedRounds}
-          onGenerateRound={() => generateRound(players)}
+          onNextRound={() => nextRound(players)}
           onFinishSession={handleFinishSession}
           onSetScore={setMatchScore}
         />
@@ -179,10 +180,13 @@ function App() {
 
       {view === 'results' &&
         tournamentStarted &&
+        // Stats only reflect rounds actually reached (current/completed) —
+        // Social Play pre-generates "upcoming" rounds it hasn't played yet,
+        // and those shouldn't count toward byes/games-played/etc.
         (settings.playMode === 'tournament' ? (
-          <Leaderboard players={players} rounds={rounds} />
+          <Leaderboard players={players} rounds={reachedRounds} />
         ) : (
-          <PlayerStats players={players} rounds={rounds} settings={settings} />
+          <PlayerStats players={players} rounds={reachedRounds} settings={settings} />
         ))}
     </div>
   );
