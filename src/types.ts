@@ -10,6 +10,14 @@ export interface Player {
 
 export type MatchType = 'singles' | 'doubles';
 
+// Only meaningful when MatchType is 'doubles':
+// - 'rotating-players': the original behaviour — partners and opponents
+//   are re-formed every round for fair variety (see createRound).
+// - 'fixed-teams': pre-declared 2-player Teams (see Team below) stay
+//   together for the whole tournament/session — only the opponent
+//   rotates. See createFixedTeamRound in utils/tournament.ts.
+export type DoublesPairingMode = 'rotating-players' | 'fixed-teams';
+
 // Tournament Mode is competitive (points/wins/losses, ranked leaderboard).
 // Social Play Mode is casual — same fair rotation/pairing engine, but
 // ranking is de-emphasised and scoring is configurable (see
@@ -52,8 +60,19 @@ export interface Round {
   roundNumber: number;
   matches: Match[];
   // Players sitting out this round (didn't fit on a court, or were
-  // selected for a fair bye rotation).
+  // selected for a fair bye rotation). Always populated — for fixed-team
+  // byes below, this is the union of every byeTeamIds team's 2 players
+  // plus any splitTeamIds team's single sitting-out player, so components
+  // that only care about individual players (e.g. ByeList) don't need to
+  // know about fixed teams at all.
   byePlayerIds: string[];
+  // Doubles + Fixed Teams only (see createFixedTeamRound): whole teams
+  // sitting out together this round.
+  byeTeamIds?: string[];
+  // Doubles + Fixed Teams only: teams temporarily split this round (one
+  // player sits out, the other still plays) — see createFixedTeamRound's
+  // bye-assignment comment for when/why this can happen.
+  splitTeamIds?: string[];
   status: RoundStatus;
 }
 
@@ -107,17 +126,29 @@ export interface TournamentSettings {
   // Knockout, where they're ignored), same rationale as socialScoringMode.
   tournamentFormat: TournamentFormat;
   poolKnockoutSettings: PoolKnockoutSettings;
+  // Always present, even in Singles (where it's ignored) — same rationale.
+  doublesPairingMode: DoublesPairingMode;
 }
 
-// --- Pools & Knockout ------------------------------------------------------
-// A fixed competitor for the whole tournament (unlike the ad-hoc MatchSide
-// pairing used by Leaderboard/Social Play's rotating rounds). One player in
-// Singles, two in Doubles — see formTeams in utils/poolsKnockout.ts.
+// A fixed competitor for the whole tournament/session (unlike the ad-hoc
+// MatchSide pairing used by rotating-round Doubles). One player in
+// Singles, two in Doubles. Used by Pools & Knockout (always — see
+// formTeams/poolsKnockout.ts) and, when Doubles Pairing Mode is
+// 'fixed-teams', by Leaderboard/Social Play's rotating rounds too (see
+// createFixedTeamRound in utils/tournament.ts).
 export interface Team {
   id: string;
+  // User-entered, or auto-generated from the two player names (e.g.
+  // "Thai / Alex") when left blank — see useTeams.addTeam.
   name: string;
   playerIds: string[];
   rating?: number;
+  // True for teams the user explicitly declared via "Add Team" (see
+  // useTeams). False for teams Pools & Knockout auto-pairs from the
+  // player list when Doubles Pairing Mode is 'rotating-players' (see
+  // formTeams) — those are fixed for that tournament's duration too, but
+  // weren't a deliberate "practice with this partner" choice.
+  isFixedTeam: boolean;
 }
 
 export interface PoolMatch {
@@ -218,5 +249,24 @@ export interface PlayerStats {
   // Unique player ids this player has had as a doubles teammate / has
   // faced as an opponent (singles or doubles), across all rounds so far.
   partnerIds: string[];
+  opponentIds: string[];
+}
+
+// Aggregated stats for one fixed Team across all rounds played so far —
+// the Doubles + Fixed Teams equivalent of PlayerStats, computed by
+// computeTeamStats in utils/tournament.ts. Points are tracked both ways
+// (PF/PA/difference), matching Pools & Knockout's PoolStanding, since a
+// fixed team's results are naturally presented as a team record rather
+// than points-only.
+export interface TeamStats {
+  teamId: string;
+  gamesPlayed: number;
+  byes: number;
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  pointDifference: number;
+  // Unique team ids this team has faced, across all rounds so far.
   opponentIds: string[];
 }

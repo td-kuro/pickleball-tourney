@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Player, Round, TournamentSettings } from '../types';
+import type { Player, Round, Team, TournamentSettings } from '../types';
 import { AllRoundsView } from './AllRoundsView';
 import { CurrentRoundView } from './CurrentRoundView';
 
@@ -13,6 +13,11 @@ interface RoundsPageProps {
   onNextRound: () => void;
   onFinishSession: () => void;
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
+  // Only relevant (and only ever non-empty) for Doubles + Fixed Teams —
+  // canGenerateRound needs it to validate "enough teams", see
+  // CurrentRoundView. Defaults to empty so callers outside Fixed Teams
+  // mode don't need to pass it.
+  teams?: Team[];
 }
 
 // Parent for the "Rounds" tab: a Current Round / All Rounds toggle above
@@ -29,6 +34,7 @@ export function RoundsPage({
   onNextRound,
   onFinishSession,
   onSetScore,
+  teams = [],
 }: RoundsPageProps) {
   const [subView, setSubView] = useState<RoundsSubView>('current');
 
@@ -62,6 +68,7 @@ export function RoundsPage({
           onNextRound={onNextRound}
           onFinishSession={onFinishSession}
           onSetScore={onSetScore}
+          teams={teams}
         />
       ) : (
         <AllRoundsView rounds={rounds} players={players} settings={settings} />

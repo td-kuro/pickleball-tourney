@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import type { Match, Player, Round, TournamentSettings } from '../types';
+import type { Match, Player, Round, Team, TournamentSettings } from '../types';
 import { canGenerateRound, getMatchWinner, isScoringEnabled, socialScoringModeLabel } from '../utils/tournament';
 import { ByeList } from './ByeList';
 
@@ -11,6 +11,9 @@ interface CurrentRoundViewProps {
   onNextRound: () => void;
   onFinishSession: () => void;
   onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
+  // Only relevant (and only ever non-empty) for Doubles + Fixed Teams — see
+  // canGenerateRound, which needs it to validate "enough teams".
+  teams?: Team[];
 }
 
 // The live/active round: matches, score entry, and who's on a bye. This is
@@ -23,12 +26,13 @@ export function CurrentRoundView({
   onNextRound,
   onFinishSession,
   onSetScore,
+  teams = [],
 }: CurrentRoundViewProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   // Not necessarily the last entry in `rounds` — Social Play pre-generates
   // "upcoming" rounds after this one, see useTournament.startSession.
   const currentRound = rounds.find((round) => round.status === 'current');
-  const generateCheck = canGenerateRound(players, settings, currentRound);
+  const generateCheck = canGenerateRound(players, settings, currentRound, teams);
   const showScoring = isScoringEnabled(settings);
 
   const isFinalPlannedRound = plannedRounds != null && currentRound?.roundNumber === plannedRounds;

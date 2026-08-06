@@ -23,12 +23,16 @@ export function usePoolsKnockout() {
   const [bracket, setBracket] = useLocalStorage<KnockoutBracket | null>(BRACKET_KEY, null);
   const [stage, setStage] = useLocalStorage<TournamentStage>(STAGE_KEY, 'setup');
 
-  // Called by "Start Matches" when Pools & Knockout is selected: forms
-  // teams from the current player list, assigns them evenly to pools, and
-  // generates every pool's full round-robin match list up front.
-  function startPoolStage(players: Player[], settings: TournamentSettings) {
+  // Called by "Start Matches" when Pools & Knockout is selected: sources
+  // teams (Doubles + Fixed Teams uses the user's own useTeams roster
+  // directly, so declared pairings/team names carry through to pools and
+  // the bracket; everything else auto-pairs from the player list — see
+  // formTeams), assigns them evenly to pools, and generates every pool's
+  // full round-robin match list up front.
+  function startPoolStage(players: Player[], settings: TournamentSettings, fixedTeams: Team[] = []) {
     const pk = settings.poolKnockoutSettings;
-    const newTeams = formTeams(players, settings.matchType);
+    const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
+    const newTeams = useFixedTeams ? fixedTeams : formTeams(players, settings.matchType);
     const newPools = assignPools(newTeams, pk.numberOfPools, pk.teamsPerPool).map((pool) => ({
       ...pool,
       matches: generatePoolMatches(pool.teamIds, pk.timesEachTeamPlays, settings.courts),

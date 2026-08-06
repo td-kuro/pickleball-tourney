@@ -1,39 +1,55 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
 import { FinalResults } from './components/FinalResults';
+import { FixedTeamResults } from './components/FixedTeamResults';
 import { Leaderboard } from './components/Leaderboard';
 import { PickleballLogo } from './components/PickleballLogo';
-import { PlayerForm } from './components/PlayerForm';
-import { PlayerList } from './components/PlayerList';
 import { PlayerStats } from './components/PlayerStats';
 import { PoolsKnockoutPage } from './components/PoolsKnockoutPage';
+import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
-import { TournamentSetup } from './components/TournamentSetup';
+import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
 import { usePoolsKnockout } from './hooks/usePoolsKnockout';
+import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
-import { canGenerateRound } from './utils/tournament';
+import { canGenerateRound, isFixedTeamsMode } from './utils/tournament';
 
 type View = 'setup' | 'rounds' | 'results';
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
+  const { teams, teamPlayers, addTeam, updateTeam, removeTeam, removeAllTeams } = useTeams();
   const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const poolsKnockout = usePoolsKnockout();
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const isFixedTeams = isFixedTeamsMode(settings);
+  // Whichever roster the current mode actually plays with: individual
+  // players for Singles/Rotating Doubles, or the players embedded in each
+  // fixed team for Doubles + Fixed Teams — see useTeams and
+  // utils/tournament.ts's canGenerateRound/createFixedTeamRound.
+  const effectivePlayers = isFixedTeams ? teamPlayers : players;
   const [view, setView] = useState<View>(rounds.length > 0 || poolsKnockout.stage !== 'setup' ? 'rounds' : 'setup');
-  const [bulkCount, setBulkCount] = useState('');
 
   const tournamentStarted = isPoolsKnockout ? poolsKnockout.stage !== 'setup' : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
-  const startCheck = isPoolsKnockout ? validatePoolsKnockoutSetup(players, settings) : canGenerateRound(players, settings);
-  const bulkCountValue = parseInt(bulkCount, 10);
-  const resultsLabel = isPoolsKnockout ? 'Final Results' : settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
+  const startCheck = isPoolsKnockout
+    ? validatePoolsKnockoutSetup(effectivePlayers, settings, teams)
+    : canGenerateRound(effectivePlayers, settings, undefined, teams);
+  const resultsLabel = isPoolsKnockout
+    ? 'Final Results'
+    : isFixedTeams
+      ? settings.playMode === 'tournament'
+        ? 'Team Leaderboard'
+        : 'Pairing Stats'
+      : settings.playMode === 'tournament'
+        ? 'Leaderboard'
+        : 'Player Stats';
   const tournamentLabel = isPoolsKnockout ? 'Tournament' : 'Rounds';
   const isSocial = settings.playMode === 'social';
   const resetLabel = isSocial ? 'Reset Social Play' : 'Reset Tournament';
@@ -50,9 +66,9 @@ function App() {
 
   function handleStartMatches() {
     if (isPoolsKnockout) {
-      poolsKnockout.startPoolStage(players, settings);
+      poolsKnockout.startPoolStage(players, settings, teams);
     } else {
-      startSession(players);
+      startSession(players, teams);
     }
     setView('rounds');
   }
@@ -61,30 +77,18 @@ function App() {
     setView('results');
   }
 
-  function handleGenerateSlots(event: FormEvent) {
-    event.preventDefault();
-    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
-    addPlayersBulk(bulkCountValue);
-    setBulkCount('');
-  }
-
   function handleReset() {
     const confirmed = window.confirm(
       isSocial
-        ? 'Are you sure you want to reset Social Play? This will clear all players, rounds, scores, and stats.'
-        : 'Are you sure you want to reset the tournament? This will clear all players, rounds, scores, and stats.',
+        ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
+        : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
     );
     if (confirmed) {
       resetTournament();
       poolsKnockout.resetPoolsKnockout();
       removeAllPlayers();
+      removeAllTeams();
       setView('setup');
-    }
-  }
-
-  function handleRemoveAllPlayers() {
-    if (window.confirm('Are you sure you want to remove all players?')) {
-      removeAllPlayers();
     }
   }
 
@@ -136,48 +140,30 @@ function App() {
 
       {view === 'setup' && (
         <div className="setup-view">
-          <div className="setup-grid">
-            <section className="card">
-              <h2>Add Player</h2>
-              <PlayerForm onSubmit={addPlayer} />
-
-              <div className="bulk-add">
-                <p className="bulk-add-label">Or generate multiple player slots</p>
-                <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
-                  <input
-                    type="number"
-                    min={1}
-                    value={bulkCount}
-                    onChange={(event) => setBulkCount(event.target.value)}
-                    placeholder="e.g. 12"
-                    aria-label="Number of players to generate"
-                  />
-                  <button type="submit" className="secondary" disabled={Number.isNaN(bulkCountValue) || bulkCountValue < 1}>
-                    Generate Player Slots
-                  </button>
-                </form>
-              </div>
-            </section>
-
-            <section className="card">
-              <div className="section-heading-row">
-                <h2>Players ({players.length})</h2>
-                {players.length > 0 && (
-                  <button type="button" className="danger" onClick={handleRemoveAllPlayers}>
-                    Remove All Players
-                  </button>
-                )}
-              </div>
-              <PlayerList players={players} onUpdate={updatePlayer} onRemove={removePlayer} />
-            </section>
-          </div>
-
           <TournamentSetup
             settings={settings}
             onChange={updateSettings}
-            playerCount={players.length}
+            rosterCount={isFixedTeams ? teams.length : players.length}
             tournamentInProgress={tournamentStarted}
           />
+
+          <RosterSetup
+            settings={settings}
+            players={players}
+            onAddPlayer={addPlayer}
+            onAddPlayersBulk={addPlayersBulk}
+            onUpdatePlayer={updatePlayer}
+            onRemovePlayer={removePlayer}
+            onRemoveAllPlayers={removeAllPlayers}
+            teams={teams}
+            teamPlayers={teamPlayers}
+            onAddTeam={addTeam}
+            onUpdateTeam={updateTeam}
+            onRemoveTeam={removeTeam}
+            onRemoveAllTeams={removeAllTeams}
+          />
+
+          {settings.playMode === 'social' && <SocialSessionSetup settings={settings} onChange={updateSettings} />}
 
           <section className="card start-matches-card">
             {!tournamentStarted ? (
@@ -216,13 +202,14 @@ function App() {
           />
         ) : (
           <RoundsPage
-            players={players}
+            players={effectivePlayers}
             settings={settings}
             rounds={rounds}
             plannedRounds={plannedRounds}
-            onNextRound={() => nextRound(players)}
+            onNextRound={() => nextRound(players, teams)}
             onFinishSession={handleFinishSession}
             onSetScore={setMatchScore}
+            teams={teams}
           />
         ))}
 
@@ -235,13 +222,15 @@ function App() {
             bracket={poolsKnockout.bracket}
             teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
           />
+        ) : isFixedTeams ? (
+          <FixedTeamResults teams={teams} rounds={reachedRounds} settings={settings} />
         ) : settings.playMode === 'tournament' ? (
           // Stats only reflect rounds actually reached (current/completed)
           // — Social Play pre-generates "upcoming" rounds it hasn't played
           // yet, and those shouldn't count toward byes/games-played/etc.
-          <Leaderboard players={players} rounds={reachedRounds} />
+          <Leaderboard players={effectivePlayers} rounds={reachedRounds} />
         ) : (
-          <PlayerStats players={players} rounds={reachedRounds} settings={settings} />
+          <PlayerStats players={effectivePlayers} rounds={reachedRounds} settings={settings} />
         ))}
     </div>
   );

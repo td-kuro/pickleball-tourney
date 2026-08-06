@@ -12,6 +12,8 @@ import type {
   SessionPlan,
   SessionTiming,
   SocialScoringMode,
+  Team,
+  TeamStats,
   TournamentSettings,
 } from '../types';
 
@@ -78,28 +80,53 @@ export function isRoundComplete(round: Round): boolean {
   return round.matches.every((match) => match.scoreA != null && match.scoreB != null);
 }
 
+// True for Doubles + Fixed Teams — the one combination where the roster is
+// a list of pre-declared Teams (see useTeams) rather than a list of
+// Players re-paired every round.
+export function isFixedTeamsMode(settings: TournamentSettings): boolean {
+  return settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
+}
+
+// `players` should be whichever roster is actually relevant to the current
+// mode: the regular player list for Singles/Rotating Doubles, or
+// useTeams's `teamPlayers` (the players embedded in each fixed team) for
+// Fixed Teams — see App.tsx. `teams` is only checked in Fixed Teams mode.
 export function canGenerateRound(
   players: Player[],
   settings: TournamentSettings,
   currentRound?: Round,
+  teams: Team[] = [],
 ): { ok: true } | { ok: false; reason: string } {
   if (settings.courts < 1) {
     return { ok: false, reason: 'Number of courts must be at least 1.' };
   }
 
-  const needed = playersNeededPerMatch(settings.matchType);
-  if (players.length < needed) {
-    return {
-      ok: false,
-      reason:
-        settings.matchType === 'singles'
-          ? 'Singles requires at least 2 players.'
-          : 'Doubles requires at least 4 players.',
-    };
+  const fixedTeams = isFixedTeamsMode(settings);
+
+  if (fixedTeams) {
+    if (teams.length < 2) {
+      return { ok: false, reason: 'Fixed Teams requires at least 2 teams.' };
+    }
+  } else {
+    const needed = playersNeededPerMatch(settings.matchType);
+    if (players.length < needed) {
+      return {
+        ok: false,
+        reason:
+          settings.matchType === 'singles'
+            ? 'Singles requires at least 2 players.'
+            : 'Doubles requires at least 4 players.',
+      };
+    }
   }
 
   if (players.some((player) => player.name.trim() === '')) {
-    return { ok: false, reason: 'Every player needs a name before starting matches.' };
+    return {
+      ok: false,
+      reason: fixedTeams
+        ? 'Every team needs both player names before starting matches.'
+        : 'Every player needs a name before starting matches.',
+    };
   }
 
   if (settings.playMode === 'social') {
@@ -389,6 +416,113 @@ export function createRound(
   };
 }
 
+// A canonical, order-independent key for a team's 2 players, used to map a
+// Match's MatchSide (which only stores playerIds) back to the fixed Team
+// it came from.
+function teamKey(playerIds: string[]): string {
+  return [...playerIds].sort().join('|');
+}
+
+function buildTeamMatchHistory(rounds: Round[], teams: Team[]): MeetingCounts {
+  const teamIdByKey = new Map(teams.map((team) => [teamKey(team.playerIds), team.id]));
+  const opponents: MeetingCounts = new Map();
+
+  for (const round of rounds) {
+    for (const match of round.matches) {
+      const aId = teamIdByKey.get(teamKey(match.teamA.playerIds));
+      const bId = teamIdByKey.get(teamKey(match.teamB.playerIds));
+      if (!aId || !bId) continue;
+      bumpMeeting(opponents, aId, bId);
+      bumpMeeting(opponents, bId, aId);
+    }
+  }
+
+  return opponents;
+}
+
+// Doubles + Fixed Teams round generation. Structurally this is the same
+// problem as Singles (rotate WHICH two competitors play each other,
+// favouring opponents faced the fewest times, with a fair bye rotation) —
+// the only difference is the competitor is a pre-formed 2-player Team
+// instead of a lone Player, so this reuses pairByFewestMeetings directly
+// on Team[] rather than re-forming partnerships every round like the
+// Doubles branch of createRound above.
+export function createFixedTeamRound(
+  teams: Team[],
+  settings: TournamentSettings,
+  roundNumber: number,
+  priorRounds: Round[] = [],
+  status: RoundStatus = 'current',
+): Round {
+  // A doubles court seats exactly 2 teams (4 players).
+  const usableCourts = Math.min(settings.courts, Math.floor(teams.length / 2));
+  const playingTeamsCount = usableCourts * 2;
+
+  // --- Bye assignment -------------------------------------------------
+  // Byes are given to whole teams first (both players sit out together),
+  // chosen by fewest team byes so far — the direct team-level equivalent
+  // of createRound's player bye rotation above. `byeSlotsNeeded` is the
+  // number of individual players who need to sit out this round.
+  //
+  // Because every fixed team has exactly 2 players (useTeams only ever
+  // creates complete pairs) and a court always seats exactly 2 whole
+  // teams, `teams.length * 2` and `usableCourts * 4` are both even, so
+  // their difference is too — meaning `byeSlotsNeeded` is always even in
+  // practice, and the whole-team-bye path below is the only one that
+  // actually runs. The "split" path (Round.splitTeamIds) is still
+  // implemented for the single-bye-remaining case the design calls for,
+  // so the data model and behaviour are correct if that assumption is
+  // ever relaxed (e.g. teams with an odd player count) — it just isn't
+  // reachable today given the app's own validation rules. In this first
+  // version a split team's other player also sits out rather than being
+  // paired ad hoc with a leftover player from a different team, since a
+  // Fixed Teams doubles match needs 2 complete teams; splitTeamIds still
+  // records the distinction from an ordinary whole-team bye.
+  const byeSlotsNeeded = teams.length * 2 - playingTeamsCount * 2;
+  const wholeTeamByeCount = Math.floor(byeSlotsNeeded / 2);
+  const hasOddSplitSlot = byeSlotsNeeded % 2 === 1;
+
+  const teamStatsById = new Map(computeTeamStats(teams, priorRounds).map((s) => [s.teamId, s]));
+  const byePriority = teams
+    .map((team, index) => ({ team, index, byes: teamStatsById.get(team.id)?.byes ?? 0 }))
+    .sort((a, b) => a.byes - b.byes || a.index - b.index);
+
+  const byeTeamIds = byePriority.slice(0, wholeTeamByeCount).map((entry) => entry.team.id);
+  const splitTeamIds: string[] = [];
+  const byePlayerIds = byeTeamIds.flatMap((id) => teams.find((team) => team.id === id)!.playerIds);
+
+  if (hasOddSplitSlot) {
+    const splitCandidate = byePriority[wholeTeamByeCount];
+    if (splitCandidate) {
+      splitTeamIds.push(splitCandidate.team.id);
+      byePlayerIds.push(...splitCandidate.team.playerIds);
+    }
+  }
+
+  const sittingOutTeamIds = new Set([...byeTeamIds, ...splitTeamIds]);
+  const playingTeams = teams.filter((team) => !sittingOutTeamIds.has(team.id));
+
+  // --- Opponent pairing -------------------------------------------------
+  const opponents = buildTeamMatchHistory(priorRounds, teams);
+  const pairs = pairByFewestMeetings(playingTeams, opponents);
+  const matches: Match[] = pairs.map(([teamA, teamB], index) => ({
+    id: makeId('match'),
+    court: index + 1,
+    teamA: { playerIds: teamA.playerIds },
+    teamB: { playerIds: teamB.playerIds },
+  }));
+
+  return {
+    id: makeId('round'),
+    roundNumber,
+    matches,
+    byePlayerIds,
+    byeTeamIds,
+    splitTeamIds,
+    status,
+  };
+}
+
 export function getMatchWinner(match: Match): 'A' | 'B' | undefined {
   if (match.scoreA == null || match.scoreB == null || match.scoreA === match.scoreB) {
     return undefined;
@@ -471,4 +605,74 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
   }
 
   return Array.from(statsByPlayer.values());
+}
+
+// The Doubles + Fixed Teams equivalent of computePlayerStats: aggregates
+// each fixed team's record (not each player's) across rounds, tracked
+// both ways (PF/PA/+/-), matching Pools & Knockout's PoolStanding shape —
+// a fixed team's results read naturally as a team record, not a points
+// total. Byes count both whole-team byes and (see createFixedTeamRound)
+// the rare single-player "split" case, since either way the team missed a
+// round together.
+export function computeTeamStats(teams: Team[], rounds: Round[]): TeamStats[] {
+  const teamIdByKey = new Map(teams.map((team) => [teamKey(team.playerIds), team.id]));
+  const statsByTeam = new Map<string, TeamStats>(
+    teams.map((team) => [
+      team.id,
+      {
+        teamId: team.id,
+        gamesPlayed: 0,
+        byes: 0,
+        wins: 0,
+        losses: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifference: 0,
+        opponentIds: [],
+      },
+    ]),
+  );
+  const opponentSets = new Map<string, Set<string>>(teams.map((team) => [team.id, new Set<string>()]));
+
+  for (const round of rounds) {
+    for (const match of round.matches) {
+      const aId = teamIdByKey.get(teamKey(match.teamA.playerIds));
+      const bId = teamIdByKey.get(teamKey(match.teamB.playerIds));
+      const statsA = aId ? statsByTeam.get(aId) : undefined;
+      const statsB = bId ? statsByTeam.get(bId) : undefined;
+      if (!aId || !bId || !statsA || !statsB) continue;
+
+      statsA.gamesPlayed += 1;
+      statsB.gamesPlayed += 1;
+      opponentSets.get(aId)?.add(bId);
+      opponentSets.get(bId)?.add(aId);
+
+      if (match.scoreA == null || match.scoreB == null) continue;
+      statsA.pointsFor += match.scoreA;
+      statsA.pointsAgainst += match.scoreB;
+      statsB.pointsFor += match.scoreB;
+      statsB.pointsAgainst += match.scoreA;
+
+      const winner = getMatchWinner(match);
+      if (winner === 'A') {
+        statsA.wins += 1;
+        statsB.losses += 1;
+      } else if (winner === 'B') {
+        statsB.wins += 1;
+        statsA.losses += 1;
+      }
+    }
+
+    for (const teamId of [...(round.byeTeamIds ?? []), ...(round.splitTeamIds ?? [])]) {
+      const stats = statsByTeam.get(teamId);
+      if (stats) stats.byes += 1;
+    }
+  }
+
+  for (const stats of statsByTeam.values()) {
+    stats.pointDifference = stats.pointsFor - stats.pointsAgainst;
+    stats.opponentIds = Array.from(opponentSets.get(stats.teamId) ?? []);
+  }
+
+  return Array.from(statsByTeam.values());
 }

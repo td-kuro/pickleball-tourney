@@ -1,6 +1,12 @@
-import type { Player, Round, TournamentSettings } from '../types';
+import type { Player, Round, Team, TournamentSettings } from '../types';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
-import { calculateSessionPlan, createRound, DEFAULT_SESSION_TIMING } from '../utils/tournament';
+import {
+  calculateSessionPlan,
+  createFixedTeamRound,
+  createRound,
+  DEFAULT_SESSION_TIMING,
+  isFixedTeamsMode,
+} from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:settings';
@@ -11,10 +17,13 @@ const defaultSettings: TournamentSettings = {
   playMode: 'tournament',
   socialScoringMode: 'scoresAndWins',
   courts: 1,
-  matchType: 'singles',
+  // Doubles is the default match type — most pickleball is doubles, and
+  // it's the format that benefits most from this app's fair rotation.
+  matchType: 'doubles',
   sessionTiming: DEFAULT_SESSION_TIMING,
   tournamentFormat: 'leaderboard',
   poolKnockoutSettings: DEFAULT_POOL_KNOCKOUT_SETTINGS,
+  doublesPairingMode: 'rotating-players',
 };
 
 // Backfills `status` for rounds saved by a version of the app from before
@@ -43,6 +52,7 @@ export function useTournament() {
     sessionTiming: storedSettings.sessionTiming ?? DEFAULT_SESSION_TIMING,
     tournamentFormat: storedSettings.tournamentFormat ?? 'leaderboard',
     poolKnockoutSettings: storedSettings.poolKnockoutSettings ?? DEFAULT_POOL_KNOCKOUT_SETTINGS,
+    doublesPairingMode: storedSettings.doublesPairingMode ?? 'rotating-players',
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
@@ -50,6 +60,22 @@ export function useTournament() {
 
   function updateSettings(next: TournamentSettings) {
     setSettings(next);
+  }
+
+  // Doubles + Fixed Teams uses createFixedTeamRound (teams stay together,
+  // only the opponent rotates); everything else uses createRound
+  // (Singles, or Doubles + Rotating Players, which re-forms partnerships
+  // every round). `teams` is only used in the former case.
+  function generateRound(
+    players: Player[],
+    teams: Team[],
+    roundNumber: number,
+    priorRounds: Round[],
+    status: Round['status'],
+  ): Round {
+    return isFixedTeamsMode(settings)
+      ? createFixedTeamRound(teams, settings, roundNumber, priorRounds, status)
+      : createRound(players, settings, roundNumber, priorRounds, status);
   }
 
   // Called by "Start Matches". Tournament Mode isn't time-boxed, so it just
@@ -61,10 +87,10 @@ export function useTournament() {
   // rotation across the whole session), Round 1 is marked "current", and
   // the rest are "upcoming" placeholders that already hold their real
   // matchups.
-  function startSession(players: Player[]) {
+  function startSession(players: Player[], teams: Team[] = []) {
     if (settings.playMode !== 'social') {
       setPlannedRounds(null);
-      setRounds([createRound(players, settings, 1, [], 'current')]);
+      setRounds([generateRound(players, teams, 1, [], 'current')]);
       return;
     }
 
@@ -74,7 +100,7 @@ export function useTournament() {
     const generated: Round[] = [];
     for (let roundNumber = 1; roundNumber <= estimatedRounds; roundNumber++) {
       generated.push(
-        createRound(players, settings, roundNumber, generated, roundNumber === 1 ? 'current' : 'upcoming'),
+        generateRound(players, teams, roundNumber, generated, roundNumber === 1 ? 'current' : 'upcoming'),
       );
     }
     setPlannedRounds(estimatedRounds);
@@ -86,7 +112,7 @@ export function useTournament() {
   // round to "current" (Social Play, still within the planned schedule) or
   // generates a brand new round (Tournament Mode, which never pre-plans;
   // or Social Play once it's run past its planned rounds).
-  function nextRound(players: Player[]) {
+  function nextRound(players: Player[], teams: Team[] = []) {
     const currentIndex = rounds.findIndex((round) => round.status === 'current');
     if (currentIndex === -1) return;
 
@@ -104,7 +130,7 @@ export function useTournament() {
       return;
     }
 
-    const newRound = createRound(players, settings, withCompleted.length + 1, withCompleted, 'current');
+    const newRound = generateRound(players, teams, withCompleted.length + 1, withCompleted, 'current');
     setRounds([...withCompleted, newRound]);
   }
 

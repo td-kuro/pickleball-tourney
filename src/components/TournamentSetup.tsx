@@ -1,5 +1,6 @@
 import type { ChangeEvent } from 'react';
 import type {
+  DoublesPairingMode,
   MatchType,
   PlayMode,
   PoolKnockoutSettings,
@@ -11,10 +12,8 @@ import type {
 import { playersPerTeam, teamsNeededFor } from '../utils/poolsKnockout';
 import {
   calculateSessionPlan,
-  maxPlayersForRound,
   MAX_GAME_TIME_MINUTES,
   MIN_GAME_TIME_MINUTES,
-  playersNeededPerMatch,
   socialScoringModeLabel,
   validateSessionTiming,
 } from '../utils/tournament';
@@ -22,19 +21,29 @@ import {
 interface TournamentSetupProps {
   settings: TournamentSettings;
   onChange: (settings: TournamentSettings) => void;
-  playerCount: number;
-  // True once Start Matches has been clicked. Only the (new) Tournament
-  // Format toggle locks in this state — everything else keeps its existing
+  // Player count (Singles/Rotating Doubles) or team count (Fixed Teams) —
+  // whichever the current mode actually needs, for the Pools & Knockout
+  // live summary. See App.tsx.
+  rosterCount: number;
+  // True once Start Matches has been clicked. Only the Tournament Format
+  // toggle locks in this state — everything else keeps its existing
   // "editable any time, applies going forward" behaviour.
   tournamentInProgress: boolean;
 }
 
 const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scoresAndWins'];
 
-export function TournamentSetup({ settings, onChange, playerCount, tournamentInProgress }: TournamentSetupProps) {
-  const perCourt = playersNeededPerMatch(settings.matchType);
-  const maxPlayers = maxPlayersForRound(settings);
+// Setup fields 1–5 (see App.tsx for the full page order): Match Type, Play
+// Mode, Tournament Format + Pool/Knockout Setup, Doubles Pairing Mode, and
+// Number of Courts. Player/Team setup (6) and Social Play timing (7) sit
+// between/after this in App.tsx — see RosterSetup and SocialSessionSetup
+// below.
+export function TournamentSetup({ settings, onChange, rosterCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+
+  function handleMatchTypeChange(matchType: MatchType) {
+    onChange({ ...settings, matchType });
+  }
 
   function handlePlayModeChange(playMode: PlayMode) {
     onChange({ ...settings, playMode });
@@ -44,8 +53,8 @@ export function TournamentSetup({ settings, onChange, playerCount, tournamentInP
     onChange({ ...settings, tournamentFormat });
   }
 
-  function handleSocialScoringChange(socialScoringMode: SocialScoringMode) {
-    onChange({ ...settings, socialScoringMode });
+  function handleDoublesPairingModeChange(doublesPairingMode: DoublesPairingMode) {
+    onChange({ ...settings, doublesPairingMode });
   }
 
   function handleCourtsChange(event: ChangeEvent<HTMLInputElement>) {
@@ -54,13 +63,34 @@ export function TournamentSetup({ settings, onChange, playerCount, tournamentInP
     onChange({ ...settings, courts });
   }
 
-  function handleMatchTypeChange(matchType: MatchType) {
-    onChange({ ...settings, matchType });
-  }
-
   return (
     <section className="card">
       <h2>Session Setup</h2>
+
+      <div className="form-row">
+        <span>Match Type</span>
+        <div className="toggle-group" role="group" aria-label="Match type">
+          <button
+            type="button"
+            className={settings.matchType === 'singles' ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handleMatchTypeChange('singles')}
+          >
+            Singles
+          </button>
+          <button
+            type="button"
+            className={settings.matchType === 'doubles' ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handleMatchTypeChange('doubles')}
+          >
+            Doubles
+          </button>
+        </div>
+        <p className="hint">
+          {settings.matchType === 'singles'
+            ? 'Player vs. player — each court needs 2 players.'
+            : 'Team vs. team — each court needs 4 players. Choose how partners are decided below.'}
+        </p>
+      </div>
 
       <div className="form-row">
         <span>Play Mode</span>
@@ -118,67 +148,85 @@ export function TournamentSetup({ settings, onChange, playerCount, tournamentInP
         </div>
       )}
 
-      {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} playerCount={playerCount} />}
+      {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} rosterCount={rosterCount} />}
 
-      {settings.playMode === 'social' && (
+      {settings.matchType === 'doubles' && (
         <div className="form-row">
-          <span>Scoring</span>
-          <div className="toggle-group" role="group" aria-label="Social scoring mode">
-            {SOCIAL_SCORING_MODES.map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                className={settings.socialScoringMode === mode ? 'toggle-option active' : 'toggle-option'}
-                onClick={() => handleSocialScoringChange(mode)}
-              >
-                {socialScoringModeLabel(mode)}
-              </button>
-            ))}
+          <span>Doubles Setup</span>
+          <div className="toggle-group" role="group" aria-label="Doubles pairing mode">
+            <button
+              type="button"
+              className={settings.doublesPairingMode === 'rotating-players' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handleDoublesPairingModeChange('rotating-players')}
+            >
+              Add Player
+            </button>
+            <button
+              type="button"
+              className={
+                settings.doublesPairingMode === 'fixed-teams' ? 'toggle-option active toggle-option-green' : 'toggle-option'
+              }
+              onClick={() => handleDoublesPairingModeChange('fixed-teams')}
+            >
+              Add Team
+            </button>
           </div>
           <p className="hint">
-            {settings.socialScoringMode === 'none' &&
-              'No score entry — just generate rounds and rotate players fairly.'}
-            {settings.socialScoringMode === 'scoresOnly' &&
-              'Scores and total points are tracked, but players are not ranked competitively.'}
-            {settings.socialScoringMode === 'scoresAndWins' &&
-              'Scores, points, wins, and losses are tracked — still shown as casual Player Stats, not a leaderboard.'}
+            {settings.doublesPairingMode === 'rotating-players'
+              ? 'Add Player: players rotate partners automatically — best for Social Play where partners rotate.'
+              : 'Add Team: fixed pairings stay together where possible, for the whole tournament/session.'}
           </p>
         </div>
       )}
-
-      {settings.playMode === 'social' && <SessionTimingSection settings={settings} onChange={onChange} />}
 
       <div className="form-row">
         <label htmlFor="courts">Number of Courts</label>
         <input id="courts" type="number" min={1} value={settings.courts} onChange={handleCourtsChange} />
       </div>
+    </section>
+  );
+}
 
+interface SocialSessionSetupProps {
+  settings: TournamentSettings;
+  onChange: (settings: TournamentSettings) => void;
+}
+
+// Setup field 7 (see App.tsx): Social Scoring + Session Timing, both
+// Social Play only. Rendered after the player/team roster (field 6), so
+// this is a separate component from TournamentSetup above rather than
+// part of it.
+export function SocialSessionSetup({ settings, onChange }: SocialSessionSetupProps) {
+  function handleSocialScoringChange(socialScoringMode: SocialScoringMode) {
+    onChange({ ...settings, socialScoringMode });
+  }
+
+  return (
+    <section className="card">
       <div className="form-row">
-        <span>Match Type</span>
-        <div className="toggle-group" role="group" aria-label="Match type">
-          <button
-            type="button"
-            className={settings.matchType === 'singles' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handleMatchTypeChange('singles')}
-          >
-            Singles
-          </button>
-          <button
-            type="button"
-            className={settings.matchType === 'doubles' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handleMatchTypeChange('doubles')}
-          >
-            Doubles
-          </button>
+        <span>Scoring</span>
+        <div className="toggle-group" role="group" aria-label="Social scoring mode">
+          {SOCIAL_SCORING_MODES.map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              className={settings.socialScoringMode === mode ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handleSocialScoringChange(mode)}
+            >
+              {socialScoringModeLabel(mode)}
+            </button>
+          ))}
         </div>
+        <p className="hint">
+          {settings.socialScoringMode === 'none' && 'No score entry — just generate rounds and rotate players fairly.'}
+          {settings.socialScoringMode === 'scoresOnly' &&
+            'Scores and total points are tracked, but players are not ranked competitively.'}
+          {settings.socialScoringMode === 'scoresAndWins' &&
+            'Scores, points, wins, and losses are tracked — still shown as casual Player Stats, not a leaderboard.'}
+        </p>
       </div>
 
-      {!isPoolsKnockout && (
-        <p className="hint">
-          {settings.courts} court{settings.courts === 1 ? '' : 's'} × {perCourt} players per court = up to{' '}
-          {maxPlayers} players per round ({playerCount} player{playerCount === 1 ? '' : 's'} added).
-        </p>
-      )}
+      <SessionTimingSection settings={settings} onChange={onChange} />
     </section>
   );
 }
@@ -264,17 +312,19 @@ function SessionTimingSection({ settings, onChange }: SessionTimingSectionProps)
 interface PoolKnockoutSetupSectionProps {
   settings: TournamentSettings;
   onChange: (settings: TournamentSettings) => void;
-  playerCount: number;
+  rosterCount: number;
 }
 
 // Pools & Knockout only: number of pools, teams per pool, how many times
 // each pair of teams in a pool plays each other, and how many teams
 // advance from each pool — plus a live summary of how many teams/players
 // that adds up to needing. Purely a planning aid, same spirit as
-// SessionTimingSection above.
-function PoolKnockoutSetupSection({ settings, onChange, playerCount }: PoolKnockoutSetupSectionProps) {
+// SessionTimingSection above. `rosterCount` is players for Singles/Rotating
+// Doubles, or teams for Fixed Teams — see App.tsx.
+function PoolKnockoutSetupSection({ settings, onChange, rosterCount }: PoolKnockoutSetupSectionProps) {
   const pk = settings.poolKnockoutSettings;
   const teamsNeeded = teamsNeededFor(pk);
+  const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
   const perTeam = playersPerTeam(settings.matchType);
   const playersNeeded = teamsNeeded * perTeam;
   const knockoutSize = pk.numberOfPools * pk.teamsAdvancingPerPool;
@@ -339,20 +389,29 @@ function PoolKnockoutSetupSection({ settings, onChange, playerCount }: PoolKnock
         <strong>
           {teamsNeeded} team{teamsNeeded === 1 ? '' : 's'}
         </strong>{' '}
-        — {playersNeeded} player{playersNeeded === 1 ? '' : 's'} in {settings.matchType === 'singles' ? 'Singles' : 'Doubles'}{' '}
-        (you have {playerCount}). Top {pk.teamsAdvancingPerPool} from each pool advances to a {knockoutSize}-team
-        knockout bracket.
+        {useFixedTeams
+          ? `(you have ${rosterCount})`
+          : `— ${playersNeeded} player${playersNeeded === 1 ? '' : 's'} in ${
+              settings.matchType === 'singles' ? 'Singles' : 'Doubles'
+            } (you have ${rosterCount})`}
+        . Top {pk.teamsAdvancingPerPool} from each pool advances to a {knockoutSize}-team knockout bracket.
       </p>
 
       {pk.teamsAdvancingPerPool > pk.teamsPerPool && (
         <p className="hint error">Teams advancing per pool cannot be more than teams per pool.</p>
       )}
       {knockoutSize < 2 && <p className="hint error">At least 2 teams total must advance to the knockout bracket.</p>}
-      {playerCount !== playersNeeded && (
-        <p className="hint error">
-          You have {playerCount} player{playerCount === 1 ? '' : 's'}, but this setup needs exactly {playersNeeded}.
-        </p>
-      )}
+      {useFixedTeams
+        ? rosterCount !== teamsNeeded && (
+            <p className="hint error">
+              You have {rosterCount} team{rosterCount === 1 ? '' : 's'}, but this setup needs exactly {teamsNeeded}.
+            </p>
+          )
+        : rosterCount !== playersNeeded && (
+            <p className="hint error">
+              You have {rosterCount} player{rosterCount === 1 ? '' : 's'}, but this setup needs exactly {playersNeeded}.
+            </p>
+          )}
     </div>
   );
 }

@@ -46,9 +46,18 @@ export function teamsNeededFor(settings: PoolKnockoutSettings): number {
 // per-round rotation) — so unlike the rest of the app, this requires
 // exactly enough players, not "at least". Keeping it exact avoids having
 // to decide which extra players silently sit out.
+//
+// `players` should be the roster relevant to the current mode (see
+// canGenerateRound in utils/tournament.ts for the same convention): the
+// regular player list normally, or useTeams's `teamPlayers` when Doubles +
+// Fixed Teams is active — in which case `fixedTeams` (useTeams's `teams`)
+// is what actually gets checked against the pool configuration, since
+// those teams are used directly rather than auto-paired from `players`
+// (see formTeams / usePoolsKnockout.startPoolStage).
 export function validatePoolsKnockoutSetup(
   players: Player[],
   settings: TournamentSettings,
+  fixedTeams: Team[] = [],
 ): { ok: true } | { ok: false; reason: string } {
   const pk = settings.poolKnockoutSettings;
 
@@ -66,11 +75,30 @@ export function validatePoolsKnockoutSetup(
   if (pk.numberOfPools * pk.teamsAdvancingPerPool < 2) {
     return { ok: false, reason: 'At least 2 teams total must advance to the knockout bracket.' };
   }
+
+  const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
+  const teamsNeeded = teamsNeededFor(pk);
+
+  if (useFixedTeams) {
+    if (players.some((player) => player.name.trim() === '')) {
+      return { ok: false, reason: 'Every team needs both player names before starting matches.' };
+    }
+    if (fixedTeams.length !== teamsNeeded) {
+      return {
+        ok: false,
+        reason:
+          `Pools & Knockout needs exactly ${teamsNeeded} team${teamsNeeded === 1 ? '' : 's'} for ` +
+          `${pk.numberOfPools} pool${pk.numberOfPools === 1 ? '' : 's'} × ${pk.teamsPerPool} teams. ` +
+          `You have ${fixedTeams.length}.`,
+      };
+    }
+    return { ok: true };
+  }
+
   if (players.some((player) => player.name.trim() === '')) {
     return { ok: false, reason: 'Every player needs a name before starting matches.' };
   }
 
-  const teamsNeeded = teamsNeededFor(pk);
   const perTeam = playersPerTeam(settings.matchType);
   const playersNeeded = teamsNeeded * perTeam;
 
@@ -94,10 +122,14 @@ function averageRating(a?: number, b?: number): number | undefined {
   return (a + b) / 2;
 }
 
-// Singles: one team per player. Doubles: teams are fixed pairs, formed by
-// taking players two at a time in list order — simple and predictable,
-// though it means player order matters (there's no separate "assign
-// partners" step in this first version).
+// Singles, or Doubles + Rotating Players: teams are auto-paired for this
+// tournament only (isFixedTeam: false) rather than user-declared — one
+// team per player in Singles, or fixed pairs formed by taking players two
+// at a time in list order for Doubles (simple and predictable, though it
+// means player order matters — there's no separate "assign partners" step
+// in this first version). Doubles + Fixed Teams doesn't call this at all;
+// it uses the user's own useTeams roster directly — see
+// usePoolsKnockout.startPoolStage.
 export function formTeams(players: Player[], matchType: MatchType): Team[] {
   if (matchType === 'singles') {
     return players.map((player) => ({
@@ -105,6 +137,7 @@ export function formTeams(players: Player[], matchType: MatchType): Team[] {
       name: player.name,
       playerIds: [player.id],
       rating: player.rating,
+      isFixedTeam: false,
     }));
   }
 
@@ -117,6 +150,7 @@ export function formTeams(players: Player[], matchType: MatchType): Team[] {
       name: `${a.name} & ${b.name}`,
       playerIds: [a.id, b.id],
       rating: averageRating(a.rating, b.rating),
+      isFixedTeam: false,
     });
   }
   return teams;
