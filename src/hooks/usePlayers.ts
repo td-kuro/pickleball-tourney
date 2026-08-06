@@ -35,5 +35,11 @@ export function usePlayers() {
     setPlayers(players.filter((player) => player.id !== id));
   }
 
-  return { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer };
+  // Clears the entire roster — names, ratings, IDs, and any unfilled
+  // generated slots — without touching tournament settings.
+  function removeAllPlayers() {
+    setPlayers([]);
+  }
+
+  return { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers };
 }

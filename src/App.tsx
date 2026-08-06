@@ -16,7 +16,7 @@ import { canGenerateRound } from './utils/tournament';
 type View = 'setup' | 'rounds' | 'results';
 
 function App() {
-  const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer } = usePlayers();
+  const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
   const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const { theme, toggleTheme } = useTheme();
@@ -28,6 +28,8 @@ function App() {
   const startCheck = canGenerateRound(players, settings);
   const bulkCountValue = parseInt(bulkCount, 10);
   const resultsLabel = settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
+  const isSocial = settings.playMode === 'social';
+  const resetLabel = isSocial ? 'Reset Social Play' : 'Reset Tournament';
 
   // Defense in depth: Rounds / results are only ever reachable once Start
   // Matches has actually run (rounds.length > 0). If `view` ever ends up on
@@ -57,11 +59,20 @@ function App() {
 
   function handleReset() {
     const confirmed = window.confirm(
-      'Reset the tournament? This clears all rounds and match results. Players and settings are kept.',
+      isSocial
+        ? 'Are you sure you want to reset Social Play? This will clear all players, rounds, scores, and stats.'
+        : 'Are you sure you want to reset the tournament? This will clear all players, rounds, scores, and stats.',
     );
     if (confirmed) {
       resetTournament();
+      removeAllPlayers();
       setView('setup');
+    }
+  }
+
+  function handleRemoveAllPlayers() {
+    if (window.confirm('Are you sure you want to remove all players?')) {
+      removeAllPlayers();
     }
   }
 
@@ -106,7 +117,7 @@ function App() {
 
         {tournamentStarted && (
           <button type="button" className="reset-button" onClick={handleReset}>
-            Reset Tournament
+            {resetLabel}
           </button>
         )}
       </div>
@@ -137,7 +148,14 @@ function App() {
             </section>
 
             <section className="card">
-              <h2>Players ({players.length})</h2>
+              <div className="section-heading-row">
+                <h2>Players ({players.length})</h2>
+                {players.length > 0 && (
+                  <button type="button" className="danger" onClick={handleRemoveAllPlayers}>
+                    Remove All Players
+                  </button>
+                )}
+              </div>
               <PlayerList players={players} onUpdate={updatePlayer} onRemove={removePlayer} />
             </section>
           </div>

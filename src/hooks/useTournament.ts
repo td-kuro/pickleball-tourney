@@ -118,9 +118,14 @@ export function useTournament() {
     );
   }
 
-  // Clears all rounds/results so the app falls back to the Setup screen.
-  // Players and tournament settings (courts/match type) are left as-is.
+  // Full session wipe for "Reset Tournament"/"Reset Social Play": clears
+  // rounds, the planned-rounds target, and every setting back to its
+  // default (play mode, social scoring mode, courts, match type, session
+  // timing) so the app falls back to a pristine Setup screen. Players are
+  // a separate concern — see usePlayers.removeAllPlayers, which App.tsx
+  // calls alongside this.
   function resetTournament() {
+    setSettings(defaultSettings);
     setRounds([]);
     setPlannedRounds(null);
   }

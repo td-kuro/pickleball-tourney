@@ -170,12 +170,23 @@ back to the Rounds tab (defaulting to Current Round).
 
 - **Add Player** / **Players** — two columns on desktop, stacked on
   mobile. The player list is directly editable: click into any name or
-  rating field and edit it in place — no separate "Edit" button.
+  rating field and edit it in place — no separate "Edit" button. Each row
+  also has its own **Remove** button for removing one player at a time.
 - **Generate player slots** — instead of adding players one at a time,
   enter a number (e.g. `12`) and click **Generate Player Slots** to create
   that many rows at once, named "Player 1", "Player 2", etc. Fill in real
   names (and optional ratings) directly in the list afterward. You can
   still use the **Add Player** form above it to add one player at a time.
+- **Remove All Players** — appears next to the "Players" heading whenever
+  there's at least one player. Asks for confirmation ("Are you sure you
+  want to remove all players?"), then clears the entire roster — names,
+  ratings, IDs, and any unfilled generated slots — in one action instead
+  of removing rows one by one. This only touches the player list: Play
+  Mode, Social Scoring, Session Timing, courts, and match type are left
+  exactly as they were. If a session is already in progress, existing
+  rounds keep referring to the removed players (shown as "Unknown
+  player" — see "Current limitations" below), same as removing a single
+  player.
 - **Session Setup** — Play Mode, Social Scoring (Social Play only),
   Session Timing (Social Play only — see "Social Play session timing"
   above), number of courts, and Singles/Doubles.
@@ -257,13 +268,33 @@ generates at least Round 1 immediately.
   partners, for Doubles). Total points appears only if scoring is enabled;
   wins/losses appear only with "Track Scores and Wins".
 
-## Resetting a tournament
+## Resetting a session
 
-Once a session has started, a **Reset Tournament** button appears next to
-the tabs. It asks for confirmation, then clears all rounds and match
-results and returns you to the Setup screen — your player list and
-session settings (play mode, scoring, courts, match type) are kept, so you
-can start again with the same group without re-entering everyone.
+Once a session has started, a reset button appears next to the tabs,
+labelled for whichever mode is active — **Reset Social Play** in Social
+Play Mode, **Reset Tournament** in Tournament Mode. It asks for
+confirmation (*"Are you sure you want to reset Social Play?"* /
+*"...reset the tournament?"* — "This will clear all players, rounds,
+scores, and stats."), then wipes the entire session and returns you to a
+blank Setup screen:
+
+- The player list — names, ratings, IDs, generated slots — same as
+  **Remove All Players** above.
+- Every setting — Play Mode, Social Scoring, courts, match type, and
+  Session Timing — back to its default, not just left as-is.
+- All rounds (planned, current, and completed), the estimated/planned
+  round count, and every match result.
+- Leaderboard / Player Stats, since those are always computed from the
+  current players and rounds — once both are cleared, there's nothing left
+  to show.
+
+This is a full wipe, not a "keep my group, start a new round" reset —
+there's no way to reset rounds/scores while keeping the player list; use
+individual **Remove**/editing on the Setup screen instead if you want to
+keep players between sessions. Everything above is persisted to
+`localStorage` via the same hooks that read it, so a reset is reflected
+there immediately too — reloading the page after a reset won't bring any
+of it back.
 
 ## Match types
 
@@ -363,9 +394,9 @@ handed out fairly:
   even one round block won't start.
 - **Next Round** is disabled in Tournament Mode until every match in the
   current round has a saved score. Social Play never requires this.
-- Resetting a tournament, or changing setup before a session has started,
-  clears any previously planned rounds — the schedule is only (re)built
-  from the current settings the moment **Start Matches** is clicked.
+- **Reset Social Play** / **Reset Tournament** and **Remove All Players**
+  each ask for confirmation before clearing anything — see "Resetting a
+  session" and "Setup screen" above.
 
 ## Current limitations
 
@@ -409,8 +440,11 @@ applied consistently rather than hardcoded per element:
   row of the Leaderboard, and the Social Play Mode badge/toggle (so the
   blue/green pairing doubles as a visual cue for "Tournament vs.
   Social").
-- **Reset Tournament** deliberately breaks from blue/green with a red
-  outline, since it's a destructive action and should read as one.
+- Destructive actions deliberately break from blue/green with a red
+  outline (filled only on hover, so they read as available but not
+  alarming) — **Remove All Players**, the per-row **Remove** button, and
+  the **Reset Social Play**/**Reset Tournament** button all share this
+  style.
 
 Both colours (plus their hover/tint/border shades) are defined once as CSS
 custom properties in [`src/index.css`](src/index.css) (`--brand-blue`,
