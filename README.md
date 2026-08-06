@@ -37,6 +37,23 @@ Both modes use exactly the same fairness rules for who plays, who sits
 out, and who gets matched against whom — the difference is entirely in
 whether/how scores and rankings are tracked and displayed.
 
+### Tournament Mode formats: Leaderboard vs. Pools & Knockout
+
+When Tournament Mode is selected, a **Tournament Format** choice appears:
+
+- **Leaderboard** — the tournament behaviour described above: rotating
+  rounds, ranked by total points, wins, losses, and byes.
+- **Pools & Knockout** — a structurally different, two-stage format: fixed
+  **Teams** (one player each in Singles, two in Doubles) play a
+  round-robin **Pool Stage**, then the top teams from each pool cross into
+  a single-elimination **Knockout Stage** bracket. See "Pools & Knockout"
+  below for the full breakdown — it's substantial enough to warrant its
+  own section.
+
+Once **Start Matches** is clicked, the Tournament Format toggle locks (it's
+greyed out on the Setup screen) so a live pool/bracket can't be silently
+swapped out from under itself — **Reset Tournament** unlocks it again.
+
 ### Social Play scoring options
 
 When Social Play Mode is selected, pick one of three **Scoring** settings:
@@ -51,6 +68,129 @@ When Social Play Mode is selected, pick one of three **Scoring** settings:
 - **Track Scores and Wins** — scores, total points, wins, and losses are
   all tracked and shown in Player Stats — still presented as casual stats,
   deliberately not called a "Leaderboard".
+
+## Pools & Knockout
+
+A Tournament Mode format for running an actual bracketed event instead of
+one long ranked leaderboard. It has its own data model entirely separate
+from Leaderboard/Social Play's rotating rounds — **Teams** are persistent
+for the whole tournament (not re-paired every round), and there's no bye
+rotation, since every team's schedule is fixed for the whole pool stage.
+
+### Team
+
+- **Singles**: one team per player.
+- **Doubles**: teams are fixed pairs, formed by taking players two at a
+  time in the order they appear in the player list (Player 1 & Player 2
+  are Team 1, Player 3 & Player 4 are Team 2, and so on). There's no
+  separate "assign partners" step yet — reorder the player list on Setup
+  first if you want specific pairings.
+
+### Setup
+
+Selecting **Pools & Knockout** adds a **Pools & Knockout Setup** section
+with four fields, plus a live summary of how many teams/players that adds
+up to:
+
+- **Number of pools** — at least 1.
+- **Teams per pool** — at least 2.
+- **Times each team plays each other** — at least 1 (2 = every pool match
+  is effectively played home-and-away).
+- **Teams advancing per pool** — at least 1, and no more than teams per
+  pool. The total across all pools (pools × teams advancing) must be at
+  least 2, since that's who ends up in the knockout bracket.
+
+Pools are filled automatically and evenly — teams are split into
+consecutive chunks (Pool A gets the first `teamsPerPool` teams, Pool B the
+next, and so on) rather than any interleaved or skill-balanced assignment.
+There's no manual pool assignment yet (see "Current limitations").
+
+Unlike the rest of the app, **Start Matches** here needs an *exact* player
+count, not just "enough" — `pools × teams per pool × players per team`,
+exactly. If you have too many or too few, the hint tells you exactly how
+many you need and how many you have; extra/missing players aren't
+silently handled.
+
+### Pool Stage
+
+Clicking **Start Matches** immediately generates every pool's full
+round-robin schedule (all matches for all pools exist right away, similar
+to how Social Play pre-generates its whole session — see above). Within a
+pool, every team plays every other team once, repeated *times each team
+plays each other* times. For a 4-team pool with that set to 1, that's the
+6 matches T1–T2, T1–T3, T1–T4, T2–T3, T2–T4, T3–T4; set to 2 repeats the
+same 6 matches twice.
+
+The **Tournament** tab (Pools & Knockout's version of the Rounds tab) has
+its own **Pool Stage** / **Knockout Bracket** toggle. Pool Stage shows
+every pool as its own card: all of that pool's matches (with score entry,
+same match card style as everywhere else in the app) and, underneath, that
+pool's live standings table. There's no "current match" concept — every
+pool match in every pool can be scored independently, any time, in any
+order.
+
+### Pool standings and advancement
+
+Each pool has its own live-updating standings table: **W**, **L**, **PF**
+(Points For — total points scored across the pool's matches), **PA**
+(Points Against), and **+/-** (PF − PA). Ranking within a pool, applied in
+order:
+
+1. Most wins.
+2. If tied, highest point difference (+/-).
+3. If still tied, head-to-head result — whichever of the two tied teams
+   won more of their matches against each other ranks higher. (This is a
+   pairwise check between the two teams being compared, so a 3-way cyclic
+   tie — A beat B, B beat C, C beat A — isn't specially unwound; it falls
+   through to the next rule instead.)
+4. If still tied, highest Points For.
+5. If still tied, each team's original position in the pool (i.e. nothing
+   changes — ties this deep are rare and this is a reasonable, simple
+   fallback).
+
+Once every pool match everywhere has a score, **Advance to Knockout**
+becomes clickable. The top N teams from each pool (N = teams advancing per
+pool) are marked **Qualified** in that pool's standings table.
+
+### Knockout Stage
+
+Clicking **Advance to Knockout** seeds every qualified team and builds the
+entire bracket in one pass. Seeding: every pool's 1st-place finisher
+first, sorted by wins/+/-/PF, then every pool's 2nd-place finisher the
+same way, and so on — then the strongest seed plays the weakest, the
+2nd-strongest plays the 2nd-weakest, and so on (seed 1 vs. seed 8, seed 2
+vs. seed 7, ...).
+
+If the number of qualified teams isn't a power of two, the bracket is
+padded up to the next one with **byes**, given to the top seeds — a bye
+means that team advances automatically with no match needed. Two teams
+that both got a bye in the same first-round pairing get matched against
+each other immediately, with no waiting required.
+
+Round names depend on how many teams are in that round: 2 teams = **Final**,
+4 = **Semifinals**, 8 = **Quarterfinals**, otherwise **Round of N**. The
+**Knockout Bracket** view is a simple vertical list of rounds (not a
+graphical bracket, so it stays readable on mobile) — each match shows both
+teams, a score entry form once both teams are known, and a clear winner
+label once scored. Unlike pool matches, knockout matches don't allow tied
+scores — a winner is required to advance the bracket.
+
+**3rd Place Match**: once there's a real Semifinals round, the two
+semifinal losers play each other for 3rd place instead of being simply
+eliminated — the Final decides 1st/2nd, the 3rd Place Match decides
+3rd/4th. (The one exception: if a semifinal itself was a bye, that team
+never had a real opponent to send to a 3rd-place match, so no 3rd Place
+Match is created for that bracket — this only comes up with a small number
+of qualified teams padded up to 4.)
+
+### Final Results
+
+The results tab (labelled **Final Results** instead of Leaderboard/Player
+Stats) shows a friendly in-progress message until the Final — and the 3rd
+Place Match, if there is one — are both scored. Once complete, it shows
+Champion, Runner-up, 3rd Place, and 4th Place (when there is a 3rd Place
+Match), followed by every pool's final standings and the full knockout
+bracket read-only.
 
 ## Social Play session timing
 
@@ -127,19 +267,24 @@ time (gated on scores being entered), same as before.
 ## What it does
 
 - **Setup screen** — the app's starting point every time: choose a Play
-  Mode (and Social Scoring, if applicable), add players (with an optional
-  rating), and configure the number of courts and match type (Singles or
-  Doubles).
-- **Start Matches** — once setup is valid, generates the round schedule
-  (Round 1 only in Tournament Mode; the full planned schedule in Social
-  Play — see "Round count and pre-generated rounds" above) and unlocks the
-  **Rounds** and results tabs.
-- **Rounds tab** — **Current Round** (each court's match, with score entry
-  unless Social Play's "No Scoring" is active, plus who's on a bye) and
-  **All Rounds** (the full round-by-round schedule, each marked Completed,
-  Current, or Upcoming). See "The Rounds tab" below.
-- **Leaderboard** (Tournament Mode) or **Player Stats** (Social Play) —
-  see "Difference between Leaderboard and Player Stats" below.
+  Mode (and Tournament Format, or Social Scoring, whichever applies), add
+  players (with an optional rating), and configure the number of courts
+  and match type (Singles or Doubles).
+- **Start Matches** — once setup is valid, generates the schedule (Round 1
+  only for Tournament Mode's Leaderboard format; the full planned schedule
+  in Social Play — see "Round count and pre-generated rounds" above; the
+  full pool-stage schedule for Pools & Knockout — see "Pools & Knockout"
+  above) and unlocks the middle and results tabs.
+- **Rounds tab** (Leaderboard/Social Play) — **Current Round** (each
+  court's match, with score entry unless Social Play's "No Scoring" is
+  active, plus who's on a bye) and **All Rounds** (the full round-by-round
+  schedule, each marked Completed, Current, or Upcoming). See "The Rounds
+  tab" below. Pools & Knockout has its own **Tournament** tab instead —
+  see "Pools & Knockout" above.
+- **Leaderboard** (Tournament Mode's Leaderboard format), **Player Stats**
+  (Social Play), or **Final Results** (Pools & Knockout) — see
+  "Difference between Leaderboard and Player Stats" below and "Pools &
+  Knockout" above.
 - Everything is saved to your browser's `localStorage`, so it survives a
   page refresh.
 
@@ -159,7 +304,8 @@ Setup is valid — and **Start Matches** becomes clickable — once:
 - Match type is Singles or Doubles.
 - Number of courts is at least 1.
 - There are enough players for the match type (2+ for Singles, 4+ for
-  Doubles).
+  Doubles) — or, for Pools & Knockout, *exactly* enough (see "Pools &
+  Knockout" above).
 - Every player has a name (rating is always optional).
 
 If setup is incomplete, reopening the app always lands you back on Setup.
@@ -187,18 +333,23 @@ back to the Rounds tab (defaulting to Current Round).
   rounds keep referring to the removed players (shown as "Unknown
   player" — see "Current limitations" below), same as removing a single
   player.
-- **Session Setup** — Play Mode, Social Scoring (Social Play only),
-  Session Timing (Social Play only — see "Social Play session timing"
-  above), number of courts, and Singles/Doubles.
+- **Session Setup** — Play Mode; Tournament Format and Pools & Knockout
+  Setup (Tournament Mode's Pools & Knockout format only — see "Pools &
+  Knockout" above) or Social Scoring and Session Timing (Social Play only
+  — see "Social Play session timing" above); number of courts; and
+  Singles/Doubles.
 - **Start Matches** — disabled with an explanatory message until setup is
-  valid; generates the round schedule and switches you to the Rounds tab
-  (Current Round view). Once a session has started, this becomes a **Go to
-  Rounds** shortcut instead, and you can still come back to Setup at any
-  time (via the tab bar) to add a player or tweak settings. In Tournament
-  Mode, changes there only affect rounds generated *after* the change,
-  same as before. In Social Play, the full schedule is already generated,
-  so settings changes don't retroactively rewrite it — they only apply if
-  you later generate an extra round beyond the plan.
+  valid; generates the schedule and switches you to the middle tab. Once a
+  session has started, this becomes a **Go to Rounds**/**Go to Tournament**
+  shortcut instead, and you can still come back to Setup at any time (via
+  the tab bar) to add a player or tweak settings — except Tournament
+  Format, which locks once started (Reset unlocks it again). In Tournament
+  Mode's Leaderboard format, changes there only affect rounds generated
+  *after* the change, same as before. In Social Play, the full schedule is
+  already generated, so settings changes don't retroactively rewrite it —
+  they only apply if you later generate an extra round beyond the plan.
+  Pools & Knockout locks its Tournament Format toggle once started (see
+  above), and its pool schedule is likewise fixed once generated.
 
 ## Player ratings are optional
 
@@ -209,6 +360,10 @@ sorting, and only when it's actually set — unrated players sort after
 rated players in a tie, never ahead of them.
 
 ## The Rounds tab
+
+This section covers Leaderboard and Social Play, which share the same
+rotating-round model — Pools & Knockout's equivalent **Tournament** tab
+works completely differently; see "Pools & Knockout" above.
 
 Once a session has started, the **Rounds** tab holds a small **Current
 Round** / **All Rounds** toggle at the top — a segmented control, not a
@@ -258,10 +413,14 @@ generates at least Round 1 immediately.
 
 ## Difference between Leaderboard and Player Stats
 
-- **Leaderboard** (Tournament Mode only) — ranked. Shows rank #, player
-  name, rating, total points, matches played, wins, losses, and byes;
-  sorted by total points, then wins, then fewest byes, then rating. The
-  top row is highlighted.
+This covers the results tab for Tournament Mode's Leaderboard format and
+for Social Play — Pools & Knockout's results tab is **Final Results**
+instead, covered in "Pools & Knockout" above.
+
+- **Leaderboard** (Tournament Mode's Leaderboard format) — ranked. Shows
+  rank #, player name, rating, total points, matches played, wins, losses,
+  and byes; sorted by total points, then wins, then fewest byes, then
+  rating. The top row is highlighted.
 - **Player Stats** (Social Play only) — not ranked. Rows stay in the same
   order as your player list (no rank column, no sorting by performance).
   Always shows games played, byes, and opponents played against (plus
@@ -280,13 +439,18 @@ blank Setup screen:
 
 - The player list — names, ratings, IDs, generated slots — same as
   **Remove All Players** above.
-- Every setting — Play Mode, Social Scoring, courts, match type, and
-  Session Timing — back to its default, not just left as-is.
+- Every setting — Play Mode, Tournament Format, Social Scoring, Pools &
+  Knockout Setup, courts, match type, and Session Timing — back to its
+  default, not just left as-is.
 - All rounds (planned, current, and completed), the estimated/planned
   round count, and every match result.
 - Leaderboard / Player Stats, since those are always computed from the
   current players and rounds — once both are cleared, there's nothing left
   to show.
+- For Pools & Knockout specifically: every team, pool, pool match, pool
+  leaderboard, the knockout bracket, and every final placement — these
+  live in a completely separate part of `localStorage` from
+  rounds/players, but the same reset clears them too.
 
 This is a full wipe, not a "keep my group, start a new round" reset —
 there's no way to reset rounds/scores while keeping the player list; use
@@ -388,12 +552,21 @@ handed out fairly:
 - In Social Play Mode, Session Timing must also be valid: session time
   greater than 0, game time between 8 and 12 minutes, buffer time 0 or
   greater, and the resulting estimated round count at least 1.
+- In Pools & Knockout: number of pools at least 1; teams per pool at least
+  2; times each team plays each other at least 1; teams advancing per pool
+  at least 1 and no more than teams per pool; at least 2 teams total
+  advancing to knockout; and the player count must exactly match `pools ×
+  teams per pool × players per team` — not just "enough".
 - **Start Matches** is disabled, with a message explaining why, until all
   of the above are satisfied. In Social Play, this also means the session
   timing must produce at least 1 estimated round — a session too short for
   even one round block won't start.
-- **Next Round** is disabled in Tournament Mode until every match in the
-  current round has a saved score. Social Play never requires this.
+- **Next Round** is disabled in Tournament Mode's Leaderboard format until
+  every match in the current round has a saved score. Social Play never
+  requires this.
+- **Advance to Knockout** (Pools & Knockout) is disabled until every match
+  in every pool has a score. Knockout match scores can't be tied — a
+  winner is required to advance the bracket.
 - **Reset Social Play** / **Reset Tournament** and **Remove All Players**
   each ask for confirmation before clearing anything — see "Resetting a
   session" and "Setup screen" above.
@@ -418,12 +591,34 @@ handed out fairly:
   can get long in a big, long-running session.
 - No import/export — data lives only in the current browser's
   `localStorage`.
+- **Pools & Knockout** specifically:
+  - Pool assignment is automatic and even only (consecutive chunks into
+    Pool A, Pool B, ...) — no manual assignment and no support for uneven
+    pool sizes yet. Team count must exactly match `pools × teams per pool`.
+  - Doubles teams are just consecutive pairs from the player list — no
+    dedicated "assign partners" step.
+  - Pool matches are assigned a court number by cycling 1..courts, but
+    aren't scheduled into synchronised "rounds" across courts the way
+    Leaderboard/Social rounds are — every pool match is just independently
+    scoreable at any time, so there's no live view of "what's being played
+    on Court 2 right now" across pools.
+  - The head-to-head pool tie-break is a pairwise check between the two
+    teams being compared; a 3-way cyclic tie isn't specially unwound and
+    falls through to the next rule (Points For, then original order).
+  - No 3rd Place Match is created if a semifinal itself was a bye (that
+    team never had a real opponent to send there) — only comes up with a
+    small number of qualified teams.
+  - Once **Start Matches** is clicked, the whole pool schedule and, later,
+    the bracket are fixed — there's no way to regenerate either without a
+    full **Reset Tournament**.
 
 ## Future features
 
 - Rating-aware pairing (balance skill level across courts).
 - Editing/regenerating rounds.
 - Exporting session results.
+- Pools & Knockout: manual/drag-and-drop pool assignment, uneven pool
+  sizes, rating-aware seeding, and a proper graphical bracket view.
 - Configurable tournament rules beyond courts/match type.
 
 ## UI theme and branding
@@ -472,18 +667,33 @@ so there's no flash of the wrong theme on load.
 
 ```
 src/
-  types.ts                 Shared TypeScript interfaces (Player, Match, Round, PlayMode, SessionTiming, ...)
-  utils/tournament.ts      Pure logic: pairing, bye rotation, validation, stats, mode helpers, session timing
-  hooks/                   useLocalStorage, usePlayers, useTournament (state persisted to localStorage)
-  components/              PlayerForm, PlayerList, TournamentSetup, RoundsPage,
-                            CurrentRoundView, AllRoundsView, ByeList, Leaderboard,
-                            PlayerStats, PickleballLogo
-  App.tsx                  Setup / Rounds / results views, tab gating, and layout
+  types.ts                  Shared TypeScript interfaces (Player, Match, Round, PlayMode,
+                             SessionTiming, Team, Pool, KnockoutBracket, ...)
+  utils/tournament.ts       Pure logic: pairing, bye rotation, validation, stats, mode
+                             helpers, session timing (Leaderboard/Social Play)
+  utils/poolsKnockout.ts    Pure logic: team formation, pool assignment, round-robin
+                             match generation, pool standings/tie-breaks, knockout
+                             seeding/byes/bracket progression (Pools & Knockout)
+  hooks/                    useLocalStorage, usePlayers, useTournament (Leaderboard/
+                             Social Play state), usePoolsKnockout (Pools & Knockout
+                             state) — all persisted to localStorage
+  components/                PlayerForm, PlayerList, TournamentSetup, RoundsPage,
+                             CurrentRoundView, AllRoundsView, ByeList, Leaderboard,
+                             PlayerStats, PickleballLogo (Leaderboard/Social Play);
+                             PoolsKnockoutPage, PoolStageView, PoolLeaderboard,
+                             KnockoutBracketView, FinalResults (Pools & Knockout)
+  App.tsx                   Setup / middle-tab / results views, tab gating, and layout
+                             — routes between the Leaderboard/Social Play components
+                             above and the Pools & Knockout ones depending on settings
 ```
 
 Business logic lives in `src/utils` and `src/hooks`, separate from the
 components in `src/components`, so the pairing/scoring rules can evolve
-later without rewriting the UI.
+later without rewriting the UI. Pools & Knockout is a self-contained
+addition alongside the original Leaderboard/Social Play code (its own
+utils file, its own hook, its own components, its own `localStorage`
+keys) rather than a rewrite of it — the two share only the `Player`,
+`TournamentSettings`, and UI/CSS building blocks.
 
 ## Running locally
 

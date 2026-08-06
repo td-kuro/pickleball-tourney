@@ -1,16 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import './App.css';
+import { FinalResults } from './components/FinalResults';
 import { Leaderboard } from './components/Leaderboard';
 import { PickleballLogo } from './components/PickleballLogo';
 import { PlayerForm } from './components/PlayerForm';
 import { PlayerList } from './components/PlayerList';
 import { PlayerStats } from './components/PlayerStats';
+import { PoolsKnockoutPage } from './components/PoolsKnockoutPage';
 import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
 import { TournamentSetup } from './components/TournamentSetup';
 import { usePlayers } from './hooks/usePlayers';
+import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
+import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
 import { canGenerateRound } from './utils/tournament';
 
 type View = 'setup' | 'rounds' | 'results';
@@ -19,15 +23,18 @@ function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
   const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
+  const poolsKnockout = usePoolsKnockout();
   const { theme, toggleTheme } = useTheme();
-  const [view, setView] = useState<View>(rounds.length > 0 ? 'rounds' : 'setup');
+  const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const [view, setView] = useState<View>(rounds.length > 0 || poolsKnockout.stage !== 'setup' ? 'rounds' : 'setup');
   const [bulkCount, setBulkCount] = useState('');
 
-  const tournamentStarted = rounds.length > 0;
+  const tournamentStarted = isPoolsKnockout ? poolsKnockout.stage !== 'setup' : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
-  const startCheck = canGenerateRound(players, settings);
+  const startCheck = isPoolsKnockout ? validatePoolsKnockoutSetup(players, settings) : canGenerateRound(players, settings);
   const bulkCountValue = parseInt(bulkCount, 10);
-  const resultsLabel = settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
+  const resultsLabel = isPoolsKnockout ? 'Final Results' : settings.playMode === 'tournament' ? 'Leaderboard' : 'Player Stats';
+  const tournamentLabel = isPoolsKnockout ? 'Tournament' : 'Rounds';
   const isSocial = settings.playMode === 'social';
   const resetLabel = isSocial ? 'Reset Social Play' : 'Reset Tournament';
 
@@ -42,7 +49,11 @@ function App() {
   }, [view, tournamentStarted]);
 
   function handleStartMatches() {
-    startSession(players);
+    if (isPoolsKnockout) {
+      poolsKnockout.startPoolStage(players, settings);
+    } else {
+      startSession(players);
+    }
     setView('rounds');
   }
 
@@ -65,6 +76,7 @@ function App() {
     );
     if (confirmed) {
       resetTournament();
+      poolsKnockout.resetPoolsKnockout();
       removeAllPlayers();
       setView('setup');
     }
@@ -103,7 +115,7 @@ function App() {
             onClick={() => setView('rounds')}
             disabled={!tournamentStarted}
           >
-            Rounds
+            {tournamentLabel}
           </button>
           <button
             type="button"
@@ -160,7 +172,12 @@ function App() {
             </section>
           </div>
 
-          <TournamentSetup settings={settings} onChange={updateSettings} playerCount={players.length} />
+          <TournamentSetup
+            settings={settings}
+            onChange={updateSettings}
+            playerCount={players.length}
+            tournamentInProgress={tournamentStarted}
+          />
 
           <section className="card start-matches-card">
             {!tournamentStarted ? (
@@ -184,24 +201,44 @@ function App() {
         </div>
       )}
 
-      {view === 'rounds' && tournamentStarted && (
-        <RoundsPage
-          players={players}
-          settings={settings}
-          rounds={rounds}
-          plannedRounds={plannedRounds}
-          onNextRound={() => nextRound(players)}
-          onFinishSession={handleFinishSession}
-          onSetScore={setMatchScore}
-        />
-      )}
+      {view === 'rounds' &&
+        tournamentStarted &&
+        (isPoolsKnockout ? (
+          <PoolsKnockoutPage
+            teams={poolsKnockout.teams}
+            pools={poolsKnockout.pools}
+            bracket={poolsKnockout.bracket}
+            stage={poolsKnockout.stage}
+            teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
+            onSetPoolMatchScore={poolsKnockout.setPoolMatchScore}
+            onAdvanceToKnockout={() => poolsKnockout.advanceToKnockout(settings.poolKnockoutSettings.teamsAdvancingPerPool)}
+            onSetKnockoutScore={poolsKnockout.setKnockoutMatchScore}
+          />
+        ) : (
+          <RoundsPage
+            players={players}
+            settings={settings}
+            rounds={rounds}
+            plannedRounds={plannedRounds}
+            onNextRound={() => nextRound(players)}
+            onFinishSession={handleFinishSession}
+            onSetScore={setMatchScore}
+          />
+        ))}
 
       {view === 'results' &&
         tournamentStarted &&
-        // Stats only reflect rounds actually reached (current/completed) —
-        // Social Play pre-generates "upcoming" rounds it hasn't played yet,
-        // and those shouldn't count toward byes/games-played/etc.
-        (settings.playMode === 'tournament' ? (
+        (isPoolsKnockout ? (
+          <FinalResults
+            teams={poolsKnockout.teams}
+            pools={poolsKnockout.pools}
+            bracket={poolsKnockout.bracket}
+            teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
+          />
+        ) : settings.playMode === 'tournament' ? (
+          // Stats only reflect rounds actually reached (current/completed)
+          // — Social Play pre-generates "upcoming" rounds it hasn't played
+          // yet, and those shouldn't count toward byes/games-played/etc.
           <Leaderboard players={players} rounds={reachedRounds} />
         ) : (
           <PlayerStats players={players} rounds={reachedRounds} settings={settings} />

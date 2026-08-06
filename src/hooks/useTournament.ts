@@ -1,4 +1,5 @@
 import type { Player, Round, TournamentSettings } from '../types';
+import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
 import { calculateSessionPlan, createRound, DEFAULT_SESSION_TIMING } from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
@@ -12,6 +13,8 @@ const defaultSettings: TournamentSettings = {
   courts: 1,
   matchType: 'singles',
   sessionTiming: DEFAULT_SESSION_TIMING,
+  tournamentFormat: 'leaderboard',
+  poolKnockoutSettings: DEFAULT_POOL_KNOCKOUT_SETTINGS,
 };
 
 // Backfills `status` for rounds saved by a version of the app from before
@@ -30,14 +33,16 @@ function normalizeRounds(rounds: Round[]): Round[] {
 // Round pairing logic itself lives in src/utils/tournament.ts.
 export function useTournament() {
   const [storedSettings, setSettings] = useLocalStorage<TournamentSettings>(SETTINGS_KEY, defaultSettings);
-  // Backfills sessionTiming for settings saved by a version of the app from
-  // before Session Timing existed — localStorage only falls back to
-  // defaultSettings when nothing is stored at all, so an old settings
-  // object read back in would otherwise have `sessionTiming: undefined`
-  // and crash validateSessionTiming/calculateSessionPlan.
+  // Backfills fields for settings saved by an older version of the app —
+  // localStorage only falls back to defaultSettings when nothing is stored
+  // at all, so an old settings object read back in would otherwise be
+  // missing whichever fields didn't exist yet and crash downstream code
+  // that assumes they're always present.
   const settings: TournamentSettings = {
     ...storedSettings,
     sessionTiming: storedSettings.sessionTiming ?? DEFAULT_SESSION_TIMING,
+    tournamentFormat: storedSettings.tournamentFormat ?? 'leaderboard',
+    poolKnockoutSettings: storedSettings.poolKnockoutSettings ?? DEFAULT_POOL_KNOCKOUT_SETTINGS,
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
