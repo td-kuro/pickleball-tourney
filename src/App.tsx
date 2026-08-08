@@ -1,7 +1,12 @@
 import { useEffect, useState } from 'react';
 import './App.css';
+import { CourtSeeding } from './components/CourtSeeding';
 import { FinalResults } from './components/FinalResults';
 import { FixedTeamResults } from './components/FixedTeamResults';
+import { KingCourtCycleHistory } from './components/KingCourtCycleHistory';
+import { KingCourtSetup } from './components/KingCourtSetup';
+import { KingCourtStandings } from './components/KingCourtStandings';
+import { KingCourtView } from './components/KingCourtView';
 import { Leaderboard } from './components/Leaderboard';
 import { PickleballLogo } from './components/PickleballLogo';
 import { PlayerStats } from './components/PlayerStats';
@@ -10,6 +15,7 @@ import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
 import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
+import { useKingCourt } from './hooks/useKingCourt';
 import { usePlayers } from './hooks/usePlayers';
 import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTeams } from './hooks/useTeams';
@@ -18,7 +24,9 @@ import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
 import { canGenerateRound, isFixedTeamsMode } from './utils/tournament';
 
-type View = 'setup' | 'rounds' | 'results';
+type View = 'setup' | 'rounds' | 'results' | 'kc-court' | 'kc-standings' | 'kc-history';
+const KING_COURT_VIEWS: View[] = ['setup', 'kc-court', 'kc-standings', 'kc-history'];
+const STANDARD_VIEWS: View[] = ['setup', 'rounds', 'results'];
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
@@ -26,17 +34,28 @@ function App() {
   const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const poolsKnockout = usePoolsKnockout();
+  const kingCourt = useKingCourt();
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const isKingCourt = settings.playMode === 'king-court-5';
   const isFixedTeams = isFixedTeamsMode(settings);
   // Whichever roster the current mode actually plays with: individual
   // players for Singles/Rotating Doubles, or the players embedded in each
   // fixed team for Doubles + Fixed Teams — see useTeams and
-  // utils/tournament.ts's canGenerateRound/createFixedTeamRound.
+  // utils/tournament.ts's canGenerateRound/createFixedTeamRound. King
+  // Court always uses the plain player list (see KingCourtSetup).
   const effectivePlayers = isFixedTeams ? teamPlayers : players;
-  const [view, setView] = useState<View>(rounds.length > 0 || poolsKnockout.stage !== 'setup' ? 'rounds' : 'setup');
+  const [view, setView] = useState<View>(
+    isKingCourt
+      ? kingCourt.started
+        ? 'kc-court'
+        : 'setup'
+      : rounds.length > 0 || poolsKnockout.stage !== 'setup'
+        ? 'rounds'
+        : 'setup',
+  );
 
-  const tournamentStarted = isPoolsKnockout ? poolsKnockout.stage !== 'setup' : rounds.length > 0;
+  const started = isKingCourt ? kingCourt.started : isPoolsKnockout ? poolsKnockout.stage !== 'setup' : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
   const startCheck = isPoolsKnockout
     ? validatePoolsKnockoutSetup(effectivePlayers, settings, teams)
@@ -52,17 +71,21 @@ function App() {
         : 'Player Stats';
   const tournamentLabel = isPoolsKnockout ? 'Tournament' : 'Rounds';
   const isSocial = settings.playMode === 'social';
-  const resetLabel = isSocial ? 'Reset Social Play' : 'Reset Tournament';
+  const resetLabel = isKingCourt ? 'Reset King Court' : isSocial ? 'Reset Social Play' : 'Reset Tournament';
 
-  // Defense in depth: Rounds / results are only ever reachable once Start
-  // Matches has actually run (rounds.length > 0). If `view` ever ends up on
-  // one of those without an active tournament — e.g. leftover state — snap
-  // back to Setup instead of rendering a broken screen.
+  // Defense in depth: Rounds / results (or, in King Court Mode, King
+  // Court / Standings / Cycle History) are only ever reachable once
+  // matches have actually started for the current mode. If `view` ever
+  // ends up on a screen that doesn't belong to the current mode (e.g. the
+  // Play Mode was switched mid-session) or without an active
+  // session/cycle — e.g. leftover state — snap back to Setup instead of
+  // rendering a broken screen.
   useEffect(() => {
-    if (view !== 'setup' && !tournamentStarted) {
+    const validViews = isKingCourt ? KING_COURT_VIEWS : STANDARD_VIEWS;
+    if (!validViews.includes(view) || (view !== 'setup' && !started)) {
       setView('setup');
     }
-  }, [view, tournamentStarted]);
+  }, [view, started, isKingCourt]);
 
   function handleStartMatches() {
     if (isPoolsKnockout) {
@@ -79,13 +102,16 @@ function App() {
 
   function handleReset() {
     const confirmed = window.confirm(
-      isSocial
-        ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
-        : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
+      isKingCourt
+        ? 'Are you sure you want to reset King Court? This will clear all players, court assignments, cycles, scores, and stats.'
+        : isSocial
+          ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
+          : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
     );
     if (confirmed) {
       resetTournament();
       poolsKnockout.resetPoolsKnockout();
+      kingCourt.resetKingCourt();
       removeAllPlayers();
       removeAllTeams();
       setView('setup');
@@ -113,25 +139,56 @@ function App() {
           <button type="button" className={view === 'setup' ? 'tab active' : 'tab'} onClick={() => setView('setup')}>
             Setup
           </button>
-          <button
-            type="button"
-            className={view === 'rounds' ? 'tab active' : 'tab'}
-            onClick={() => setView('rounds')}
-            disabled={!tournamentStarted}
-          >
-            {tournamentLabel}
-          </button>
-          <button
-            type="button"
-            className={view === 'results' ? 'tab active' : 'tab'}
-            onClick={() => setView('results')}
-            disabled={!tournamentStarted}
-          >
-            {resultsLabel}
-          </button>
+          {isKingCourt ? (
+            <>
+              <button
+                type="button"
+                className={view === 'kc-court' ? 'tab active' : 'tab'}
+                onClick={() => setView('kc-court')}
+                disabled={!started}
+              >
+                King Court
+              </button>
+              <button
+                type="button"
+                className={view === 'kc-standings' ? 'tab active' : 'tab'}
+                onClick={() => setView('kc-standings')}
+                disabled={!started}
+              >
+                Standings
+              </button>
+              <button
+                type="button"
+                className={view === 'kc-history' ? 'tab active' : 'tab'}
+                onClick={() => setView('kc-history')}
+                disabled={!started}
+              >
+                Cycle History
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={view === 'rounds' ? 'tab active' : 'tab'}
+                onClick={() => setView('rounds')}
+                disabled={!started}
+              >
+                {tournamentLabel}
+              </button>
+              <button
+                type="button"
+                className={view === 'results' ? 'tab active' : 'tab'}
+                onClick={() => setView('results')}
+                disabled={!started}
+              >
+                {resultsLabel}
+              </button>
+            </>
+          )}
         </nav>
 
-        {tournamentStarted && (
+        {started && (
           <button type="button" className="reset-button" onClick={handleReset}>
             {resetLabel}
           </button>
@@ -144,51 +201,110 @@ function App() {
             settings={settings}
             onChange={updateSettings}
             rosterCount={isFixedTeams ? teams.length : players.length}
-            tournamentInProgress={tournamentStarted}
+            tournamentInProgress={started}
           />
 
-          <RosterSetup
-            settings={settings}
-            players={players}
-            onAddPlayer={addPlayer}
-            onAddPlayersBulk={addPlayersBulk}
-            onUpdatePlayer={updatePlayer}
-            onRemovePlayer={removePlayer}
-            onRemoveAllPlayers={removeAllPlayers}
-            teams={teams}
-            teamPlayers={teamPlayers}
-            onAddTeam={addTeam}
-            onUpdateTeam={updateTeam}
-            onRemoveTeam={removeTeam}
-            onRemoveAllTeams={removeAllTeams}
-          />
+          {isKingCourt ? (
+            <>
+              <KingCourtSetup
+                players={players}
+                onAddPlayer={addPlayer}
+                onAddPlayersBulk={addPlayersBulk}
+                onUpdatePlayer={updatePlayer}
+                onRemovePlayer={removePlayer}
+                onRemoveAllPlayers={removeAllPlayers}
+                numberOfCourts={kingCourt.numberOfCourts}
+                onNumberOfCourtsChange={(courts) => {
+                  kingCourt.setNumberOfCourts(courts);
+                  kingCourt.pruneAssignments(players);
+                }}
+                locked={kingCourt.started}
+              />
 
-          {settings.playMode === 'social' && <SocialSessionSetup settings={settings} onChange={updateSettings} />}
+              {!kingCourt.started && (
+                <CourtSeeding
+                  players={players}
+                  numberOfCourts={kingCourt.numberOfCourts}
+                  assignments={kingCourt.assignments}
+                  onAssign={kingCourt.assignPlayerToCourt}
+                  onStartCycle1={() => {
+                    kingCourt.startCycle1(players);
+                    setView('kc-court');
+                  }}
+                />
+              )}
 
-          <section className="card start-matches-card">
-            {!tournamentStarted ? (
-              <>
-                <button
-                  type="button"
-                  className="cta-button start-button"
-                  onClick={handleStartMatches}
-                  disabled={!startCheck.ok}
-                >
-                  Start Matches
-                </button>
-                {!startCheck.ok && <p className="hint error">{startCheck.reason}</p>}
-              </>
-            ) : (
-              <button type="button" className="cta-button start-button" onClick={() => setView('rounds')}>
-                Go to Rounds
-              </button>
-            )}
-          </section>
+              {kingCourt.started && (
+                <section className="card start-matches-card">
+                  <button type="button" className="cta-button start-button" onClick={() => setView('kc-court')}>
+                    Go to King Court
+                  </button>
+                </section>
+              )}
+            </>
+          ) : (
+            <>
+              <RosterSetup
+                settings={settings}
+                players={players}
+                onAddPlayer={addPlayer}
+                onAddPlayersBulk={addPlayersBulk}
+                onUpdatePlayer={updatePlayer}
+                onRemovePlayer={removePlayer}
+                onRemoveAllPlayers={removeAllPlayers}
+                teams={teams}
+                teamPlayers={teamPlayers}
+                onAddTeam={addTeam}
+                onUpdateTeam={updateTeam}
+                onRemoveTeam={removeTeam}
+                onRemoveAllTeams={removeAllTeams}
+              />
+
+              {settings.playMode === 'social' && <SocialSessionSetup settings={settings} onChange={updateSettings} />}
+
+              <section className="card start-matches-card">
+                {!started ? (
+                  <>
+                    <button
+                      type="button"
+                      className="cta-button start-button"
+                      onClick={handleStartMatches}
+                      disabled={!startCheck.ok}
+                    >
+                      Start Matches
+                    </button>
+                    {!startCheck.ok && <p className="hint error">{startCheck.reason}</p>}
+                  </>
+                ) : (
+                  <button type="button" className="cta-button start-button" onClick={() => setView('rounds')}>
+                    Go to Rounds
+                  </button>
+                )}
+              </section>
+            </>
+          )}
         </div>
       )}
 
+      {view === 'kc-court' && kingCourt.started && kingCourt.currentCycle && (
+        <KingCourtView
+          players={players}
+          numberOfCourts={kingCourt.numberOfCourts}
+          currentCycle={kingCourt.currentCycle}
+          onSetGameScore={kingCourt.setGameScore}
+          onAdvanceGame={kingCourt.advanceGame}
+          onSetManualTiebreakOrder={kingCourt.setManualTiebreakOrder}
+          onSetManualMovementOverride={kingCourt.setManualMovementOverride}
+          onConfirmMovement={() => kingCourt.confirmMovementAndAdvance(players)}
+        />
+      )}
+
+      {view === 'kc-standings' && <KingCourtStandings players={players} cycles={kingCourt.cycles} />}
+
+      {view === 'kc-history' && <KingCourtCycleHistory players={players} cycles={kingCourt.cycles} />}
+
       {view === 'rounds' &&
-        tournamentStarted &&
+        started &&
         (isPoolsKnockout ? (
           <PoolsKnockoutPage
             teams={poolsKnockout.teams}
@@ -214,7 +330,7 @@ function App() {
         ))}
 
       {view === 'results' &&
-        tournamentStarted &&
+        started &&
         (isPoolsKnockout ? (
           <FinalResults
             teams={poolsKnockout.teams}

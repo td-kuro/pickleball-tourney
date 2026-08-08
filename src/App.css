@@ -852,3 +852,248 @@ button.danger:hover:not(:disabled) {
     flex-basis: 100%;
   }
 }
+
+/* 5-Player King Court Mode */
+
+.kc-resting-hint {
+  margin: -4px 0 10px;
+}
+
+/* Court Seeding */
+
+.kc-unassigned {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kc-unassigned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kc-unassigned-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-bg);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.kc-unassigned-row select {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 13px;
+}
+
+.kc-court-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.kc-court-card {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent-2-border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.kc-court-card h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+.kc-court-slots {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kc-court-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.kc-court-slot.filled {
+  border-color: var(--accent-2-border);
+  background: var(--accent-2-bg);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.kc-court-slot select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 12px;
+}
+
+.kc-court-slot-empty {
+  color: var(--text);
+  font-style: italic;
+}
+
+/* Standings / Cycle History */
+
+.kc-standings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.kc-standings-card h3,
+.kc-standings-card h4 {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-h);
+}
+
+/* Movement Preview */
+
+.kc-movement-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin: 12px 0;
+}
+
+.kc-movement-card {
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--accent-border);
+  border-radius: 10px;
+  padding: 14px;
+}
+
+.kc-movement-card h3 {
+  margin: 0 0 10px;
+  font-size: 15px;
+  color: var(--text-h);
+}
+
+.kc-movement-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.kc-movement-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.kc-movement-row:last-child {
+  border-bottom: none;
+}
+
+.kc-movement-icon {
+  font-size: 15px;
+  width: 20px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.kc-movement-name {
+  flex: 1;
+  min-width: 90px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.kc-movement-record {
+  color: var(--text);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.kc-movement-tied {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(192, 57, 43, 0.12);
+  color: #c0392b;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.kc-movement-select {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-size: 12px;
+}
+
+.kc-tiebreak {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.kc-tiebreak-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kc-tiebreak-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-h);
+}
+
+.kc-tiebreak-buttons {
+  display: flex;
+  gap: 4px;
+}
+
+.kc-tiebreak-buttons button {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+@media (max-width: 480px) {
+  .kc-court-grid,
+  .kc-movement-grid,
+  .kc-standings-grid {
+    grid-template-columns: 1fr;
+  }
+}

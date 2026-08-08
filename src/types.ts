@@ -21,8 +21,12 @@ export type DoublesPairingMode = 'rotating-players' | 'fixed-teams';
 // Tournament Mode is competitive (points/wins/losses, ranked leaderboard).
 // Social Play Mode is casual — same fair rotation/pairing engine, but
 // ranking is de-emphasised and scoring is configurable (see
-// SocialScoringMode).
-export type PlayMode = 'tournament' | 'social';
+// SocialScoringMode). King Court Mode is a third, structurally separate
+// mode — fixed 5-player courts running 5-game cycles with rank-based
+// movement between courts — see src/utils/kingCourt.ts and
+// src/hooks/useKingCourt.ts; it doesn't use Round/Match/TournamentState at
+// all.
+export type PlayMode = 'tournament' | 'social' | 'king-court-5';
 
 // Only meaningful when PlayMode is 'social':
 // - 'none': generate rounds only, no score entry, no points/wins tracked.
@@ -269,4 +273,120 @@ export interface TeamStats {
   pointDifference: number;
   // Unique team ids this team has faced, across all rounds so far.
   opponentIds: string[];
+}
+
+// --- 5-Player King Court Mode ---------------------------------------------
+// A completely separate data model from Round/Match/TournamentState above —
+// see src/utils/kingCourt.ts and src/hooks/useKingCourt.ts. Reuses the same
+// `Player` type (id, name, optional rating) as everything else, so the
+// existing PlayerForm/PlayerList roster UI works unchanged.
+
+export interface KingCourtSettings {
+  numberOfCourts: number;
+  // Always 5 — kept as an explicit field (rather than a bare constant)
+  // so the data model documents the constraint everywhere it's read.
+  playersPerCourt: 5;
+}
+
+// Pre-Cycle-1 manual seeding: which court each player has been placed on
+// during the Setup tab's Court Seeding screen. Superseded by each
+// KingCourtCourtCycle's `playerIds` once Cycle 1 starts — see
+// useKingCourt.startCycle1.
+export interface KingCourtPlayerAssignment {
+  playerId: string;
+  courtNumber: number;
+}
+
+export type KingCourtGameStatus = 'pending' | 'completed';
+
+// One of the 5 games in a court's cycle. `team1PlayerIds`/`team2PlayerIds`
+// each hold exactly 2 player ids; `restingPlayerId` is the 5th player who
+// sits out this game — see generateFivePlayerRotation in
+// src/utils/kingCourt.ts for how these are derived from the court's A-E
+// letter assignment.
+export interface KingCourtGame {
+  gameNumber: number;
+  team1PlayerIds: string[];
+  team2PlayerIds: string[];
+  restingPlayerId: string;
+  team1Score?: number;
+  team2Score?: number;
+  winnerTeam?: 1 | 2;
+  status: KingCourtGameStatus;
+}
+
+export type KingCourtMovementDirection = 'up' | 'down' | 'stay';
+
+// Per-player result for one court's cycle, ranked after all 5 games are
+// scored — see calculateCourtStandings in src/utils/kingCourt.ts.
+export interface KingCourtStanding {
+  playerId: string;
+  wins: number;
+  losses: number;
+  pointDifferential: number;
+  rank: number;
+  movementDirection: KingCourtMovementDirection;
+  // True when this player is tied with at least one other player on both
+  // wins and point differential — see calculateCourtStandings. The UI
+  // (KingCourtMovementPreview) surfaces a manual tiebreak control for any
+  // court where this is set for more than one player.
+  tied?: boolean;
+}
+
+export type KingCourtMovementReason = 'up' | 'down' | 'stay' | 'top-court-stay' | 'bottom-court-stay';
+
+// Where one player is headed for the next cycle, derived from their
+// standing — see generateMovementPreview.
+export interface KingCourtMovement {
+  playerId: string;
+  fromCourt: number;
+  toCourt: number;
+  reason: KingCourtMovementReason;
+  rank: number;
+}
+
+// One court's slice of a cycle: its 5 players (in A-E letter order), that
+// cycle's 5 games, and — once all 5 games are scored — the resulting
+// standings and movement preview.
+export interface KingCourtCourtCycle {
+  courtNumber: number;
+  playerIds: string[];
+  games: KingCourtGame[];
+  standings: KingCourtStanding[];
+  movementPreview: KingCourtMovement[];
+}
+
+// 'in-progress': games 1-5 still being played (across all courts, in
+// lockstep — see currentGameNumber). 'awaiting-movement': every court has
+// finished all 5 games and standings/movement previews are computed, but
+// the organiser hasn't confirmed movement yet. 'completed': movement
+// confirmed, superseded by the next cycle. Only the last cycle in a
+// session is ever not 'completed' — mirrors Round['status'] in
+// utils/tournament.ts.
+export type KingCourtCycleStatus = 'in-progress' | 'awaiting-movement' | 'completed';
+
+export interface KingCourtCycle {
+  cycleNumber: number;
+  courts: KingCourtCourtCycle[];
+  // Shared across every court — all courts play Game 1, then all play
+  // Game 2, and so on, together (see the "App flow" walkthrough in the
+  // README).
+  currentGameNumber: number;
+  status: KingCourtCycleStatus;
+}
+
+// Aggregated King Court stats for one player across the whole session
+// (every cycle so far) — the King Court equivalent of PlayerStats above.
+// See computeKingCourtPlayerStats in src/utils/kingCourt.ts.
+export interface KingCourtPlayerStats {
+  playerId: string;
+  totalWins: number;
+  totalLosses: number;
+  totalPointDifferential: number;
+  gamesPlayed: number;
+  gamesRested: number;
+  // playerId -> number of times partnered together, across all cycles.
+  partnerHistory: Record<string, number>;
+  // Court number the player was on at the end of each cycle, in order.
+  courtHistory: number[];
 }

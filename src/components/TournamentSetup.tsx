@@ -40,6 +40,7 @@ const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scores
 // below.
 export function TournamentSetup({ settings, onChange, rosterCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const isKingCourt = settings.playMode === 'king-court-5';
 
   function handleMatchTypeChange(matchType: MatchType) {
     onChange({ ...settings, matchType });
@@ -67,30 +68,32 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
     <section className="card">
       <h2>Session Setup</h2>
 
-      <div className="form-row">
-        <span>Match Type</span>
-        <div className="toggle-group" role="group" aria-label="Match type">
-          <button
-            type="button"
-            className={settings.matchType === 'singles' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handleMatchTypeChange('singles')}
-          >
-            Singles
-          </button>
-          <button
-            type="button"
-            className={settings.matchType === 'doubles' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handleMatchTypeChange('doubles')}
-          >
-            Doubles
-          </button>
+      {!isKingCourt && (
+        <div className="form-row">
+          <span>Match Type</span>
+          <div className="toggle-group" role="group" aria-label="Match type">
+            <button
+              type="button"
+              className={settings.matchType === 'singles' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handleMatchTypeChange('singles')}
+            >
+              Singles
+            </button>
+            <button
+              type="button"
+              className={settings.matchType === 'doubles' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handleMatchTypeChange('doubles')}
+            >
+              Doubles
+            </button>
+          </div>
+          <p className="hint">
+            {settings.matchType === 'singles'
+              ? 'Player vs. player — each court needs 2 players.'
+              : 'Team vs. team — each court needs 4 players. Choose how partners are decided below.'}
+          </p>
         </div>
-        <p className="hint">
-          {settings.matchType === 'singles'
-            ? 'Player vs. player — each court needs 2 players.'
-            : 'Team vs. team — each court needs 4 players. Choose how partners are decided below.'}
-        </p>
-      </div>
+      )}
 
       <div className="form-row">
         <span>Play Mode</span>
@@ -109,11 +112,20 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
           >
             Social Play Mode
           </button>
+          <button
+            type="button"
+            className={settings.playMode === 'king-court-5' ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handlePlayModeChange('king-court-5')}
+          >
+            5-Player King Court
+          </button>
         </div>
         <p className="hint">
           {settings.playMode === 'tournament'
             ? 'Competitive: tracks points, wins/losses, and a ranked leaderboard.'
-            : 'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'}
+            : settings.playMode === 'social'
+              ? 'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'
+              : 'Fixed 5-player courts running 5-game doubles cycles, with rank-based movement between courts after each cycle.'}
         </p>
       </div>
 
@@ -150,7 +162,7 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
 
       {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} rosterCount={rosterCount} />}
 
-      {settings.matchType === 'doubles' && (
+      {!isKingCourt && settings.matchType === 'doubles' && (
         <div className="form-row">
           <span>Doubles Setup</span>
           <div className="toggle-group" role="group" aria-label="Doubles pairing mode">
@@ -179,10 +191,16 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
         </div>
       )}
 
-      <div className="form-row">
-        <label htmlFor="courts">Number of Courts</label>
-        <input id="courts" type="number" min={1} value={settings.courts} onChange={handleCourtsChange} />
-      </div>
+      {!isKingCourt && (
+        <div className="form-row">
+          <label htmlFor="courts">Number of Courts</label>
+          <input id="courts" type="number" min={1} value={settings.courts} onChange={handleCourtsChange} />
+        </div>
+      )}
+
+      {isKingCourt && (
+        <p className="hint">Number of courts and player seeding for King Court are set below, on the King Court Setup card.</p>
+      )}
     </section>
   );
 }
