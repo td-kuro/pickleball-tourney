@@ -13,6 +13,7 @@ import type {
   KingCourtPlayerStats,
   KingCourtStanding,
   Player,
+  RoundStatus,
 } from '../types';
 
 // --- The fixed 5-game rotation --------------------------------------------
@@ -347,20 +348,48 @@ export function validateKingCourtSeeding(
 
   const assignedIds = new Set(assignments.map((a) => a.playerId));
   if (players.some((p) => !assignedIds.has(p.id))) {
-    return { ok: false, reason: 'Every player must be assigned to a court before starting Cycle 1.' };
+    return { ok: false, reason: 'All players must be assigned to a court.' };
   }
 
   for (let court = 1; court <= numberOfCourts; court++) {
     const count = assignments.filter((a) => a.courtNumber === court).length;
-    if (count !== 5) {
-      return {
-        ok: false,
-        reason: `Court ${court} has ${count} player${count === 1 ? '' : 's'} assigned — every court needs exactly 5.`,
-      };
+    if (count < 5) {
+      return { ok: false, reason: `Court ${court} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
+    }
+    if (count > 5) {
+      return { ok: false, reason: `Court ${court} has ${count} players — each court can only have 5.` };
     }
   }
 
   return { ok: true };
+}
+
+// True if `courtNumber` already holds its full 5 players among
+// `assignments` — used by CourtSeeding's click-to-assign flow to block
+// (and explain) over-assigning a court, rather than silently overwriting
+// or dropping a player. `excludingPlayerId`, when given, ignores that
+// player's own current assignment — so re-clicking the court a player is
+// already on (or moving them within the same court) never falsely reports
+// "full" because of their own slot.
+export function isCourtFull(
+  assignments: KingCourtPlayerAssignment[],
+  courtNumber: number,
+  excludingPlayerId?: string,
+): boolean {
+  return assignments.filter((a) => a.courtNumber === courtNumber && a.playerId !== excludingPlayerId).length >= 5;
+}
+
+// Status of one game (1-5) within a cycle, for the All Rounds view — the
+// King Court equivalent of RoundStatus in utils/tournament.ts. All courts
+// play the same game number in lockstep (see currentGameNumber), so this
+// is derived once per cycle rather than per-court: once a cycle leaves
+// 'in-progress' (awaiting movement, or completed), every one of its 5
+// games is done.
+export function getKingCourtGameStatus(cycle: KingCourtCycle, gameNumber: number): RoundStatus {
+  if (cycle.status !== 'in-progress') return 'completed';
+  if (gameNumber < cycle.currentGameNumber) return 'completed';
+  if (gameNumber > cycle.currentGameNumber) return 'upcoming';
+  return 'current';
 }
 
 // Aggregated King Court stats for every player across the whole session so

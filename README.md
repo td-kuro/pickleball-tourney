@@ -208,9 +208,9 @@ bracket read-only.
 A third **Play Mode**, structurally separate from Tournament and Social
 Play — it has its own data model entirely (courts, cycles, and games, not
 rounds/matches), its own `localStorage` keys, its own navigation tabs
-(**Setup**, **King Court**, **Standings**, **Cycle History** — Rounds/
-Leaderboard/Player Stats aren't shown), and its own **Reset King Court**
-button. Select it from **Play Mode** on the Setup screen.
+(**Setup**, **Rounds**, **Standings**, **Cycle History** — the standard
+Leaderboard/Player Stats tab isn't shown), and its own **Reset King
+Court** button. Select it from **Play Mode** on the Setup screen.
 
 It models a "king of the court" ladder night: fixed **courts of exactly 5
 players**, each running an independent **cycle** of 5 doubles games, after
@@ -321,11 +321,29 @@ King Court Setup) lets the organiser place every player onto a starting
 court — e.g. seed your strongest 5 players onto the top court, next
 strongest onto the court below, and so on. **Higher court number means a
 stronger court** (Court 6 is the strongest of 6 courts, Court 1 the
-weakest). Each unassigned player gets a "move to court" dropdown, and
-every already-placed player gets the same dropdown (plus an "Unassign"
-option) so seeding can be freely rearranged before starting. **Start
-Cycle 1** stays disabled until every player is assigned and every court
-has exactly 5.
+weakest).
+
+Court Seeding uses **click-to-assign** rather than dropdowns: click a
+player chip — in the Unassigned list, or already on a court — to select
+it (it highlights), then click a court card, or one of its empty slots,
+to place them there; clicking the court a player is already on, or the
+same chip again, just deselects it. Each court card shows a live
+**`X / 5 players`** count and reads visually as **Full** once it has 5.
+Every filled slot has its own **×** button to unassign that player back
+to Unassigned, and **↑ / ↓** buttons to reorder players within a court —
+this affects Cycle 1's A-E letter assignment (see "A–E assignment"
+above), since with no partner history yet, A-E order falls back to
+exactly this seeding order. **Start Cycle 1** stays disabled until every
+player is assigned and every court has exactly 5.
+
+**Court capacity is enforced, not just validated at Start**: trying to
+assign a 6th player to a court that already has 5 is blocked outright,
+with an inline **"Court full. Each King Court court can only have 5
+players."** message — it never silently fails or bumps an existing
+player. Before Cycle 1 can start, every unfilled/overfull court is
+called out by name (e.g. "Court 2 needs 1 more player"), and any
+unassigned player blocks starting with "All players must be assigned to
+a court."
 
 ### Setup and validation
 
@@ -355,13 +373,28 @@ Setup players → Seed players into courts → Start Cycle 1
   → Cycle 2 (repeats indefinitely)
 ```
 
-The **King Court** tab shows, for the cycle's current game and every
-court at once: court number, team 1, team 2, who's resting, a score input
-for each team, and the winner once both scores are in. **Next Game**
-(or **Finish Cycle** on Game 5) is disabled until every court's current
-game is scored. There's no fixed number of cycles — the session just
-keeps generating a new cycle each time movement is confirmed, for as long
-as the host wants to keep playing.
+The **Rounds** tab has its own **Current Round / All Rounds** toggle,
+matching the one Tournament/Social Play use on their Rounds tab:
+
+- **Current Round** shows, for the cycle's current game and every court at
+  once: court number, team 1, team 2, who's resting, a score input for
+  each team, and the winner once both scores are in. **Next Game** (or
+  **Finish Cycle** on Game 5) is disabled until every court's current game
+  is scored. Score entry only ever happens here. There's no fixed number
+  of cycles — the session just keeps generating a new cycle each time
+  movement is confirmed, for as long as the host wants to keep playing.
+- **All Rounds** is the read-only counterpart: every King Court game
+  generated so far, grouped by **Cycle**, each cycle showing Games 1
+  through 5 in order. A "round" here is one game within a cycle (e.g.
+  "Cycle 1, Game 3") — each game lists every court's matchup (team 1 vs.
+  team 2, who's resting), the score and winner once entered, and a status
+  badge: **Completed** (an earlier game this cycle), **Current** (the
+  game the Current Round view is on), or **Upcoming** (a later game in
+  this cycle, not reached yet). Future cycles are never pre-generated —
+  Cycle 2 simply appears here, with its own 5 Upcoming games, the moment
+  movement off Cycle 1 is confirmed (see "Court movement" above; court
+  groups change after each cycle, which is exactly why later cycles can't
+  be generated ahead of time).
 
 ### Standings and Cycle History tabs
 
@@ -373,7 +406,11 @@ as the host wants to keep playing.
   mid-cycle).
 - **Cycle History** — every *completed* cycle (i.e. one where movement has
   already been confirmed), most recent first, showing each court's final
-  rank, record, and which court each player moved to. Read-only.
+  rank, record, and which court each player moved to. Read-only. This is
+  a different view from Rounds' **All Rounds** above: Cycle History is
+  about *final standings and movement* for finished cycles only; All
+  Rounds is about the *game-by-game schedule and scores*, including the
+  in-progress cycle and its untouched upcoming games.
 
 ### Resetting King Court
 
@@ -403,10 +440,6 @@ behaviour as Reset Tournament/Reset Social Play elsewhere in the app.
   Movement Preview screen before confirming, but there's no way to pull a
   player onto a different court in the middle of an in-progress cycle
   (e.g. after Game 2) without a full Reset King Court.
-- **No in-court slot reordering during seeding** — Court Seeding lets you
-  move a player to a different court, but not reorder players within a
-  court, since A–E assignment is chosen automatically from partner history
-  rather than from seeding order.
 - Manual tiebreak ordering applies for that cycle's movement only — it
   isn't remembered as a standing preference for future ties between the
   same two players.
@@ -511,9 +544,9 @@ time (gated on scores being entered), same as before.
 - Everything is saved to your browser's `localStorage`, so it survives a
   page refresh.
 - **5-Player King Court Mode** — a structurally separate ladder format
-  with its own **Setup** (including **Court Seeding**), **King Court**,
-  **Standings**, and **Cycle History** tabs — see "5-Player King Court
-  Mode" below for the full write-up.
+  with its own **Setup** (including **Court Seeding**), **Rounds**
+  (Current Round / All Rounds), **Standings**, and **Cycle History** tabs
+  — see "5-Player King Court Mode" below for the full write-up.
 
 ## Setup must be completed before matches start
 
@@ -1051,8 +1084,10 @@ src/
                              match generation, pool standings/tie-breaks, knockout
                              seeding/byes/bracket progression (Pools & Knockout)
   utils/kingCourt.ts        Pure logic: the 5-game rotation, A-E assignment, game/cycle
-                             scoring, standings + ties, movement preview, and the next
-                             cycle's court assignments (5-Player King Court Mode)
+                             scoring, standings + ties, movement preview, the next
+                             cycle's court assignments, Court Seeding capacity checks
+                             (isCourtFull), and All Rounds game status
+                             (getKingCourtGameStatus) (5-Player King Court Mode)
   hooks/                    useLocalStorage, usePlayers, useTeams (Add Team roster —
                              see RosterSetup), useTournament (Leaderboard/Social Play
                              state), usePoolsKnockout (Pools & Knockout state),
@@ -1065,11 +1100,13 @@ src/
                              FixedTeamResults, PickleballLogo (Leaderboard/Social
                              Play); PoolsKnockoutPage, PoolStageView, PoolLeaderboard,
                              KnockoutBracketView, FinalResults (Pools & Knockout);
-                             KingCourtSetup, CourtSeeding, KingCourtView,
-                             KingCourtGameCard, KingCourtStandings,
-                             KingCourtMovementPreview, KingCourtCycleHistory (King
-                             Court — reuses PlayerForm/PlayerList directly for its
-                             roster rather than duplicating them)
+                             KingCourtSetup, CourtSeeding, KingCourtRoundsPage,
+                             KingCourtView, KingCourtAllRoundsView, KingCourtGameCard,
+                             KingCourtStandings, KingCourtMovementPreview,
+                             KingCourtCycleHistory (King Court — reuses
+                             PlayerForm/PlayerList directly for its roster rather than
+                             duplicating them; KingCourtRoundsPage is the Current
+                             Round/All Rounds toggle parent, mirroring RoundsPage)
   App.tsx                   Setup / middle-tab / results views, tab gating, and layout
                              — routes between the Leaderboard/Social Play components,
                              the Pools & Knockout ones, and the King Court ones

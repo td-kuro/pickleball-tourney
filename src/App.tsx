@@ -4,9 +4,9 @@ import { CourtSeeding } from './components/CourtSeeding';
 import { FinalResults } from './components/FinalResults';
 import { FixedTeamResults } from './components/FixedTeamResults';
 import { KingCourtCycleHistory } from './components/KingCourtCycleHistory';
+import { KingCourtRoundsPage } from './components/KingCourtRoundsPage';
 import { KingCourtSetup } from './components/KingCourtSetup';
 import { KingCourtStandings } from './components/KingCourtStandings';
-import { KingCourtView } from './components/KingCourtView';
 import { Leaderboard } from './components/Leaderboard';
 import { PickleballLogo } from './components/PickleballLogo';
 import { PlayerStats } from './components/PlayerStats';
@@ -147,7 +147,7 @@ function App() {
                 onClick={() => setView('kc-court')}
                 disabled={!started}
               >
-                King Court
+                Rounds
               </button>
               <button
                 type="button"
@@ -227,6 +227,7 @@ function App() {
                   numberOfCourts={kingCourt.numberOfCourts}
                   assignments={kingCourt.assignments}
                   onAssign={kingCourt.assignPlayerToCourt}
+                  onReorderInCourt={kingCourt.reorderPlayerInCourt}
                   onStartCycle1={() => {
                     kingCourt.startCycle1(players);
                     setView('kc-court');
@@ -287,9 +288,10 @@ function App() {
       )}
 
       {view === 'kc-court' && kingCourt.started && kingCourt.currentCycle && (
-        <KingCourtView
+        <KingCourtRoundsPage
           players={players}
           numberOfCourts={kingCourt.numberOfCourts}
+          cycles={kingCourt.cycles}
           currentCycle={kingCourt.currentCycle}
           onSetGameScore={kingCourt.setGameScore}
           onAdvanceGame={kingCourt.advanceGame}

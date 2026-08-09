@@ -794,7 +794,8 @@ button.danger:hover:not(:disabled) {
   margin-bottom: 8px;
 }
 
-.all-rounds-entry-heading h3 {
+.all-rounds-entry-heading h3,
+.all-rounds-entry-heading h4 {
   margin: 0;
   font-size: 15px;
   color: var(--text-h);
@@ -859,6 +860,24 @@ button.danger:hover:not(:disabled) {
   margin: -4px 0 10px;
 }
 
+/* Rounds tab: All Rounds (every cycle/game generated so far) */
+
+.kc-all-rounds-cycle {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.kc-all-rounds-cycle:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.kc-all-rounds-cycle h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+  color: var(--text-h);
+}
+
 /* Court Seeding */
 
 .kc-unassigned {
@@ -867,38 +886,39 @@ button.danger:hover:not(:disabled) {
   border-bottom: 1px solid var(--border);
 }
 
-.kc-unassigned-list {
+.kc-chip-row {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
-.kc-unassigned-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--accent-border);
+/* Click-to-assign player chip — used both in the Unassigned pool and
+   inside a court's filled slots. Selecting one (turning it .selected)
+   arms it so the next court/empty-slot click assigns it there. */
+.kc-player-chip {
+  padding: 10px 14px;
+  min-height: 40px;
+  border-radius: 999px;
+  border: 1.5px solid var(--accent-border);
   background: var(--accent-bg);
-  border-radius: 8px;
+  color: var(--accent-hover);
   font-size: 14px;
   font-weight: 600;
-  color: var(--text-h);
 }
 
-.kc-unassigned-row select {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-  font-size: 13px;
+.kc-player-chip:hover:not(:disabled):not(.selected) {
+  background: var(--accent-border);
+}
+
+.kc-player-chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 
 .kc-court-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 12px;
   margin: 12px 0;
 }
@@ -907,13 +927,55 @@ button.danger:hover:not(:disabled) {
   border: 1px solid var(--border);
   border-top: 3px solid var(--accent-2-border);
   border-radius: 10px;
-  padding: 12px;
+  padding: 14px;
+  cursor: pointer;
 }
 
-.kc-court-card h3 {
-  margin: 0 0 10px;
+.kc-court-card:hover {
+  border-color: var(--accent-2-border);
+  background: var(--accent-2-bg);
+}
+
+.kc-court-card:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: 2px;
+}
+
+/* Full courts read as visually "done" rather than a warning — the
+   capacity rule wants exactly 5, so full is the goal state. */
+.kc-court-card-full {
+  border-color: var(--accent-2);
+  background: var(--accent-2-bg);
+}
+
+.kc-court-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.kc-court-card-header h3 {
+  margin: 0;
   font-size: 14px;
   color: var(--text-h);
+}
+
+.kc-court-count {
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: var(--code-bg);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.kc-court-count.full {
+  background: var(--accent-2);
+  color: #fff;
 }
 
 .kc-court-slots {
@@ -930,31 +992,81 @@ button.danger:hover:not(:disabled) {
   align-items: center;
   justify-content: space-between;
   gap: 6px;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 4px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
   font-size: 13px;
+  min-height: 40px;
 }
 
 .kc-court-slot.filled {
-  border-color: var(--accent-2-border);
-  background: var(--accent-2-bg);
-  color: var(--text-h);
-  font-weight: 600;
+  border-style: solid;
+  border-color: var(--border);
+  background: var(--bg);
 }
 
-.kc-court-slot select {
-  padding: 4px 6px;
+.kc-court-slot .kc-player-chip {
+  padding: 6px 10px;
+  min-height: 32px;
+  font-size: 13px;
+  flex: 1;
+  text-align: left;
+}
+
+.kc-court-slot-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.kc-reorder-button,
+.kc-remove-button {
+  padding: 4px 9px;
+  min-height: 32px;
+  font-size: 13px;
+  line-height: 1;
+  background: var(--code-bg);
+  color: var(--text);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg);
-  color: var(--text-h);
-  font-size: 12px;
+}
+
+.kc-reorder-button:hover:not(:disabled) {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-color: var(--accent-border);
+}
+
+.kc-remove-button:hover:not(:disabled) {
+  background: rgba(192, 57, 43, 0.1);
+  color: #c0392b;
+  border-color: #c0392b;
 }
 
 .kc-court-slot-empty {
+  flex: 1;
+  min-height: 32px;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
   color: var(--text);
   font-style: italic;
+  font-size: 13px;
+  text-align: left;
+}
+
+.kc-court-slot-empty:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+
+.kc-court-status {
+  margin: 10px 0 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.kc-court-status.full {
+  color: var(--accent-2);
 }
 
 /* Standings / Cycle History */

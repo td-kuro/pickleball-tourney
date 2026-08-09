@@ -6,6 +6,7 @@ import {
   calculateCourtStandings,
   generateMovementPreview,
   generateNextKingCourtCycle,
+  isCourtFull,
   isCurrentGameComplete,
 } from '../utils/kingCourt';
 import { useLocalStorage } from './useLocalStorage';
@@ -31,9 +32,32 @@ export function useKingCourt() {
 
   // --- Seeding (pre-Cycle-1) ----------------------------------------------
 
+  // Backstop against a full court even if a caller skips CourtSeeding's own
+  // isCourtFull check (which is what actually shows the organiser the
+  // "Court full" message) — silently no-ops here rather than overwriting
+  // or bumping an existing player, per the King Court capacity rule.
   function assignPlayerToCourt(playerId: string, courtNumber: number | null) {
+    if (courtNumber != null && isCourtFull(assignments, courtNumber, playerId)) return;
     const withoutPlayer = assignments.filter((a) => a.playerId !== playerId);
     setAssignments(courtNumber == null ? withoutPlayer : [...withoutPlayer, { playerId, courtNumber }]);
+  }
+
+  // Swaps a player with their neighbour within one court's seeding order
+  // (the order CourtSeeding displays each court's slots in, and — for
+  // Cycle 1, which has no partner history yet — the exact order
+  // generateNextKingCourtCycle/assignPlayersToLetters falls back to for
+  // A-E assignment, so this has a real effect on Game 1's pairings).
+  function reorderPlayerInCourt(courtNumber: number, playerId: string, direction: -1 | 1) {
+    const courtIndices = assignments.map((_, index) => index).filter((index) => assignments[index].courtNumber === courtNumber);
+    const currentPos = courtIndices.findIndex((index) => assignments[index].playerId === playerId);
+    const targetPos = currentPos + direction;
+    if (currentPos === -1 || targetPos < 0 || targetPos >= courtIndices.length) return;
+
+    const currentIndex = courtIndices[currentPos];
+    const targetIndex = courtIndices[targetPos];
+    const next = [...assignments];
+    [next[currentIndex], next[targetIndex]] = [next[targetIndex], next[currentIndex]];
+    setAssignments(next);
   }
 
   // Drops assignments for any player id no longer in the roster, and
@@ -173,6 +197,7 @@ export function useKingCourt() {
     setNumberOfCourts,
     assignments,
     assignPlayerToCourt,
+    reorderPlayerInCourt,
     pruneAssignments,
     cycles,
     currentCycle,
