@@ -38,13 +38,38 @@ function App() {
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isKingCourt = settings.playMode === 'king-court-5';
-  const isFixedTeams = isFixedTeamsMode(settings);
+  // Pools & Knockout still needs an exclusive choice between auto-paired
+  // players and declared teams (see formTeams/usePoolsKnockout) — that's
+  // still settings.doublesPairingMode, unaffected by the rest of this.
+  const isPoolsKnockoutFixedTeams = isFixedTeamsMode(settings);
+  // Leaderboard/Social Play Doubles, by contrast, let Add Player and Add
+  // Team be used together (see ParticipantSetup) — so "fixed teams only"
+  // and "mixed" are just two of the three shapes the roster can take
+  // there, not an exclusive mode switch. `isDoublesFixedOnly` keeps the
+  // original Fixed Teams-only behaviour (Team Leaderboard/Dedicated
+  // Pairing Stats — see FixedTeamResults) for the common case where no
+  // individual players were added at all.
+  const isDoublesFixedOnly = !isPoolsKnockout && settings.matchType === 'doubles' && teams.length > 0 && players.length === 0;
+  const isMixedDoubles = !isPoolsKnockout && settings.matchType === 'doubles' && teams.length > 0 && players.length > 0;
+  const isFixedTeams = isDoublesFixedOnly;
   // Whichever roster the current mode actually plays with: individual
-  // players for Singles/Rotating Doubles, or the players embedded in each
-  // fixed team for Doubles + Fixed Teams — see useTeams and
-  // utils/tournament.ts's canGenerateRound/createFixedTeamRound. King
-  // Court always uses the plain player list (see KingCourtSetup).
-  const effectivePlayers = isFixedTeams ? teamPlayers : players;
+  // players for Singles/Rotating Doubles, the players embedded in each
+  // fixed team for Doubles + Fixed Teams-only, or the union of both for
+  // mixed Doubles (every human who can take the court, regardless of
+  // whether they came from the player list or a declared team — see
+  // canGenerateRound/generateMixedDoublesRound) — see useTeams and
+  // utils/pairing.ts. Pools & Knockout keeps its own separate exclusive
+  // logic. King Court always uses the plain player list (see
+  // KingCourtSetup).
+  const effectivePlayers = isPoolsKnockout
+    ? isPoolsKnockoutFixedTeams
+      ? teamPlayers
+      : players
+    : isDoublesFixedOnly
+      ? teamPlayers
+      : isMixedDoubles
+        ? [...players, ...teamPlayers]
+        : players;
   const [view, setView] = useState<View>(
     isKingCourt
       ? kingCourt.started
@@ -91,7 +116,7 @@ function App() {
     if (isPoolsKnockout) {
       poolsKnockout.startPoolStage(players, settings, teams);
     } else {
-      startSession(players, teams);
+      startSession(players, teams, teamPlayers);
     }
     setView('rounds');
   }
@@ -324,7 +349,7 @@ function App() {
             settings={settings}
             rounds={rounds}
             plannedRounds={plannedRounds}
-            onNextRound={() => nextRound(players, teams)}
+            onNextRound={() => nextRound(players, teams, teamPlayers)}
             onFinishSession={handleFinishSession}
             onSetScore={setMatchScore}
             teams={teams}

@@ -1,5 +1,5 @@
 import type { Player, Round } from '../types';
-import { computePlayerStats } from '../utils/tournament';
+import { calculateLeaderboardStats } from '../utils/pairing';
 
 interface LeaderboardProps {
   players: Player[];
@@ -16,23 +16,12 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
     );
   }
 
-  const statsByPlayer = new Map(computePlayerStats(players, rounds).map((s) => [s.playerId, s]));
-
-  const rows = players
-    .map((player) => ({ player, stats: statsByPlayer.get(player.id)! }))
-    .sort((a, b) => {
-      if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
-      if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
-      if (a.stats.byes !== b.stats.byes) return a.stats.byes - b.stats.byes;
-      // Unrated players sort after any rated player in a tie.
-      const ratingA = a.player.rating ?? -Infinity;
-      const ratingB = b.player.rating ?? -Infinity;
-      return ratingB - ratingA;
-    });
+  const rows = calculateLeaderboardStats(players, rounds);
 
   return (
     <section className="card">
       <h2>Leaderboard</h2>
+      <p className="hint">Ranked by wins, then total points, then point differential, then fewest byes, then rating.</p>
       <div className="leaderboard-scroll">
         <table className="leaderboard-table">
           <thead>
@@ -40,7 +29,9 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
               <th>#</th>
               <th>Player</th>
               <th>Rating</th>
-              <th>Points</th>
+              <th>PF</th>
+              <th>PA</th>
+              <th>+/-</th>
               <th>Played</th>
               <th>Wins</th>
               <th>Losses</th>
@@ -48,12 +39,14 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
             </tr>
           </thead>
           <tbody>
-            {rows.map(({ player, stats }, index) => (
-              <tr key={player.id} className={index === 0 ? 'leaderboard-top' : undefined}>
-                <td>{index + 1}</td>
+            {rows.map(({ player, stats, rank }) => (
+              <tr key={player.id} className={rank === 1 ? 'leaderboard-top' : undefined}>
+                <td>{rank}</td>
                 <td>{player.name}</td>
                 <td>{player.rating != null ? player.rating : <span className="unrated">Unrated</span>}</td>
-                <td>{stats.totalPoints}</td>
+                <td>{stats.pointsFor}</td>
+                <td>{stats.pointsAgainst}</td>
+                <td>{stats.pointDifferential > 0 ? `+${stats.pointDifferential}` : stats.pointDifferential}</td>
                 <td>{stats.matchesPlayed}</td>
                 <td>{stats.wins}</td>
                 <td>{stats.losses}</td>

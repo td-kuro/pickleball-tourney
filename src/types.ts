@@ -118,6 +118,21 @@ export interface PoolKnockoutSettings {
   teamsAdvancingPerPool: number;
 }
 
+// Tournament Mode + Leaderboard format only (see PairingStyle below):
+// - 'balanced': the original behaviour — favour opponents/partners faced
+//   the fewest times, with a light rating/performance nudge on top. See
+//   createRound/createFixedTeamRound in utils/tournament.ts and
+//   pairUnitsByFewestMeetings in utils/pairing.ts.
+// - 'leaderboard-based': pair competitors with similar current ranking
+//   (1st vs 2nd, 3rd vs 4th, ...); for rotating Doubles this instead
+//   guides balanced *team* formation (strongest with weakest) rather than
+//   pitting the top-ranked players directly against each other. See
+//   pairUnitsByStyle/formPartnersByStyle in utils/pairing.ts.
+// - 'random': shuffled pairings each round, still respecting court
+//   capacity/bye fairness and avoiding an exact repeat of the immediately
+//   preceding round where possible.
+export type PairingStyle = 'balanced' | 'leaderboard-based' | 'random';
+
 export interface TournamentSettings {
   playMode: PlayMode;
   // Always present (even in Tournament Mode, where it's ignored) so
@@ -130,8 +145,16 @@ export interface TournamentSettings {
   // Knockout, where they're ignored), same rationale as socialScoringMode.
   tournamentFormat: TournamentFormat;
   poolKnockoutSettings: PoolKnockoutSettings;
-  // Always present, even in Singles (where it's ignored) — same rationale.
+  // Only meaningful for Doubles + Pools & Knockout now — Leaderboard and
+  // Social Play let Add Player and Add Team be used together (see
+  // ParticipantSetup) instead of picking one exclusively, so this field no
+  // longer gates their roster UI. Kept for Pools & Knockout, which still
+  // needs an exclusive choice between auto-paired players and declared
+  // teams — see isFixedTeamsMode/formTeams.
   doublesPairingMode: DoublesPairingMode;
+  // Tournament Mode + Leaderboard format only — ignored elsewhere, same
+  // rationale as socialScoringMode above. See PairingStyle.
+  pairingStyle: PairingStyle;
 }
 
 // A fixed competitor for the whole tournament/session (unlike the ad-hoc
@@ -153,6 +176,25 @@ export interface Team {
   // formTeams) — those are fixed for that tournament's duration too, but
   // weren't a deliberate "practice with this partner" choice.
   isFixedTeam: boolean;
+}
+
+// A single doubles competitor for one round of Leaderboard/Social Play
+// pairing — either a pre-declared fixed Team (see Team above) or a
+// temporary pairing of two individual players formed fresh for that round
+// (see buildTemporaryTeamsFromIndividuals in utils/pairing.ts). This is a
+// pairing-time convenience only, not a persisted entity: once a round is
+// generated, both kinds are recorded identically as a Match's MatchSide
+// (just playerIds) — see generateMixedDoublesRound, which is what lets a
+// mixed Doubles roster (some fixed teams, some individual players) share
+// one round's courts without the rest of the app needing to know which
+// side came from which.
+export interface TeamInstance {
+  id: string;
+  playerIds: string[];
+  isFixedTeam: boolean;
+  // Set only when isFixedTeam is true — the Team this instance came from.
+  fixedTeamId?: string;
+  displayName: string;
 }
 
 export interface PoolMatch {
@@ -245,13 +287,23 @@ export interface TournamentState {
 // Aggregated stats for one player across all rounds played so far.
 export interface PlayerStats {
   playerId: string;
+  // Equal to pointsFor below — kept alongside it since existing UI already
+  // reads totalPoints; pointsFor/pointsAgainst/pointDifferential are the
+  // Leaderboard's PF/PA/+/- columns (see computePlayerStats).
   totalPoints: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  pointDifferential: number;
   matchesPlayed: number;
   wins: number;
   losses: number;
   byes: number;
   // Unique player ids this player has had as a doubles teammate / has
   // faced as an opponent (singles or doubles), across all rounds so far.
+  // (Meeting *counts*, used by the pairing engine to avoid repeats, are
+  // derived separately and on demand from round history — see MeetingCounts
+  // in utils/tournament.ts — rather than stored here, so there's a single
+  // source of truth.)
   partnerIds: string[];
   opponentIds: string[];
 }

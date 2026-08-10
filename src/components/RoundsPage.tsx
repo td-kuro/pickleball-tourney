@@ -71,7 +71,7 @@ export function RoundsPage({
           teams={teams}
         />
       ) : (
-        <AllRoundsView rounds={rounds} players={players} settings={settings} />
+        <AllRoundsView rounds={rounds} players={players} settings={settings} teams={teams} />
       )}
     </>
   );

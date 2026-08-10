@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { Player, Team, TournamentSettings } from '../types';
 import { isFixedTeamsMode, maxPlayersForRound, playersNeededPerMatch } from '../utils/tournament';
+import { ParticipantSetup } from './ParticipantSetup';
 import { PlayerForm } from './PlayerForm';
 import { PlayerList } from './PlayerList';
 import { TeamForm } from './TeamForm';
@@ -22,13 +23,20 @@ interface RosterSetupProps {
   onRemoveAllTeams: () => void;
 }
 
-// Setup field 6 (see App.tsx): picks between the "Add Player" roster
-// (Singles, or Doubles + Rotating Players) and the "Add Team" roster
-// (Doubles + Fixed Teams) — see TournamentSetup's Doubles Setup toggle,
-// which is what actually decides settings.doublesPairingMode. The two
-// rosters are otherwise completely independent (separate localStorage-
-// backed hooks — usePlayers and useTeams), so switching modes never loses
-// either one; whichever isn't currently active is just not shown.
+// Setup field 6 (see App.tsx). Three shapes, depending on Match Type and
+// Tournament Format:
+// - Singles: Add Player only — teams aren't used in Singles at all.
+// - Doubles + Pools & Knockout: the original exclusive Add Player
+//   (auto-paired) OR Add Team (declared) roster — Pools & Knockout still
+//   needs one roster shape for its bracket, decided by TournamentSetup's
+//   Doubles Setup toggle (settings.doublesPairingMode).
+// - Doubles + Leaderboard/Social Play: the unified Participants setup (see
+//   ParticipantSetup) — Add Player and Add Team together, since a mixed
+//   roster (some fixed teams, some individual players) is fully supported
+//   there (see utils/pairing.ts's generateMixedDoublesRound).
+// usePlayers and useTeams are always separate localStorage-backed hooks
+// either way, so switching Match Type/Tournament Format never loses either
+// roster; whichever isn't currently relevant just isn't shown.
 export function RosterSetup({
   settings,
   players,
@@ -46,6 +54,7 @@ export function RosterSetup({
 }: RosterSetupProps) {
   const [bulkCount, setBulkCount] = useState('');
   const bulkCountValue = parseInt(bulkCount, 10);
+  const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const useFixedTeams = isFixedTeamsMode(settings);
 
   function handleGenerateSlots(event: FormEvent) {
@@ -65,6 +74,28 @@ export function RosterSetup({
     if (window.confirm('Are you sure you want to remove all teams?')) {
       onRemoveAllTeams();
     }
+  }
+
+  if (settings.matchType === 'doubles' && !isPoolsKnockout) {
+    return (
+      <ParticipantSetup
+        settings={settings}
+        players={players}
+        onAddPlayer={onAddPlayer}
+        onAddPlayersBulk={onAddPlayersBulk}
+        onUpdatePlayer={onUpdatePlayer}
+        onRemovePlayer={onRemovePlayer}
+        teams={teams}
+        teamPlayers={teamPlayers}
+        onAddTeam={onAddTeam}
+        onUpdateTeam={onUpdateTeam}
+        onRemoveTeam={onRemoveTeam}
+        onRemoveAllParticipants={() => {
+          onRemoveAllPlayers();
+          onRemoveAllTeams();
+        }}
+      />
+    );
   }
 
   if (useFixedTeams) {

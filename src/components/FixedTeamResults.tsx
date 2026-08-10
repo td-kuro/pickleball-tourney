@@ -1,5 +1,6 @@
 import type { Round, Team, TournamentSettings } from '../types';
-import { computeTeamStats, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
+import { calculateTeamLeaderboardStats } from '../utils/pairing';
+import { isScoringEnabled, isWinLossTracked } from '../utils/tournament';
 
 interface FixedTeamResultsProps {
   teams: Team[];
@@ -28,15 +29,12 @@ export function FixedTeamResults({ teams, rounds, settings }: FixedTeamResultsPr
   const showPoints = isScoringEnabled(settings);
   const showWinLoss = isWinLossTracked(settings);
 
-  const statsByTeam = new Map(computeTeamStats(teams, rounds).map((stats) => [stats.teamId, stats]));
-  const rows = teams.map((team) => ({ team, stats: statsByTeam.get(team.id)! }));
-  if (isTournament) {
-    rows.sort((a, b) => {
-      if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
-      if (b.stats.pointDifference !== a.stats.pointDifference) return b.stats.pointDifference - a.stats.pointDifference;
-      return b.stats.pointsFor - a.stats.pointsFor;
-    });
-  }
+  // calculateTeamLeaderboardStats already sorts by wins, then points, then
+  // point difference, then byes, then rating — for Social Play (Dedicated
+  // Pairing Stats, not ranked) we still use it for the stats themselves but
+  // display rows in team-creation order instead of the computed rank.
+  const rankedRows = calculateTeamLeaderboardStats(teams, rounds);
+  const rows = isTournament ? rankedRows : teams.map((team) => ({ team, stats: rankedRows.find((r) => r.team.id === team.id)!.stats, rank: 0 }));
 
   return (
     <section className="card">

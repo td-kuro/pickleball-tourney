@@ -585,6 +585,104 @@ button.danger:hover:not(:disabled) {
   margin-top: 10px;
 }
 
+/* Fixed Team badge — shown on a match side's name when it matches a
+   declared fixed team (see CurrentRoundView's fixedTeamNameFor), so a mixed
+   Doubles roster (fixed teams + temporary teams from individual players)
+   reads clearly at a glance. */
+/* Wraps a match side's name + optional Fixed Team tag on one line — see
+   CurrentRoundView's MatchCard/ScoredMatchCard. Needed because .match-team
+   itself is a flex column (its cross-axis stretch would otherwise force a
+   plain inline-block tag to the full column width). */
+.match-team-name-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fixed-team-tag {
+  display: inline-block;
+  flex-shrink: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+
+/* Court Selector — clickable court-count buttons (1–6 + Other), used
+   anywhere "Number of Courts" is configured. Sized generously (44px+) so
+   they're easy to tap on mobile. */
+.court-selector-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.court-btn {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.court-btn:hover:not(:disabled):not(.active) {
+  border-color: var(--accent-border);
+  color: var(--accent);
+}
+
+.court-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.court-selector-other-input {
+  margin-top: 8px;
+  width: 100%;
+  max-width: 220px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 16px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
+/* Unified Participants list — badges a row as "Player" or "Team" (see
+   ParticipantList). Colour-coded to match the fixed-team tag above (green
+   for teams) so the two badge styles read as the same visual language. */
+.participant-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.participant-badge-player {
+  background: var(--accent-bg);
+  color: var(--accent);
+}
+
+.participant-badge-team {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+
+.participant-setup-team-heading {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
 /* Bye list */
 
 .bye-list {

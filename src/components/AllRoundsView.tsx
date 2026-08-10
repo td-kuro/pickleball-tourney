@@ -1,10 +1,14 @@
-import type { Player, Round, RoundStatus, TournamentSettings } from '../types';
-import { getMatchWinner, isScoringEnabled } from '../utils/tournament';
+import type { Player, Round, RoundStatus, Team, TournamentSettings } from '../types';
+import { getMatchWinner, isScoringEnabled, teamKey } from '../utils/tournament';
 
 interface AllRoundsViewProps {
   rounds: Round[];
   players: Player[];
   settings: TournamentSettings;
+  // Only relevant (and only ever non-empty) for Doubles with at least one
+  // fixed team — badges a match side as "Fixed Team" when its playerIds
+  // match a declared team, same as CurrentRoundView.
+  teams?: Team[];
 }
 
 const STATUS_LABEL: Record<RoundStatus, string> = {
@@ -21,7 +25,7 @@ const STATUS_LABEL: Record<RoundStatus, string> = {
 // rounds generated so far appear here (the last one always "current").
 // Score entry only ever happens on Current Round — this view never lets
 // you edit a score, even for the current round.
-export function AllRoundsView({ rounds, players, settings }: AllRoundsViewProps) {
+export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoundsViewProps) {
   if (rounds.length === 0) {
     return (
       <section className="card">
@@ -32,9 +36,12 @@ export function AllRoundsView({ rounds, players, settings }: AllRoundsViewProps)
   }
 
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
+  const fixedTeamNameByKey = new Map(teams.map((team) => [teamKey(team.playerIds), team.name]));
   const showScoring = isScoringEnabled(settings);
 
   function teamLabel(playerIds: string[]) {
+    const fixedName = playerIds.length === 2 ? fixedTeamNameByKey.get(teamKey(playerIds)) : undefined;
+    if (fixedName) return `${fixedName} (Fixed Team)`;
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
   }
 

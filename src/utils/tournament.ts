@@ -1,10 +1,16 @@
-// Pure tournament logic: pairing, validation, and stats.
+// Pure tournament logic: validation, stats, and the shared pairing
+// primitives (bye rotation, matchup-avoidance) that utils/pairing.ts builds
+// on for pairing-style-aware and mixed-doubles round generation.
 // No React or localStorage here, so this can be reused/extended (and
 // eventually replaced with smarter pairing rules) without touching the UI.
+// See utils/pairing.ts for round generation itself (createRound,
+// createFixedTeamRound, generateMixedDoublesRound, and the pairing-style
+// dispatch) — it imports the primitives below rather than duplicating them.
 
 import type {
   Match,
   MatchType,
+  PairingStyle,
   Player,
   PlayerStats,
   Round,
@@ -16,6 +22,16 @@ import type {
   TeamStats,
   TournamentSettings,
 } from '../types';
+// Only used for pairing styles other than the default 'balanced' — see
+// createRound/createFixedTeamRound below. utils/pairing.ts imports plenty
+// back from this file (MeetingCounts, buildMatchHistory,
+// pairByFewestMeetings, ...); that's a deliberate two-way split rather than
+// a layering mistake: this file owns the primitives + the original
+// 'balanced' algorithm, pairing.ts owns everything style-aware and the
+// mixed fixed-team/individual-player engine. Safe as a circular import
+// since neither side calls the other at module load time, only from
+// inside functions that run later.
+import { pairFixedTeamsByStyle, pairPlayerUnitsByStyle, pairTeamUnitsByStyle } from './pairing';
 
 const PLAYERS_PER_COURT: Record<MatchType, number> = {
   singles: 2,
@@ -76,6 +92,20 @@ export function maxPlayersForRound(settings: TournamentSettings): number {
   return settings.courts * playersNeededPerMatch(settings.matchType);
 }
 
+// The preset buttons shown by CourtSelector — 1 through 6, with "Other" for
+// anything beyond that. A plain array rather than a constant so the Setup
+// components never hardcode the preset range themselves.
+export function generateCourtOptions(): number[] {
+  return [1, 2, 3, 4, 5, 6];
+}
+
+export function validateCourtCount(value: number): { ok: true } | { ok: false; reason: string } {
+  if (!Number.isFinite(value) || !Number.isInteger(value) || value < 1) {
+    return { ok: false, reason: 'Number of courts must be a whole number of at least 1.' };
+  }
+  return { ok: true };
+}
+
 export function isRoundComplete(round: Round): boolean {
   return round.matches.every((match) => match.scoreA != null && match.scoreB != null);
 }
@@ -87,10 +117,18 @@ export function isFixedTeamsMode(settings: TournamentSettings): boolean {
   return settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
 }
 
-// `players` should be whichever roster is actually relevant to the current
-// mode: the regular player list for Singles/Rotating Doubles, or
-// useTeams's `teamPlayers` (the players embedded in each fixed team) for
-// Fixed Teams — see App.tsx. `teams` is only checked in Fixed Teams mode.
+// `players` should be every human who can actually take the court this
+// round — for Doubles in Leaderboard/Social Play that's the union of the
+// individual player roster and every fixed team's embedded players (see
+// App.tsx's `effectivePlayers`), since a fixed team always contributes
+// exactly 2 entries here; that makes the slot-count check below correct
+// uniformly whether the roster is rotating players only, fixed teams only,
+// or a mix of both (a fixed team = 2 slots, 2 individual players = 1
+// temporary team = 2 slots — either way each contributes 2 entries to
+// `players`). Pools & Knockout doesn't use this function (see
+// validatePoolsKnockoutSetup instead), so `teams` here is only ever fixed
+// teams for Leaderboard/Social Play, passed through for Doubles + Fixed
+// Teams-only name validation.
 export function canGenerateRound(
   players: Player[],
   settings: TournamentSettings,
@@ -101,31 +139,24 @@ export function canGenerateRound(
     return { ok: false, reason: 'Number of courts must be at least 1.' };
   }
 
-  const fixedTeams = isFixedTeamsMode(settings);
-
-  if (fixedTeams) {
-    if (teams.length < 2) {
-      return { ok: false, reason: 'Fixed Teams requires at least 2 teams.' };
-    }
-  } else {
-    const needed = playersNeededPerMatch(settings.matchType);
-    if (players.length < needed) {
-      return {
-        ok: false,
-        reason:
-          settings.matchType === 'singles'
-            ? 'Singles requires at least 2 players.'
-            : 'Doubles requires at least 4 players.',
-      };
-    }
+  const needed = playersNeededPerMatch(settings.matchType);
+  if (players.length < needed) {
+    return {
+      ok: false,
+      reason:
+        settings.matchType === 'singles'
+          ? 'Singles requires at least 2 players.'
+          : 'Doubles requires at least 4 players total — a fixed team counts as 2, and 2 individual players can combine into a temporary team.',
+    };
   }
 
   if (players.some((player) => player.name.trim() === '')) {
     return {
       ok: false,
-      reason: fixedTeams
-        ? 'Every team needs both player names before starting matches.'
-        : 'Every player needs a name before starting matches.',
+      reason:
+        teams.length > 0
+          ? 'Every player needs a name before starting matches (including both players on every team).'
+          : 'Every player needs a name before starting matches.',
     };
   }
 
@@ -168,7 +199,8 @@ export function socialScoringModeLabel(mode: SocialScoringMode): string {
   }
 }
 
-function makeId(prefix: string): string {
+// Exported for utils/pairing.ts, which mints match/round ids the same way.
+export function makeId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
@@ -179,19 +211,24 @@ function makeId(prefix: string): string {
 // (singles or doubles); "teammate" counts track how many times two players
 // have been paired together on the same doubles team.
 
-type MeetingCounts = Map<string, Map<string, number>>;
+// Exported for utils/pairing.ts — the pairing-style engine reuses this
+// exact shape (and buildMatchHistory below) so "how many times has X met
+// Y" stays a single source of truth regardless of which pairing style or
+// round shape (singles, rotating doubles, fixed teams, mixed doubles) is
+// asking.
+export type MeetingCounts = Map<string, Map<string, number>>;
 
-function bumpMeeting(counts: MeetingCounts, aId: string, bId: string) {
+export function bumpMeeting(counts: MeetingCounts, aId: string, bId: string) {
   if (!counts.has(aId)) counts.set(aId, new Map());
   const inner = counts.get(aId)!;
   inner.set(bId, (inner.get(bId) ?? 0) + 1);
 }
 
-function meetingCount(counts: MeetingCounts, aId: string, bId: string): number {
+export function meetingCount(counts: MeetingCounts, aId: string, bId: string): number {
   return counts.get(aId)?.get(bId) ?? 0;
 }
 
-function buildMatchHistory(rounds: Round[]): { opponents: MeetingCounts; teammates: MeetingCounts } {
+export function buildMatchHistory(rounds: Round[]): { opponents: MeetingCounts; teammates: MeetingCounts } {
   const opponents: MeetingCounts = new Map();
   const teammates: MeetingCounts = new Map();
 
@@ -216,9 +253,9 @@ function buildMatchHistory(rounds: Round[]): { opponents: MeetingCounts; teammat
   return { opponents, teammates };
 }
 
-const PAIRING_TRIALS = 40;
+export const PAIRING_TRIALS = 40;
 
-function shuffled<T>(items: T[]): T[] {
+export function shuffled<T>(items: T[]): T[] {
   const copy = [...items];
   for (let i = copy.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -230,7 +267,7 @@ function shuffled<T>(items: T[]): T[] {
 // Greedy nearest-neighbour pairing for one processing order: repeatedly
 // takes the next unpaired item and partners it with whoever it's met the
 // fewest times before.
-function greedyPairInOrder<T extends { id: string }>(order: T[], counts: MeetingCounts): [T, T][] {
+export function greedyPairInOrder<T extends { id: string }>(order: T[], counts: MeetingCounts): [T, T][] {
   const remaining = [...order];
   const pairs: [T, T][] = [];
 
@@ -252,7 +289,7 @@ function greedyPairInOrder<T extends { id: string }>(order: T[], counts: Meeting
   return pairs;
 }
 
-function totalPairCost<T extends { id: string }>(pairs: [T, T][], counts: MeetingCounts): number {
+export function totalPairCost<T extends { id: string }>(pairs: [T, T][], counts: MeetingCounts): number {
   return pairs.reduce((sum, [a, b]) => sum + meetingCount(counts, a.id, b.id), 0);
 }
 
@@ -266,7 +303,7 @@ function totalPairCost<T extends { id: string }>(pairs: [T, T][], counts: Meetin
 // found. This is a simple heuristic, not a true minimum-weight matching,
 // but it reliably finds a repeat-free pairing when one exists for the
 // player counts this app is meant for.
-function pairByFewestMeetings<T extends { id: string }>(items: T[], counts: MeetingCounts): [T, T][] {
+export function pairByFewestMeetings<T extends { id: string }>(items: T[], counts: MeetingCounts): [T, T][] {
   let best = greedyPairInOrder(items, counts);
   let bestCost = totalPairCost(best, counts);
 
@@ -282,7 +319,7 @@ function pairByFewestMeetings<T extends { id: string }>(items: T[], counts: Meet
   return best;
 }
 
-function teamGroupScore(a: Player[], b: Player[], opponents: MeetingCounts): number {
+export function teamGroupScore(a: Player[], b: Player[], opponents: MeetingCounts): number {
   let score = 0;
   for (const x of a) {
     for (const y of b) {
@@ -297,7 +334,7 @@ function teamGroupScore(a: Player[], b: Player[], opponents: MeetingCounts): num
 // meetings between the two teams' players (so it favours facing new
 // opponents over repeats). Also uses random restarts for the same reason
 // as pairByFewestMeetings above.
-function greedyPairTeamsInOrder(
+export function greedyPairTeamsInOrder(
   order: [Player, Player][],
   opponents: MeetingCounts,
 ): [[Player, Player], [Player, Player]][] {
@@ -322,14 +359,14 @@ function greedyPairTeamsInOrder(
   return matchups;
 }
 
-function totalTeamMatchupCost(
+export function totalTeamMatchupCost(
   matchups: [[Player, Player], [Player, Player]][],
   opponents: MeetingCounts,
 ): number {
   return matchups.reduce((sum, [a, b]) => sum + teamGroupScore(a, b, opponents), 0);
 }
 
-function pairTeamsByFewestOpponentMeetings(
+export function pairTeamsByFewestOpponentMeetings(
   teams: [Player, Player][],
   opponents: MeetingCounts,
 ): [[Player, Player], [Player, Player]][] {
@@ -359,12 +396,21 @@ function pairTeamsByFewestOpponentMeetings(
 //   they've faced the fewest times so far (see pairByFewestMeetings /
 //   pairTeamsByFewestOpponentMeetings above). With no history yet this
 //   comes out the same as simple in-order pairing.
+// `pairingStyle` only ever varies from the default in Tournament Mode +
+// Leaderboard format (see TournamentSetup's Pairing Style selector) — Social
+// Play, and Leaderboard format before that selector existed, always use
+// 'balanced', which reproduces this function's original behaviour exactly
+// (same pairByFewestMeetings/pairTeamsByFewestOpponentMeetings calls as
+// before). 'leaderboard-based' and 'random' delegate the pairing step (not
+// the bye rotation above, which stays style-independent — see the spec
+// this was built from) to utils/pairing.ts.
 export function createRound(
   players: Player[],
   settings: TournamentSettings,
   roundNumber: number,
   priorRounds: Round[] = [],
   status: RoundStatus = 'current',
+  pairingStyle: PairingStyle = 'balanced',
 ): Round {
   const perCourt = playersNeededPerMatch(settings.matchType);
 
@@ -385,7 +431,10 @@ export function createRound(
   const matches: Match[] = [];
 
   if (settings.matchType === 'singles') {
-    const pairs = pairByFewestMeetings(playing, opponents);
+    const pairs =
+      pairingStyle === 'balanced'
+        ? pairByFewestMeetings(playing, opponents)
+        : pairPlayerUnitsByStyle(playing, opponents, pairingStyle, priorRounds);
     for (const [a, b] of pairs) {
       matches.push({
         id: makeId('match'),
@@ -394,7 +443,7 @@ export function createRound(
         teamB: { playerIds: [b.id] },
       });
     }
-  } else {
+  } else if (pairingStyle === 'balanced') {
     const teams = pairByFewestMeetings(playing, teammates);
     const matchups = pairTeamsByFewestOpponentMeetings(teams, opponents);
     for (const [teamA, teamB] of matchups) {
@@ -403,6 +452,16 @@ export function createRound(
         court: matches.length + 1,
         teamA: { playerIds: teamA.map((p) => p.id) },
         teamB: { playerIds: teamB.map((p) => p.id) },
+      });
+    }
+  } else {
+    const matchups = pairTeamUnitsByStyle(playing, opponents, teammates, pairingStyle, priorRounds);
+    for (const [teamA, teamB] of matchups) {
+      matches.push({
+        id: makeId('match'),
+        court: matches.length + 1,
+        teamA: { playerIds: teamA },
+        teamB: { playerIds: teamB },
       });
     }
   }
@@ -418,12 +477,14 @@ export function createRound(
 
 // A canonical, order-independent key for a team's 2 players, used to map a
 // Match's MatchSide (which only stores playerIds) back to the fixed Team
-// it came from.
-function teamKey(playerIds: string[]): string {
+// it came from. Exported so match-display components (CurrentRoundView,
+// AllRoundsView) can look up "is this side a known fixed team?" the same
+// way, without duplicating the key format.
+export function teamKey(playerIds: string[]): string {
   return [...playerIds].sort().join('|');
 }
 
-function buildTeamMatchHistory(rounds: Round[], teams: Team[]): MeetingCounts {
+export function buildTeamMatchHistory(rounds: Round[], teams: Team[]): MeetingCounts {
   const teamIdByKey = new Map(teams.map((team) => [teamKey(team.playerIds), team.id]));
   const opponents: MeetingCounts = new Map();
 
@@ -453,6 +514,7 @@ export function createFixedTeamRound(
   roundNumber: number,
   priorRounds: Round[] = [],
   status: RoundStatus = 'current',
+  pairingStyle: PairingStyle = 'balanced',
 ): Round {
   // A doubles court seats exactly 2 teams (4 players).
   const usableCourts = Math.min(settings.courts, Math.floor(teams.length / 2));
@@ -503,14 +565,28 @@ export function createFixedTeamRound(
   const playingTeams = teams.filter((team) => !sittingOutTeamIds.has(team.id));
 
   // --- Opponent pairing -------------------------------------------------
-  const opponents = buildTeamMatchHistory(priorRounds, teams);
-  const pairs = pairByFewestMeetings(playingTeams, opponents);
-  const matches: Match[] = pairs.map(([teamA, teamB], index) => ({
-    id: makeId('match'),
-    court: index + 1,
-    teamA: { playerIds: teamA.playerIds },
-    teamB: { playerIds: teamB.playerIds },
-  }));
+  // 'balanced' (the default) keeps using team-id-based history (how many
+  // times has *this declared team* faced that one before) via
+  // buildTeamMatchHistory — unchanged from the original behaviour.
+  // 'leaderboard-based'/'random' use utils/pairing.ts instead, which scores
+  // matchups off player-level history (see scorePotentialMatchup) since
+  // that's the same basis the mixed fixed-team/individual-player engine
+  // uses — keeping both fixed-teams-only and mixed doubles consistent for
+  // the two newer styles.
+  const matches: Match[] =
+    pairingStyle === 'balanced'
+      ? pairByFewestMeetings(playingTeams, buildTeamMatchHistory(priorRounds, teams)).map(([teamA, teamB], index) => ({
+          id: makeId('match'),
+          court: index + 1,
+          teamA: { playerIds: teamA.playerIds },
+          teamB: { playerIds: teamB.playerIds },
+        }))
+      : pairFixedTeamsByStyle(playingTeams, pairingStyle, priorRounds).map(([teamA, teamB], index) => ({
+          id: makeId('match'),
+          court: index + 1,
+          teamA: { playerIds: teamA },
+          teamB: { playerIds: teamB },
+        }));
 
   return {
     id: makeId('round'),
@@ -544,6 +620,9 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
       {
         playerId: player.id,
         totalPoints: 0,
+        pointsFor: 0,
+        pointsAgainst: 0,
+        pointDifferential: 0,
         matchesPlayed: 0,
         wins: 0,
         losses: 0,
@@ -556,11 +635,17 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
   const partnerSets = new Map<string, Set<string>>(players.map((p) => [p.id, new Set<string>()]));
   const opponentSets = new Map<string, Set<string>>(players.map((p) => [p.id, new Set<string>()]));
 
-  function applyPoints(playerIds: string[], points: number, won: boolean, lost: boolean) {
+  // `ownScore` becomes totalPoints/pointsFor (identical — every player on a
+  // side gets that side's full score, same as before); `opponentScore` is
+  // new, feeding pointsAgainst/pointDifferential for the Leaderboard's
+  // PF/PA/+/- columns.
+  function applyPoints(playerIds: string[], ownScore: number, opponentScore: number, won: boolean, lost: boolean) {
     for (const id of playerIds) {
       const stats = statsByPlayer.get(id);
       if (!stats) continue;
-      stats.totalPoints += points;
+      stats.totalPoints += ownScore;
+      stats.pointsFor += ownScore;
+      stats.pointsAgainst += opponentScore;
       if (won) stats.wins += 1;
       if (lost) stats.losses += 1;
     }
@@ -589,8 +674,8 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
 
       if (match.scoreA == null || match.scoreB == null) continue;
       const winner = getMatchWinner(match);
-      applyPoints(match.teamA.playerIds, match.scoreA, winner === 'A', winner === 'B');
-      applyPoints(match.teamB.playerIds, match.scoreB, winner === 'B', winner === 'A');
+      applyPoints(match.teamA.playerIds, match.scoreA, match.scoreB, winner === 'A', winner === 'B');
+      applyPoints(match.teamB.playerIds, match.scoreB, match.scoreA, winner === 'B', winner === 'A');
     }
 
     for (const id of round.byePlayerIds) {
@@ -600,6 +685,7 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
   }
 
   for (const stats of statsByPlayer.values()) {
+    stats.pointDifferential = stats.pointsFor - stats.pointsAgainst;
     stats.partnerIds = Array.from(partnerSets.get(stats.playerId) ?? []);
     stats.opponentIds = Array.from(opponentSets.get(stats.playerId) ?? []);
   }

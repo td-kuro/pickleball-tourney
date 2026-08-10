@@ -29,9 +29,13 @@ interface PlayerRowProps {
   player: Player;
   onUpdate: (id: string, name: string, rating?: number) => void;
   onRemove: (id: string) => void;
+  // Set by ParticipantList (the unified Participants view) to show a
+  // "Player" badge alongside "Team" rows in the same merged list. Omitted
+  // (default) everywhere else, so plain Add Player usage is unchanged.
+  badge?: string;
 }
 
-function PlayerRow({ index, player, onUpdate, onRemove }: PlayerRowProps) {
+export function PlayerRow({ index, player, onUpdate, onRemove, badge }: PlayerRowProps) {
   const [name, setName] = useState(player.name);
   const [rating, setRating] = useState(player.rating != null ? String(player.rating) : '');
 
@@ -69,6 +73,7 @@ function PlayerRow({ index, player, onUpdate, onRemove }: PlayerRowProps) {
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
       <span className="player-row-index">{index + 1}</span>
+      {badge && <span className="participant-badge participant-badge-player">{badge}</span>}
       <input
         type="text"
         className="player-row-name"

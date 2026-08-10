@@ -1,6 +1,7 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { Player } from '../types';
 import { validateKingCourtSetup } from '../utils/kingCourt';
+import { CourtSelector } from './CourtSelector';
 import { PlayerForm } from './PlayerForm';
 import { PlayerList } from './PlayerList';
 
@@ -39,11 +40,6 @@ export function KingCourtSetup({
   const bulkCountValue = parseInt(bulkCount, 10);
   const setupCheck = validateKingCourtSetup(players, numberOfCourts);
 
-  function handleCourtsChange(event: ChangeEvent<HTMLInputElement>) {
-    const parsed = parseInt(event.target.value, 10);
-    onNumberOfCourtsChange(Number.isNaN(parsed) ? 1 : Math.max(1, parsed));
-  }
-
   function handleGenerateSlots(event: FormEvent) {
     event.preventDefault();
     if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
@@ -65,17 +61,7 @@ export function KingCourtSetup({
           Each court seats exactly 5 players — 4 play doubles while 1 rests, rotating every game so everyone partners
           with everyone else once per 5-game cycle.
         </p>
-        <div className="form-row">
-          <label htmlFor="kc-courts">Number of Courts</label>
-          <input
-            id="kc-courts"
-            type="number"
-            min={1}
-            value={numberOfCourts}
-            onChange={handleCourtsChange}
-            disabled={locked}
-          />
-        </div>
+        <CourtSelector value={numberOfCourts} onChange={onNumberOfCourtsChange} disabled={locked} />
         <p className="hint">
           Higher court number means stronger court — Court {numberOfCourts} is the strongest, Court 1 the weakest.
         </p>

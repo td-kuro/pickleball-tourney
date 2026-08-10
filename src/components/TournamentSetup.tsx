@@ -2,6 +2,7 @@ import type { ChangeEvent } from 'react';
 import type {
   DoublesPairingMode,
   MatchType,
+  PairingStyle,
   PlayMode,
   PoolKnockoutSettings,
   SessionTiming,
@@ -17,6 +18,7 @@ import {
   socialScoringModeLabel,
   validateSessionTiming,
 } from '../utils/tournament';
+import { CourtSelector } from './CourtSelector';
 
 interface TournamentSetupProps {
   settings: TournamentSettings;
@@ -58,10 +60,8 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
     onChange({ ...settings, doublesPairingMode });
   }
 
-  function handleCourtsChange(event: ChangeEvent<HTMLInputElement>) {
-    const parsed = parseInt(event.target.value, 10);
-    const courts = Number.isNaN(parsed) ? 1 : Math.max(1, parsed);
-    onChange({ ...settings, courts });
+  function handlePairingStyleChange(pairingStyle: PairingStyle) {
+    onChange({ ...settings, pairingStyle });
   }
 
   return (
@@ -90,7 +90,7 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
           <p className="hint">
             {settings.matchType === 'singles'
               ? 'Player vs. player — each court needs 2 players.'
-              : 'Team vs. team — each court needs 4 players. Choose how partners are decided below.'}
+              : 'Team vs. team — each court needs 4 players. Add individual players, fixed teams, or both below.'}
           </p>
         </div>
       )}
@@ -162,7 +162,12 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
 
       {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} rosterCount={rosterCount} />}
 
-      {!isKingCourt && settings.matchType === 'doubles' && (
+      {/* Pools & Knockout still needs an exclusive choice between
+          auto-paired players and declared teams (see formTeams), so it
+          keeps this toggle. Leaderboard/Social Play Doubles let Add Player
+          and Add Team be used together instead — see ParticipantSetup —
+          so this toggle isn't relevant there any more. */}
+      {!isKingCourt && isPoolsKnockout && settings.matchType === 'doubles' && (
         <div className="form-row">
           <span>Doubles Setup</span>
           <div className="toggle-group" role="group" aria-label="Doubles pairing mode">
@@ -185,17 +190,51 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
           </div>
           <p className="hint">
             {settings.doublesPairingMode === 'rotating-players'
-              ? 'Add Player: players rotate partners automatically — best for Social Play where partners rotate.'
-              : 'Add Team: fixed pairings stay together where possible, for the whole tournament/session.'}
+              ? 'Add Player: teams are auto-formed from the player list for this tournament.'
+              : 'Add Team: your declared teams are used directly.'}
+          </p>
+        </div>
+      )}
+
+      {!isKingCourt && settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && (
+        <div className="form-row">
+          <span>Pairing Style</span>
+          <div className="toggle-group" role="group" aria-label="Pairing style">
+            <button
+              type="button"
+              className={settings.pairingStyle === 'balanced' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handlePairingStyleChange('balanced')}
+            >
+              Balanced
+            </button>
+            <button
+              type="button"
+              className={settings.pairingStyle === 'leaderboard-based' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handlePairingStyleChange('leaderboard-based')}
+            >
+              Leaderboard-based
+            </button>
+            <button
+              type="button"
+              className={settings.pairingStyle === 'random' ? 'toggle-option active' : 'toggle-option'}
+              onClick={() => handlePairingStyleChange('random')}
+            >
+              Random
+            </button>
+          </div>
+          <p className="hint">
+            {settings.pairingStyle === 'balanced' &&
+              'Fair matches by rating/current performance, avoiding repeat opponents and partners where possible.'}
+            {settings.pairingStyle === 'leaderboard-based' &&
+              'Pairs competitors with similar current ranking (1st vs. 2nd, 3rd vs. 4th, ...) — for rotating Doubles this guides balanced team formation instead of pitting top-ranked players against each other directly.'}
+            {settings.pairingStyle === 'random' &&
+              'Shuffled pairings each round, still respecting court capacity and bye fairness.'}
           </p>
         </div>
       )}
 
       {!isKingCourt && (
-        <div className="form-row">
-          <label htmlFor="courts">Number of Courts</label>
-          <input id="courts" type="number" min={1} value={settings.courts} onChange={handleCourtsChange} />
-        </div>
+        <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
       )}
 
       {isKingCourt && (

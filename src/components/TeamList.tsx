@@ -42,9 +42,12 @@ interface TeamRowProps {
   player2Name: string;
   onUpdate: (id: string, player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
   onRemove: (id: string) => void;
+  // See PlayerRow's `badge` — same purpose, for ParticipantList's merged
+  // Player/Team list.
+  badge?: string;
 }
 
-function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRemove }: TeamRowProps) {
+export function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRemove, badge }: TeamRowProps) {
   const [teamName, setTeamName] = useState(team.name);
   const [player1, setPlayer1] = useState(player1Name);
   const [player2, setPlayer2] = useState(player2Name);
@@ -71,6 +74,7 @@ function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRemove }: 
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
       <span className="player-row-index">{index + 1}</span>
+      {badge && <span className="participant-badge participant-badge-team">{badge}</span>}
       <input
         type="text"
         className="player-row-name"
