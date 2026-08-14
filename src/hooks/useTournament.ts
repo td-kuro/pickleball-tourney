@@ -20,6 +20,7 @@ const defaultSettings: TournamentSettings = {
   poolKnockoutSettings: DEFAULT_POOL_KNOCKOUT_SETTINGS,
   doublesPairingMode: 'rotating-players',
   pairingStyle: 'balanced',
+  socialFormat: 'standard-social',
 };
 
 // Backfills `status` for rounds saved by a version of the app from before
@@ -50,6 +51,7 @@ export function useTournament() {
     poolKnockoutSettings: storedSettings.poolKnockoutSettings ?? DEFAULT_POOL_KNOCKOUT_SETTINGS,
     doublesPairingMode: storedSettings.doublesPairingMode ?? 'rotating-players',
     pairingStyle: storedSettings.pairingStyle ?? 'balanced',
+    socialFormat: storedSettings.socialFormat ?? 'standard-social',
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);

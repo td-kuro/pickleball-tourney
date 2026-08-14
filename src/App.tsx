@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import { CourtSeeding } from './components/CourtSeeding';
+import { DynamicPairingRankings } from './components/DynamicPairingRankings';
+import { DynamicPairingRestingPlayers } from './components/DynamicPairingRestingPlayers';
+import { DynamicPairingRoundsPage } from './components/DynamicPairingRoundsPage';
+import { DynamicPairingSessionHistory } from './components/DynamicPairingSessionHistory';
+import { DynamicPairingSetup } from './components/DynamicPairingSetup';
 import { FinalResults } from './components/FinalResults';
 import { FixedTeamResults } from './components/FixedTeamResults';
 import { KingCourtCycleHistory } from './components/KingCourtCycleHistory';
@@ -15,6 +20,7 @@ import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
 import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
+import { useDynamicPairingSocial } from './hooks/useDynamicPairingSocial';
 import { useKingCourt } from './hooks/useKingCourt';
 import { usePlayers } from './hooks/usePlayers';
 import { usePoolsKnockout } from './hooks/usePoolsKnockout';
@@ -24,9 +30,20 @@ import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
 import { canGenerateRound, isFixedTeamsMode } from './utils/tournament';
 
-type View = 'setup' | 'rounds' | 'results' | 'kc-court' | 'kc-standings' | 'kc-history';
+type View =
+  | 'setup'
+  | 'rounds'
+  | 'results'
+  | 'kc-court'
+  | 'kc-standings'
+  | 'kc-history'
+  | 'dp-rounds'
+  | 'dp-rankings'
+  | 'dp-resting'
+  | 'dp-history';
 const KING_COURT_VIEWS: View[] = ['setup', 'kc-court', 'kc-standings', 'kc-history'];
 const STANDARD_VIEWS: View[] = ['setup', 'rounds', 'results'];
+const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-resting', 'dp-history'];
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
@@ -35,9 +52,16 @@ function App() {
     useTournament();
   const poolsKnockout = usePoolsKnockout();
   const kingCourt = useKingCourt();
+  const dynamicPairing = useDynamicPairingSocial();
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isKingCourt = settings.playMode === 'king-court-5';
+  // Dynamic Pairing Social is a Social Format (see SocialFormat in
+  // types.ts), not its own PlayMode — see TournamentSetup's Social Format
+  // toggle. It has its own roster/settings/rounds entirely (useDynamicPairingSocial)
+  // rather than reusing usePlayers/useTeams/useTournament, so it can't affect
+  // any other mode's data.
+  const isDynamicPairingSocial = settings.playMode === 'social' && settings.socialFormat === 'dynamic-pairing-social';
   // Pools & Knockout still needs an exclusive choice between auto-paired
   // players and declared teams (see formTeams/usePoolsKnockout) — that's
   // still settings.doublesPairingMode, unaffected by the rest of this.
@@ -75,12 +99,22 @@ function App() {
       ? kingCourt.started
         ? 'kc-court'
         : 'setup'
-      : rounds.length > 0 || poolsKnockout.stage !== 'setup'
-        ? 'rounds'
-        : 'setup',
+      : isDynamicPairingSocial
+        ? dynamicPairing.started
+          ? 'dp-rounds'
+          : 'setup'
+        : rounds.length > 0 || poolsKnockout.stage !== 'setup'
+          ? 'rounds'
+          : 'setup',
   );
 
-  const started = isKingCourt ? kingCourt.started : isPoolsKnockout ? poolsKnockout.stage !== 'setup' : rounds.length > 0;
+  const started = isKingCourt
+    ? kingCourt.started
+    : isDynamicPairingSocial
+      ? dynamicPairing.started
+      : isPoolsKnockout
+        ? poolsKnockout.stage !== 'setup'
+        : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
   const startCheck = isPoolsKnockout
     ? validatePoolsKnockoutSetup(effectivePlayers, settings, teams)
@@ -96,21 +130,28 @@ function App() {
         : 'Player Stats';
   const tournamentLabel = isPoolsKnockout ? 'Tournament' : 'Rounds';
   const isSocial = settings.playMode === 'social';
-  const resetLabel = isKingCourt ? 'Reset King Court' : isSocial ? 'Reset Social Play' : 'Reset Tournament';
+  const resetLabel = isKingCourt
+    ? 'Reset King Court'
+    : isDynamicPairingSocial
+      ? 'Reset Dynamic Pairing Social'
+      : isSocial
+        ? 'Reset Social Play'
+        : 'Reset Tournament';
 
   // Defense in depth: Rounds / results (or, in King Court Mode, King
-  // Court / Standings / Cycle History) are only ever reachable once
-  // matches have actually started for the current mode. If `view` ever
-  // ends up on a screen that doesn't belong to the current mode (e.g. the
-  // Play Mode was switched mid-session) or without an active
-  // session/cycle — e.g. leftover state — snap back to Setup instead of
-  // rendering a broken screen.
+  // Court / Standings / Cycle History; or, in Dynamic Pairing Social,
+  // Rounds / Rankings / Resting Players / Session History) are only ever
+  // reachable once matches have actually started for the current mode. If
+  // `view` ever ends up on a screen that doesn't belong to the current
+  // mode (e.g. the Play Mode/Social Format was switched mid-session) or
+  // without an active session/cycle — e.g. leftover state — snap back to
+  // Setup instead of rendering a broken screen.
   useEffect(() => {
-    const validViews = isKingCourt ? KING_COURT_VIEWS : STANDARD_VIEWS;
+    const validViews = isKingCourt ? KING_COURT_VIEWS : isDynamicPairingSocial ? DYNAMIC_PAIRING_VIEWS : STANDARD_VIEWS;
     if (!validViews.includes(view) || (view !== 'setup' && !started)) {
       setView('setup');
     }
-  }, [view, started, isKingCourt]);
+  }, [view, started, isKingCourt, isDynamicPairingSocial]);
 
   function handleStartMatches() {
     if (isPoolsKnockout) {
@@ -129,14 +170,17 @@ function App() {
     const confirmed = window.confirm(
       isKingCourt
         ? 'Are you sure you want to reset King Court? This will clear all players, court assignments, cycles, scores, and stats.'
-        : isSocial
-          ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
-          : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
+        : isDynamicPairingSocial
+          ? 'Are you sure you want to reset Dynamic Pairing Social? This will clear all players, settings, rounds, scores, rankings, and rest history.'
+          : isSocial
+            ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
+            : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
     );
     if (confirmed) {
       resetTournament();
       poolsKnockout.resetPoolsKnockout();
       kingCourt.resetKingCourt();
+      dynamicPairing.resetDynamicPairing();
       removeAllPlayers();
       removeAllTeams();
       setView('setup');
@@ -189,6 +233,41 @@ function App() {
                 disabled={!started}
               >
                 Cycle History
+              </button>
+            </>
+          ) : isDynamicPairingSocial ? (
+            <>
+              <button
+                type="button"
+                className={view === 'dp-rounds' ? 'tab active' : 'tab'}
+                onClick={() => setView('dp-rounds')}
+                disabled={!started}
+              >
+                Rounds
+              </button>
+              <button
+                type="button"
+                className={view === 'dp-rankings' ? 'tab active' : 'tab'}
+                onClick={() => setView('dp-rankings')}
+                disabled={!started}
+              >
+                Rankings
+              </button>
+              <button
+                type="button"
+                className={view === 'dp-resting' ? 'tab active' : 'tab'}
+                onClick={() => setView('dp-resting')}
+                disabled={!started}
+              >
+                Resting Players
+              </button>
+              <button
+                type="button"
+                className={view === 'dp-history' ? 'tab active' : 'tab'}
+                onClick={() => setView('dp-history')}
+                disabled={!started}
+              >
+                Session History
               </button>
             </>
           ) : (
@@ -268,6 +347,22 @@ function App() {
                 </section>
               )}
             </>
+          ) : isDynamicPairingSocial ? (
+            <DynamicPairingSetup
+              settings={dynamicPairing.settings}
+              onChangeSettings={dynamicPairing.updateSettings}
+              players={dynamicPairing.players}
+              onAddPlayer={dynamicPairing.addPlayer}
+              onUpdatePlayer={dynamicPairing.updatePlayer}
+              onRemovePlayer={dynamicPairing.removePlayer}
+              onRemoveAllPlayers={dynamicPairing.removeAllPlayers}
+              onStartSession={() => {
+                dynamicPairing.startSession();
+                setView('dp-rounds');
+              }}
+              started={dynamicPairing.started}
+              onGoToRounds={() => setView('dp-rounds')}
+            />
           ) : (
             <>
               <RosterSetup
@@ -329,6 +424,31 @@ function App() {
       {view === 'kc-standings' && <KingCourtStandings players={players} cycles={kingCourt.cycles} />}
 
       {view === 'kc-history' && <KingCourtCycleHistory players={players} cycles={kingCourt.cycles} />}
+
+      {view === 'dp-rounds' && started && (
+        <DynamicPairingRoundsPage
+          rounds={dynamicPairing.rounds}
+          currentRound={dynamicPairing.currentRound}
+          players={dynamicPairing.players}
+          onSetScore={(courtNumber, score1, score2) => {
+            if (!dynamicPairing.currentRound) return;
+            dynamicPairing.setCourtScore(dynamicPairing.currentRound.id, courtNumber, score1, score2);
+          }}
+          onGenerateNextRound={dynamicPairing.generateNextRound}
+        />
+      )}
+
+      {view === 'dp-rankings' && started && (
+        <DynamicPairingRankings players={dynamicPairing.players} rounds={dynamicPairing.rounds} />
+      )}
+
+      {view === 'dp-resting' && started && (
+        <DynamicPairingRestingPlayers players={dynamicPairing.players} rounds={dynamicPairing.rounds} />
+      )}
+
+      {view === 'dp-history' && started && (
+        <DynamicPairingSessionHistory settings={dynamicPairing.settings} rounds={dynamicPairing.rounds} />
+      )}
 
       {view === 'rounds' &&
         started &&

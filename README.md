@@ -27,22 +27,39 @@ You choose a **Play Mode** on the Setup screen:
   losses, and shows a ranked **Leaderboard**. Best for structured
   tournaments where the final standings matter. The current round can't
   advance until every match is scored.
-- **Social Play Mode** — casual. Same fair rotation and pairing engine as
-  Tournament Mode (see "How round generation works" below), but ranking is
-  de-emphasised: results are shown as **Player Stats** instead of a
-  leaderboard, players are listed in roster order rather than ranked, and
-  you can move to the next round at any time — you're never blocked
-  waiting on scores. Social Play also has its own **Scoring** setting (see
-  below).
+- **Social Play Mode** — casual, with a **Social Format** choice of its
+  own (see below):
+  - **Standard Social Play** — the original behaviour: same fair rotation
+    and pairing engine as Tournament Mode (see "How round generation
+    works" below), but ranking is de-emphasised — results are shown as
+    **Player Stats** instead of a leaderboard, players are listed in
+    roster order rather than ranked, and you can move to the next round
+    at any time. Has its own **Scoring** setting (see below).
+  - **Dynamic Pairing Social** — a doubles-only, ranking-driven
+    competitive social format: grading rounds establish a baseline
+    ranking, then every round after that re-ranks players from their
+    results and rebuilds courts/partners/opponents to keep matches
+    competitive. See "Dynamic Pairing Social" below for the full
+    write-up — it's substantial enough to warrant its own section, and
+    structurally separate from Standard Social Play (own roster, own
+    rounds, own `localStorage` keys).
+  - **5-Player King Court** — shown here as a third Social Format for
+    discoverability, but structurally its own thing — see below.
 
-Both modes use exactly the same fairness rules for who plays, who sits
-out, and who gets matched against whom — the difference is entirely in
-whether/how scores and rankings are tracked and displayed.
+Standard Social Play and Tournament Mode use exactly the same fairness
+rules for who plays, who sits out, and who gets matched against whom —
+the difference is entirely in whether/how scores and rankings are tracked
+and displayed. Dynamic Pairing Social and King Court each have their own
+separate rules instead (see their own sections).
 
-**5-Player King Court Mode** is a third Play Mode, structurally separate
-from both of the above — it doesn't use rounds, byes, or the
-matchup-avoidance engine described here at all. See "5-Player King Court
-Mode" below for its own complete write-up.
+**5-Player King Court Mode** is structurally separate from everything
+above — it doesn't use rounds, byes, or the matchup-avoidance engine
+described here at all. Internally it's still its own `playMode` value
+(`king-court-5`), not actually nested under `'social'` — selecting it from
+the Social Format toggle just sets that value directly, so every
+King-Court-specific behaviour described in "5-Player King Court Mode"
+below is completely unaffected by where it sits in the Setup UI. See that
+section for its own complete write-up.
 
 ### Tournament Mode formats: Leaderboard vs. Pools & Knockout
 
@@ -111,6 +128,286 @@ When Social Play Mode is selected, pick one of three **Scoring** settings:
   all tracked and shown in Player Stats — still presented as casual stats,
   deliberately not called a "Leaderboard".
 
+## Dynamic Pairing Social
+
+A **Social Format** (Social Play Mode → Dynamic Pairing Social — see
+above), not a Tournament Mode format: this is deliberately a *social*
+competition, with the same "you can move on whenever you're ready" spirit
+as Standard Social Play, just with a much more active pairing engine
+behind it. **Doubles only** for this version — each active court seats 4
+players — and structurally entirely separate from the rest of the app: its
+own player roster, its own settings, its own round history, its own
+`localStorage` keys (`pickleball-tourney:dp:*`), and its own logic file
+(`src/utils/dynamicPairingSocial.ts`). It can't affect, and isn't affected
+by, Standard Social Play, Tournament Mode, or King Court.
+
+The goal: make matches progressively more competitive and balanced
+through the session. A handful of **grading rounds** establish a baseline
+ranking using whatever starting information you have (an organiser-set
+seed, or just the player list order); every round after that re-ranks
+players from their actual results so far, and rebuilds courts, partners,
+and opponents around that ranking.
+
+### Two independent systems: ranking and rest
+
+This is the core design idea, and it's enforced structurally (they're
+computed by separate functions that don't call each other):
+
+- **Ranking** decides how competitive a court is — who's strong enough to
+  play on Court 1 versus Court 6. It's entirely driven by game results
+  (see "Ranking metrics" below).
+- **Rest** decides who sits out this round. It's entirely driven by rest
+  history — whoever has rested the fewest times so far, tie-broken by
+  who's played the most rounds in a row without a break. A player's
+  ranking — whether they're winning every game or losing every game — has
+  **no influence** on how often they rest.
+
+### Setup
+
+Selecting Dynamic Pairing Social replaces the usual roster/court setup
+with its own card:
+
+- **Session name** — a free-text label (e.g. "Saturday Morning Social"),
+  shown as the heading on the Session History tab.
+- **Number of Courts** — the same clickable 1–6 + Other court selector
+  used everywhere else in the app.
+- **Players** — its own dedicated roster (separate from every other
+  mode's), each with a name, an optional rating, and an optional
+  **starting seed** (1 = strongest) used to guide grading-round courts
+  before there's enough game data to rank by results.
+- **Grading rounds** — how many of the first rounds are grading rounds.
+  Default: **3**.
+- **Game format** — **Timed Round** (with a game duration in minutes) or
+  **First to Score** (with a winning score) — for the organiser's
+  reference; this version doesn't enforce either automatically (same
+  "planning aid, not a live clock" spirit as Social Play's Session
+  Timing).
+- **Maximum court movement per round** — **Unrestricted**, **Max 1
+  Court**, or **Max 2 Courts** (default: Max 1 Court) — see "Court
+  movement limit" below.
+- **Score confirmation** and **Manual overrides** — both shown as
+  disabled placeholders for a future version; scores are final as entered
+  for now, same as everywhere else in the app.
+
+### Recommended setup and court capacity
+
+Recommended starting point: **6 courts**, aiming for **24–30 players**
+in attendance (24 active on court at once, the rest resting in fair
+rotation).
+
+Dynamic Pairing Social doesn't require the player count to be an exact
+multiple of 4 — courts used and active players are calculated every
+round from however many players are actually available:
+
+```
+Courts Used   = min(Available Courts, floor(Available Players / 4))
+Active Players = Courts Used × 4
+Resting Players = Available Players − Active Players
+```
+
+| Available players | Courts | Courts used | Active | Resting |
+| ------------------ | ------ | ------------ | ------ | ------- |
+| 24 | 6 | 6 | 24 | 0 |
+| 25 | 6 | 6 | 24 | 1 |
+| 27 | 6 | 6 | 24 | 3 |
+| 30 | 6 | 6 | 24 | 6 |
+| 22 | 6 | 5 | 20 | 2 (1 court unused) |
+| 19 | 6 | 4 | 16 | 3 (2 courts unused) |
+
+At least 4 available players are required to generate one match — with
+fewer than that, **Start Matches**/**Generate Next Round** is disabled
+with a clear message. See `calculateActiveCapacity`/`calculateCourtsUsed`
+in `src/utils/dynamicPairingSocial.ts`.
+
+### Court numbering is the reverse of King Court
+
+**Court 1 is the strongest/highest court, Court 6 (or whichever is
+highest) is the weakest** — the opposite convention from 5-Player King
+Court Mode, where a *higher* court number can be the stronger one. Don't
+mix the two up if you run both formats at the same venue.
+
+### Grading rounds
+
+The first N rounds (the **Grading rounds** setting, default 3) are
+grading rounds, badged **Grading Round** on the Current Round/All Rounds
+views. During grading:
+
+- Courts and partnerships are seeded from **starting seed** (falling back
+  to the player list's order for anyone without one) rather than
+  results, since there isn't enough game data yet to rank meaningfully.
+- Every score is still recorded, and rests/partners/opponents are still
+  tracked and rotated fairly — grading rounds are real matches, not
+  throwaway ones.
+
+Once the grading rounds are done, every subsequent round is a **Ranking
+Round** — badged accordingly — and uses the actual calculated ranking to
+build courts and partnerships instead.
+
+### Ranking metrics
+
+Rankings use **per-game rates**, not raw totals, since rest means players
+can end up with different numbers of games played. For each player:
+
+- Games played, wins, losses, Points For (PF), Points Against (PA), point
+  differential (PF − PA)
+- **Win %** = wins ÷ games played
+- **Average point differential** = total point differential ÷ games played
+- **Average points scored** = total PF ÷ games played
+
+All three rates default safely to `0` when games played is `0` — no
+divide-by-zero. Ranking priority, applied in order:
+
+1. Win %
+2. Average point differential
+3. Average points scored
+4. Head-to-head result (only when the two tied players have actually
+   played each other)
+5. Starting seed
+6. Previous rank (a stabiliser, so statistically-identical players don't
+   flip-flop rank every round)
+7. A **deterministic** tiebreaker (not `Math.random()` — it's a stable
+   hash of the two player ids, so the Rankings table doesn't visibly
+   reshuffle itself on every re-render for players who are still tied
+   after everything else)
+
+See `calculatePlayerRankings`/`sortPlayersByRanking` in
+`src/utils/dynamicPairingSocial.ts`.
+
+### Rest management
+
+Rest counts are **global across the whole session** — they don't reset
+when a player changes courts, and ranking has no influence on who rests
+(see "Two independent systems" above). A resting player gets no win,
+loss, points, or point differential that round; their existing stats are
+otherwise untouched. Fair-rest selection, in order:
+
+1. Fewest total rests so far.
+2. Among those tied, whoever has played the most consecutive rounds in a
+   row (they're "due").
+3. Prefer someone who didn't rest last round, where possible.
+4. A deterministic tiebreaker (same stable-hash approach as ranking).
+
+Because rule 1 is reapplied fresh every round, the gap between the
+most- and least-rested player never exceeds 1 — no separate enforcement
+needed. See `selectRestingPlayers` in `src/utils/dynamicPairingSocial.ts`.
+
+### Court allocation and balanced partnerships
+
+Each round, after resting players are removed:
+
+1. The remaining active players are sorted by current ranking.
+2. They're split into consecutive groups of 4 — Court 1 gets ranks 1–4,
+   Court 2 gets ranks 5–8, and so on down to the lowest active court.
+3. Each group of 4 is split into balanced teams — by default the
+   strongest plus the weakest of the four versus the middle two (e.g.
+   rank 1 + rank 4 vs. rank 2 + rank 3), which is the most balanced
+   possible split of a ranked quad.
+4. If that split would repeat the previous round's partnership (or has a
+   worse cumulative partner/opponent-repeat count), the app tries the
+   other reasonable split — rank 1 + rank 3 vs. rank 2 + rank 4 — instead,
+   as long as it doesn't sacrifice balance. Competitive balance always
+   takes priority over variety when the two conflict.
+
+Court groups are rebuilt from scratch every round — nothing about a
+court's *group of 4* carries over, only each individual player's ranking
+and rest history. See `allocatePlayersToCourts`/`createBalancedPartnerships`
+in `src/utils/dynamicPairingSocial.ts`.
+
+### Court movement limit
+
+The **Maximum court movement per round** setting (Unrestricted / Max 1
+Court / Max 2 Courts, default Max 1 Court) only applies once ranking
+rounds start (grading rounds always allocate by pure seed/order). It caps
+how far a player's court can move from wherever they played last, so one
+unusually big win or loss doesn't swing them several courts in one round
+— rankings still correct themselves over time, just gradually. The
+resolution when several players get clamped toward the same court is a
+simple nearest-available-court search, not a globally optimal
+re-assignment — see `applyCourtMovementLimit` in
+`src/utils/dynamicPairingSocial.ts` and "Current limitations" below.
+
+### Score entry and round processing
+
+Each court gets a Team 1 / Team 2 score; the higher score wins (tied
+scores are rejected — a winner is required). On save:
+
+- Both winning players get **+1 win**, **PF += their score**,
+  **PA += the opponent's score**, **point differential += the margin**.
+- Both losing players get **+1 loss**, the same PF/PA tracking, and
+  **point differential −= the margin**.
+
+A round can't advance (**Generate Next Round** stays disabled) until
+every court in it has a score. Once you do generate the next round, the
+previous one **locks read-only** — its score inputs disable and it can
+only be viewed, not edited, from All Rounds.
+
+### Dynamic Pairing Social's own tabs
+
+Once a session has started, the tab bar becomes **Rounds** / **Rankings**
+/ **Resting Players** / **Session History** (instead of the usual
+Rounds/Leaderboard pair):
+
+- **Rounds** — the familiar **Current Round** / **All Rounds** toggle.
+  Current Round shows the round number, a Grading/Ranking phase badge,
+  every court's Team 1 vs. Team 2 with score entry, who's resting, and
+  **Generate Next Round**. All Rounds is the read-only history, same
+  spirit as the standard modes' All Rounds.
+- **Rankings** — every field from "Ranking metrics" above, recalculated
+  live as scores come in (including the still-open current round's
+  already-entered scores), sorted by rank.
+- **Resting Players** — total rests, last round rested, consecutive
+  rounds played, and availability status per player — a fairness audit
+  view, deliberately *not* sorted by ranking.
+- **Session History** — the session's settings recap plus a compact
+  round-by-round summary (courts, scored/total, resting count).
+
+### Player availability
+
+Each player has an **availability status**: **Available**, **Late**,
+**Withdrawn**, or **Injured** (editable from the player row's dropdown on
+Setup). Only **Available** players are considered for court/rest
+selection — Withdrawn/Injured players are excluded from every future
+round entirely. Existing rest counts are never reset just because
+availability changes. (A `'resting'` status value also exists in the data
+model for a player *currently* sitting out, but it's derived per round
+from `restingPlayerIds` rather than something you set manually — the
+dropdown only offers the four statuses above.) Handling a **Late**
+arrival mid-round (e.g. holding them out of just their first round back)
+is a placeholder for a future version — for now, marking someone Late
+simply excludes them until you switch them back to Available.
+
+### Resetting Dynamic Pairing Social
+
+**Reset Dynamic Pairing Social** (shown instead of Reset Social
+Play/Reset Tournament while this format is active) asks for confirmation,
+then clears its player roster, settings, every round/score, and — since
+rankings/rest history/partner history/opponent history are all derived
+from `players` + `rounds` rather than stored separately (see "Two
+independent systems" above and the rest of this section) — clearing
+`rounds` clears all of those too. Like every other reset in this app,
+it's a full wipe, not a "new round, same roster" reset.
+
+### Current limitations (Dynamic Pairing Social-specific)
+
+- **Doubles only** — there's no Singles option for this format yet.
+- **Court movement limiting is a simple nearest-available-court search**,
+  not a globally optimal re-assignment — see "Court movement limit"
+  above. Good enough to keep movement gradual, not guaranteed-minimal.
+- **Partnership variety only considers two splits** of each ranked group
+  of 4 (1st+4th vs. 2nd+3rd, or 1st+3rd vs. 2nd+4th) — 1st+2nd vs. 3rd+4th
+  is deliberately never used, since it's the least balanced possible
+  split.
+- **Score confirmation and manual overrides are placeholders** — scores
+  are final as entered, and there's no way to manually edit a generated
+  court/partnership yet.
+- **No live game clock** for Timed Round game format — same "planning
+  aid, not an enforced timer" limitation as Social Play's Session Timing.
+- **Late arrivals** are all-or-nothing (Available or not) — there's no
+  "hold out for just their first round back" flow yet.
+- Ranking recomputes from full round history every time it's needed
+  (O(rounds²) in the number of rounds played) — negligible for realistic
+  session lengths, but not optimised for very long-running sessions.
+
 ## Pools & Knockout
 
 A Tournament Mode format for running an actual bracketed event instead of
@@ -129,8 +426,8 @@ rotation, since every team's schedule is fixed for the whole pool stage.
   if you want specific pairings this way.
 - **Doubles + Fixed Teams** (Add Team): your declared teams — names,
   pairings, and ratings — are used directly instead, no auto-pairing
-  involved. See "Doubles: Rotating Players vs. Fixed Teams" below for how
-  to set this up.
+  involved. See "Pools & Knockout keeps its own Doubles Setup toggle"
+  below for how to set this up.
 
 ### Setup
 
@@ -586,6 +883,10 @@ time (gated on scores being entered), same as before.
   with its own **Setup** (including **Court Seeding**), **Rounds**
   (Current Round / All Rounds), **Standings**, and **Cycle History** tabs
   — see "5-Player King Court Mode" below for the full write-up.
+- **Dynamic Pairing Social** — a Social Format alongside Standard Social
+  Play, with its own **Setup**, **Rounds** (Current Round / All Rounds),
+  **Rankings**, **Resting Players**, and **Session History** tabs — see
+  "Dynamic Pairing Social" above for the full write-up.
 
 ## Setup must be completed before matches start
 
@@ -945,10 +1246,15 @@ you to a blank Setup screen:
   live in a completely separate part of `localStorage` from
   rounds/players, but the same reset clears them too.
 
-**5-Player King Court Mode** has its own separate reset — see "Resetting
-King Court" under "5-Player King Court Mode" above — since it doesn't use
-rounds/players in the same shape as Tournament/Social Play (though it
-does share and also clear the same player roster).
+**5-Player King Court Mode** and **Dynamic Pairing Social** each have
+their own separate reset — see "Resetting King Court" under "5-Player
+King Court Mode", and "Resetting Dynamic Pairing Social" under "Dynamic
+Pairing Social", both above — since neither uses rounds/players in the
+same shape as Tournament/Standard Social Play. In practice, clicking
+*any* reset button clears *all* of it, every time — Reset Social Play
+also wipes King Court's cycles and Dynamic Pairing Social's roster, and
+so on — the label shown just reflects whichever mode is currently active;
+nothing about the underlying reset is actually mode-scoped.
 
 This is a full wipe, not a "keep my group, start a new round" reset —
 there's no way to reset rounds/scores while keeping the player list; use
@@ -1159,6 +1465,11 @@ handed out fairly:
   separate list (A–E assignment's mathematical limits, no rating-based
   seeding, no mid-cycle manual court moves, roster locks once Cycle 1
   starts, and more).
+- **Dynamic Pairing Social** — see "Current limitations (Dynamic Pairing
+  Social-specific)" under "Dynamic Pairing Social" above; it has its own
+  separate list (Doubles only, a simple (not globally optimal) court
+  movement resolution, only two partnership splits considered per court,
+  score confirmation/manual overrides as placeholders, and more).
 
 ## Future features
 
@@ -1174,6 +1485,10 @@ handed out fairly:
 - 5-Player King Court Mode: rating-aware court seeding suggestions,
   mid-cycle manual court moves, drag-and-drop Court Seeding, remembering
   manual tiebreak preferences, and support for court sizes other than 5.
+- Dynamic Pairing Social: a Singles option, real score confirmation and
+  manual court/partnership overrides, a proper "hold out for one round"
+  late-arrival flow, and a globally optimal court-movement resolution
+  instead of the current nearest-available-court search.
 
 ## UI theme and branding
 
@@ -1222,10 +1537,13 @@ so there's no flash of the wrong theme on load.
 ```
 src/
   types.ts                  Shared TypeScript interfaces (Player, Match, Round, PlayMode,
-                             SessionTiming, Team, DoublesPairingMode, PairingStyle,
-                             TeamInstance, Pool, KnockoutBracket, PlayerStats, TeamStats,
-                             King Court's KingCourtCycle/KingCourtGame/KingCourtStanding/
-                             KingCourtMovement/... ...)
+                             SocialFormat, SessionTiming, Team, DoublesPairingMode,
+                             PairingStyle, TeamInstance, Pool, KnockoutBracket,
+                             PlayerStats, TeamStats, King Court's
+                             KingCourtCycle/KingCourtGame/KingCourtStanding/
+                             KingCourtMovement/..., Dynamic Pairing Social's
+                             DynamicPairingSettings/DynamicPairingPlayerStats/
+                             DynamicPairingRound/DynamicPairingCourtAssignment/...)
   utils/tournament.ts       Pure logic: validation, stats (including PF/PA/+/-),
                              mode helpers, session timing, and the original 'balanced'
                              pairing algorithm (createRound, createFixedTeamRound) plus
@@ -1247,12 +1565,26 @@ src/
                              cycle's court assignments, Court Seeding capacity checks
                              (isCourtFull), and All Rounds game status
                              (getKingCourtGameStatus) (5-Player King Court Mode)
+  utils/dynamicPairingSocial.ts
+                             Pure logic, entirely self-contained: per-game stats and
+                             ranking (calculateDynamicPairingStats, calculatePlayerRankings,
+                             sortPlayersByRanking, getPlayerHeadToHead), fair rest
+                             selection (selectRestingPlayers) kept deliberately
+                             independent of ranking, court allocation
+                             (allocatePlayersToCourts, applyCourtMovementLimit), balanced
+                             partnerships (createBalancedPartnerships,
+                             scorePartnershipOption), and the round-generation/scoring
+                             entry points (generateDynamicPairingRound,
+                             processDynamicPairingScore, lockCompletedRound) (Dynamic
+                             Pairing Social)
   hooks/                    useLocalStorage, usePlayers, useTeams (Add Team roster —
                              see RosterSetup/ParticipantSetup), useTournament
                              (Leaderboard/Social Play state, dispatches into
                              utils/pairing.ts), usePoolsKnockout (Pools & Knockout
-                             state), useKingCourt (King Court state) — all persisted to
-                             localStorage
+                             state), useKingCourt (King Court state),
+                             useDynamicPairingSocial (its own roster/settings/rounds,
+                             entirely separate from every other hook here) — all
+                             persisted to localStorage
   components/                CourtSelector (clickable court-count picker, used
                              everywhere courts are configured); PlayerForm, PlayerList,
                              TeamForm, TeamList (PlayerRow/TeamRow also take an optional
@@ -1275,22 +1607,34 @@ src/
                              Court — reuses PlayerForm/PlayerList directly for its
                              roster rather than duplicating them; KingCourtRoundsPage
                              is the Current Round/All Rounds toggle parent, mirroring
-                             RoundsPage)
+                             RoundsPage); DynamicPairingSetup (own player roster UI —
+                             not a reuse of PlayerForm/PlayerList, since it needs
+                             starting seed + availability fields those don't have),
+                             DynamicPairingRoundsPage (Current Round/All Rounds toggle
+                             parent, mirroring RoundsPage), DynamicPairingCurrentRound,
+                             DynamicPairingAllRounds, DynamicPairingRankings,
+                             DynamicPairingRestingPlayers, DynamicPairingSessionHistory
+                             (Dynamic Pairing Social)
   App.tsx                   Setup / middle-tab / results views, tab gating, and layout
                              — routes between the Leaderboard/Social Play components,
-                             the Pools & Knockout ones, and the King Court ones
-                             depending on settings.playMode; computes the effective
-                             roster (individual players / fixed teams / the union for
-                             mixed Doubles) passed down to all of them
+                             the Pools & Knockout ones, the King Court ones, and the
+                             Dynamic Pairing Social ones depending on settings.playMode
+                             (and settings.socialFormat when playMode is 'social');
+                             computes the effective roster (individual players / fixed
+                             teams / the union for mixed Doubles) passed down to the
+                             Leaderboard/Social Play components
 ```
 
 Business logic lives in `src/utils` and `src/hooks`, separate from the
 components in `src/components`, so the pairing/scoring rules can evolve
-later without rewriting the UI. Pools & Knockout and King Court are both
-self-contained additions alongside the original Leaderboard/Social Play
-code (each with its own utils file, its own hook, its own components, its
-own `localStorage` keys) rather than a rewrite of it — King Court shares
-only the `Player` type and `usePlayers` roster (and UI/CSS building
+later without rewriting the UI. Pools & Knockout, King Court, and Dynamic
+Pairing Social are all self-contained additions alongside the original
+Leaderboard/Social Play code (each with its own utils file, its own hook,
+its own components, its own `localStorage` keys) rather than a rewrite of
+it — Dynamic Pairing Social doesn't even share `usePlayers`/`useTeams`,
+only the `Player` *type* (extended with optional `startingSeed`/
+`availabilityStatus` fields every other mode simply never sets) — King
+Court shares only the `Player` type and `usePlayers` roster (and UI/CSS building
 blocks) with the rest of the app; everything else about it (settings,
 state, logic) is independent. `utils/tournament.ts` and `utils/pairing.ts`
 import from each other (tournament.ts's createRound/createFixedTeamRound

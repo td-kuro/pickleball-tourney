@@ -3,9 +3,9 @@ import type {
   DoublesPairingMode,
   MatchType,
   PairingStyle,
-  PlayMode,
   PoolKnockoutSettings,
   SessionTiming,
+  SocialFormat,
   SocialScoringMode,
   TournamentFormat,
   TournamentSettings,
@@ -43,13 +43,42 @@ const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scores
 export function TournamentSetup({ settings, onChange, rosterCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isKingCourt = settings.playMode === 'king-court-5';
+  // "Social Play Mode" is a UI grouping over two underlying playMode
+  // values — 'social' (Standard Social Play / Dynamic Pairing Social) and
+  // 'king-court-5' (5-Player King Court, shown here as a third Social
+  // Format for discoverability) — see the Social Format toggle below and
+  // SocialFormat in ../types.ts for why King Court's own playMode value is
+  // left completely untouched by this grouping.
+  const isSocialGroup = settings.playMode === 'social' || isKingCourt;
+  const activeSocialFormat: SocialFormat = isKingCourt ? 'king-court-5' : (settings.socialFormat ?? 'standard-social');
+  const isDynamicPairingSocial = settings.playMode === 'social' && activeSocialFormat === 'dynamic-pairing-social';
 
   function handleMatchTypeChange(matchType: MatchType) {
     onChange({ ...settings, matchType });
   }
 
-  function handlePlayModeChange(playMode: PlayMode) {
-    onChange({ ...settings, playMode });
+  function handlePlayModeGroupChange(group: 'tournament' | 'social') {
+    if (group === 'tournament') {
+      onChange({ ...settings, playMode: 'tournament' });
+    } else if (!isSocialGroup) {
+      // Coming from Tournament Mode — default into Standard Social Play.
+      // If already somewhere in the social group (Standard, Dynamic
+      // Pairing, or King Court), this button re-clicking is a no-op; the
+      // Social Format toggle below is what actually switches between them.
+      onChange({ ...settings, playMode: 'social', socialFormat: 'standard-social' });
+    }
+  }
+
+  function handleSocialFormatChange(format: SocialFormat) {
+    if (format === 'king-court-5') {
+      // King Court's own logic (App.tsx, useKingCourt, KingCourtSetup, ...)
+      // all keys off playMode === 'king-court-5' directly and is otherwise
+      // completely unchanged — this just gets there via the Social Format
+      // toggle instead of a flat top-level button.
+      onChange({ ...settings, playMode: 'king-court-5', socialFormat: format });
+    } else {
+      onChange({ ...settings, playMode: 'social', socialFormat: format });
+    }
   }
 
   function handleFormatChange(tournamentFormat: TournamentFormat) {
@@ -68,7 +97,7 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
     <section className="card">
       <h2>Session Setup</h2>
 
-      {!isKingCourt && (
+      {!isKingCourt && !isDynamicPairingSocial && (
         <div className="form-row">
           <span>Match Type</span>
           <div className="toggle-group" role="group" aria-label="Match type">
@@ -95,39 +124,73 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
         </div>
       )}
 
+      {isDynamicPairingSocial && (
+        <p className="hint">Dynamic Pairing Social is doubles only — each court seats 4 players.</p>
+      )}
+
       <div className="form-row">
         <span>Play Mode</span>
         <div className="toggle-group" role="group" aria-label="Play mode">
           <button
             type="button"
-            className={settings.playMode === 'tournament' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handlePlayModeChange('tournament')}
+            className={!isSocialGroup ? 'toggle-option active' : 'toggle-option'}
+            onClick={() => handlePlayModeGroupChange('tournament')}
           >
             Tournament Mode
           </button>
           <button
             type="button"
-            className={settings.playMode === 'social' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
-            onClick={() => handlePlayModeChange('social')}
+            className={isSocialGroup ? 'toggle-option active toggle-option-green' : 'toggle-option'}
+            onClick={() => handlePlayModeGroupChange('social')}
           >
             Social Play Mode
           </button>
-          <button
-            type="button"
-            className={settings.playMode === 'king-court-5' ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handlePlayModeChange('king-court-5')}
-          >
-            5-Player King Court
-          </button>
         </div>
         <p className="hint">
-          {settings.playMode === 'tournament'
+          {!isSocialGroup
             ? 'Competitive: tracks points, wins/losses, and a ranked leaderboard.'
-            : settings.playMode === 'social'
-              ? 'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'
-              : 'Fixed 5-player courts running 5-game doubles cycles, with rank-based movement between courts after each cycle.'}
+            : 'Casual: fair rotation, a ranking-driven competitive format, or a fixed 5-player court ladder — pick a Social Format below.'}
         </p>
       </div>
+
+      {isSocialGroup && (
+        <div className="form-row">
+          <span>Social Format</span>
+          <div className="toggle-group" role="group" aria-label="Social format">
+            <button
+              type="button"
+              className={activeSocialFormat === 'standard-social' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
+              onClick={() => handleSocialFormatChange('standard-social')}
+            >
+              Standard Social Play
+            </button>
+            <button
+              type="button"
+              className={
+                activeSocialFormat === 'dynamic-pairing-social' ? 'toggle-option active toggle-option-green' : 'toggle-option'
+              }
+              onClick={() => handleSocialFormatChange('dynamic-pairing-social')}
+            >
+              Dynamic Pairing Social
+            </button>
+            <button
+              type="button"
+              className={activeSocialFormat === 'king-court-5' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
+              onClick={() => handleSocialFormatChange('king-court-5')}
+            >
+              5-Player King Court
+            </button>
+          </div>
+          <p className="hint">
+            {activeSocialFormat === 'standard-social' &&
+              'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'}
+            {activeSocialFormat === 'dynamic-pairing-social' &&
+              'Doubles only: grading rounds establish rankings, then courts, partners, and opponents are reassigned every round to keep matches competitive and balanced — see the Dynamic Pairing Social setup below.'}
+            {activeSocialFormat === 'king-court-5' &&
+              'Fixed 5-player courts running 5-game doubles cycles, with rank-based movement between courts after each cycle.'}
+          </p>
+        </div>
+      )}
 
       {settings.playMode === 'tournament' && (
         <div className="form-row">
@@ -233,12 +296,18 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
         </div>
       )}
 
-      {!isKingCourt && (
+      {!isKingCourt && !isDynamicPairingSocial && (
         <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
       )}
 
       {isKingCourt && (
         <p className="hint">Number of courts and player seeding for King Court are set below, on the King Court Setup card.</p>
+      )}
+
+      {isDynamicPairingSocial && (
+        <p className="hint">
+          Session name, number of courts, players, and every other Dynamic Pairing Social setting are on the card below.
+        </p>
       )}
     </section>
   );

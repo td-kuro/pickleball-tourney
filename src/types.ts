@@ -1,11 +1,24 @@
 // Core data shapes for the tournament app.
 
+// Dynamic Pairing Social only (see the "Dynamic Pairing Social" section
+// near the end of this file) — kept optional on the shared Player shape
+// rather than a separate type so every other mode's Player usage is
+// completely unaffected (they simply never set these).
+export type PlayerAvailabilityStatus = 'available' | 'late' | 'resting' | 'withdrawn' | 'injured';
+
 export interface Player {
   id: string;
   name: string;
   // Optional: a player can be added without a rating ("Unrated"). Used for
   // leaderboard sort tie-breaking only when present.
   rating?: number;
+  // Dynamic Pairing Social only: an organiser-assigned starting rank (1 =
+  // strongest) used for grading-round seeding and as a ranking tiebreaker.
+  startingSeed?: number;
+  // Dynamic Pairing Social only: defaults to 'available' when absent (see
+  // isPlayerAvailable in utils/dynamicPairingSocial.ts) — every other mode
+  // ignores this field entirely.
+  availabilityStatus?: PlayerAvailabilityStatus;
 }
 
 export type MatchType = 'singles' | 'doubles';
@@ -27,6 +40,22 @@ export type DoublesPairingMode = 'rotating-players' | 'fixed-teams';
 // src/hooks/useKingCourt.ts; it doesn't use Round/Match/TournamentState at
 // all.
 export type PlayMode = 'tournament' | 'social' | 'king-court-5';
+
+// Only meaningful when PlayMode is 'social' (with one exception — see
+// below): which flavour of Social Play is active.
+// - 'standard-social': the original Social Play behaviour described above.
+// - 'dynamic-pairing-social': a doubles-only, ranking-driven competitive
+//   social format — see the "Dynamic Pairing Social" section near the end
+//   of this file, and src/utils/dynamicPairingSocial.ts.
+// - 'king-court-5': shown in the Setup UI as a third Social Format choice
+//   alongside the two above (grouped there since it's conceptually a
+//   social/casual format too), but selecting it actually sets
+//   PlayMode to 'king-court-5' directly rather than leaving it at
+//   'social' — see TournamentSetup's Social Format toggle. This keeps
+//   every existing King Court code path (which all key off
+//   `playMode === 'king-court-5'`) completely unchanged; socialFormat
+//   only reflects the UI grouping in that case, nothing reads it.
+export type SocialFormat = 'standard-social' | 'dynamic-pairing-social' | 'king-court-5';
 
 // Only meaningful when PlayMode is 'social':
 // - 'none': generate rounds only, no score entry, no points/wins tracked.
@@ -155,6 +184,10 @@ export interface TournamentSettings {
   // Tournament Mode + Leaderboard format only — ignored elsewhere, same
   // rationale as socialScoringMode above. See PairingStyle.
   pairingStyle: PairingStyle;
+  // Only meaningful when playMode is 'social' — always present (same
+  // rationale as socialScoringMode above) so components don't need an
+  // optional check. See SocialFormat.
+  socialFormat: SocialFormat;
 }
 
 // A fixed competitor for the whole tournament/session (unlike the ad-hoc
@@ -395,6 +428,139 @@ export interface KingCourtMovement {
   toCourt: number;
   reason: KingCourtMovementReason;
   rank: number;
+}
+
+// --- Dynamic Pairing Social ------------------------------------------------
+// A Social Play format (see SocialFormat above): doubles-only, ranking-
+// driven social competition. A completely separate data model from
+// Round/Match/TournamentState above, with its own roster, its own
+// `localStorage` keys, and its own logic file
+// (src/utils/dynamicPairingSocial.ts) and hook
+// (src/hooks/useDynamicPairingSocial.ts) — it doesn't reuse usePlayers,
+// useTeams, or useTournament at all, so it can't affect any other mode.
+// See README.md's "Dynamic Pairing Social" section for the full write-up.
+
+export type DynamicGameFormat = 'timed' | 'first-to-score';
+
+// How far a player's court can move between rounds once ranking-based
+// allocation starts (see applyCourtMovementLimit) — a dampener against one
+// unusually good/bad result causing a dramatic court jump.
+export type CourtMovementLimit = 'unrestricted' | 'max-1' | 'max-2';
+
+export interface DynamicPairingSettings {
+  sessionName: string;
+  numberOfCourts: number;
+  // The first N rounds are "grading" rounds — see generateDynamicPairingRound.
+  gradingRounds: number;
+  gameFormat: DynamicGameFormat;
+  gameDurationMinutes?: number;
+  winningScore?: number;
+  maxCourtMovement: CourtMovementLimit;
+  // Placeholder for a future "organiser must confirm both teams' scores
+  // before they're final" flow — always false in this version; scores are
+  // accepted as entered, same as every other mode.
+  scoreConfirmationRequired: boolean;
+}
+
+// Aggregated, per-game (not raw-total) stats for one player across the
+// whole session so far — computed fresh from `players` + `rounds` by
+// calculateDynamicPairingStats/calculatePlayerRankings, the same
+// "derived, not stored separately" approach utils/tournament.ts uses for
+// PlayerStats, so there's a single source of truth.
+export interface DynamicPairingPlayerStats {
+  playerId: string;
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  pointDifferential: number;
+  // Per-game rates, not raw totals — see calculateDynamicPairingStats.
+  // Safe against divide-by-zero: all 0 when gamesPlayed is 0.
+  winPercentage: number;
+  averagePointDifferential: number;
+  averagePointsScored: number;
+  // Rest tracking — deliberately independent of ranking, see
+  // selectRestingPlayers and README's "Rest management" section.
+  totalRests: number;
+  lastRestRound: number | null;
+  consecutiveRoundsPlayed: number;
+  // Set only by calculatePlayerRankings (calculateDynamicPairingStats
+  // leaves these at their placeholder default) — see that function for why
+  // ranking has to be computed as a distinct pass rather than inline here.
+  currentRank: number;
+  previousRank: number | null;
+  // The court this player was on in the most recent round they actually
+  // played (not necessarily the just-finished round, if they're resting
+  // now) — null if they haven't played yet.
+  currentCourt: number | null;
+  // playerId -> number of times partnered/faced, across all rounds so far.
+  partnerHistory: Record<string, number>;
+  opponentHistory: Record<string, number>;
+  // Court number the player played on, once per round played, in order.
+  courtHistory: number[];
+}
+
+export type DynamicPairingRoundPhase = 'grading' | 'ranking';
+
+// 'upcoming' is unused in this version (rounds are generated one at a time,
+// like Tournament Mode's Leaderboard format — see generateDynamicPairingRound)
+// but kept in the union for forward-compatibility with pre-generating a
+// planned schedule later, mirroring Round['status'] elsewhere in the app.
+// 'completed' vs 'locked': a round becomes 'locked' (read-only) the moment
+// "Generate Next Round" is clicked — see lockCompletedRound. 'completed' is
+// likewise unused today (there's no separate "done but not yet advanced"
+// state to show, since the Current Round view itself reflects that), kept
+// for the same forward-compatibility reason.
+export type DynamicPairingRoundStatus = 'upcoming' | 'current' | 'completed' | 'locked';
+
+export type DynamicPairingCourtStatus = 'pending' | 'completed';
+
+export interface DynamicPairingCourtAssignment {
+  courtNumber: number;
+  // All 4 players on this court — team1PlayerIds ++ team2PlayerIds, kept
+  // as its own field so components that just need "who's on this court"
+  // (e.g. building next round's history) don't need to flatten it
+  // themselves every time.
+  playerIds: string[];
+  team1PlayerIds: string[];
+  team2PlayerIds: string[];
+  score1?: number;
+  score2?: number;
+  winnerTeam?: 1 | 2;
+  status: DynamicPairingCourtStatus;
+}
+
+export interface DynamicPairingRound {
+  id: string;
+  roundNumber: number;
+  phase: DynamicPairingRoundPhase;
+  status: DynamicPairingRoundStatus;
+  courts: DynamicPairingCourtAssignment[];
+  // Sitting out this round — selected independently of ranking, see
+  // selectRestingPlayers.
+  restingPlayerIds: string[];
+  createdAt: number;
+}
+
+// Conceptual shape of the whole session — documentation only, same as
+// TournamentState above: useDynamicPairingSocial actually persists
+// `settings`, `players`, and `rounds` as three separate localStorage-backed
+// pieces of React state (see that hook) rather than one combined object.
+// `stats`, `rankings`, `restHistory`, and `matchHistory` are all derived on
+// demand from `players` + `rounds` (calculateDynamicPairingStats /
+// calculatePlayerRankings) rather than stored, so there's a single source
+// of truth and no risk of them drifting out of sync with the rounds that
+// actually happened.
+export interface DynamicPairingState {
+  settings: DynamicPairingSettings;
+  players: Player[];
+  stats: DynamicPairingPlayerStats[];
+  rounds: DynamicPairingRound[];
+  currentRoundNumber: number;
+  rankings: DynamicPairingPlayerStats[];
+  restHistory: DynamicPairingPlayerStats[];
+  matchHistory: DynamicPairingRound[];
 }
 
 // One court's slice of a cycle: its 5 players (in A-E letter order), that
