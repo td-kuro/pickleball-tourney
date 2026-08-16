@@ -33,10 +33,12 @@ interface DynamicPairingSetupProps {
     startingSeed?: number,
     availabilityStatus?: PlayerAvailabilityStatus,
   ) => void;
+  onUpdatePlayerSkillLevel: (id: string, skillLevel?: number) => void;
   onRemovePlayer: (id: string) => void;
   onRemoveAllPlayers: () => void;
   onStartSession: () => void;
   started: boolean;
+  gradingPhaseComplete: boolean;
   onGoToRounds: () => void;
 }
 
@@ -53,10 +55,12 @@ export function DynamicPairingSetup({
   players,
   onAddPlayer,
   onUpdatePlayer,
+  onUpdatePlayerSkillLevel,
   onRemovePlayer,
   onRemoveAllPlayers,
   onStartSession,
   started,
+  gradingPhaseComplete,
   onGoToRounds,
 }: DynamicPairingSetupProps) {
   const startCheck = canGenerateDynamicPairingRound(players, settings, undefined);
@@ -112,8 +116,9 @@ export function DynamicPairingSetup({
             disabled={started}
           />
           <p className="hint">
-            The first {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} seed courts/partners
-            from starting seed (or player order) rather than results, while enough game data builds up. Default: 3.
+            The first {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} pair courts at random
+            (not by seed or results), while enough game data builds up. Default: 3. Once grading finishes, you can
+            assign a skill level per player below to help guide early ranking rounds.
           </p>
         </div>
 
@@ -215,10 +220,22 @@ export function DynamicPairingSetup({
               </button>
             )}
           </div>
-          <DynamicPairingPlayerList players={players} onUpdate={onUpdatePlayer} onRemove={onRemovePlayer} disabled={started} />
+          <DynamicPairingPlayerList
+            players={players}
+            onUpdate={onUpdatePlayer}
+            onUpdateSkillLevel={onUpdatePlayerSkillLevel}
+            onRemove={onRemovePlayer}
+            disabled={started}
+            skillLevelEditable={started && gradingPhaseComplete}
+          />
           <p className="hint">
             {players.filter((p) => (p.availabilityStatus ?? 'available') === 'available').length} available of{' '}
             {players.length} added.
+          </p>
+          <p className="hint">
+            {gradingPhaseComplete
+              ? 'Skill level (1 = strongest) can now be set per player below — it helps break ranking ties while match data is still thin.'
+              : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored.`}
           </p>
         </section>
       </div>
@@ -280,7 +297,10 @@ function DynamicPairingPlayerForm({ onAddPlayer, disabled }: DynamicPairingPlaye
   return (
     <section className="card">
       <h2>Add Player</h2>
-      <p className="hint">Starting seed (optional) guides grading-round courts before there's enough game data.</p>
+      <p className="hint">
+        Starting seed (optional) is used only as a ranking tiebreaker — grading rounds are randomized regardless of
+        seed.
+      </p>
       <form className="player-form" onSubmit={handleSubmit}>
         <div className="form-row">
           <label htmlFor={`${id}-name`}>Name</label>
@@ -341,18 +361,36 @@ interface DynamicPairingPlayerListProps {
     startingSeed?: number,
     availabilityStatus?: PlayerAvailabilityStatus,
   ) => void;
+  onUpdateSkillLevel: (id: string, skillLevel?: number) => void;
   onRemove: (id: string) => void;
   disabled: boolean;
+  skillLevelEditable: boolean;
 }
 
-function DynamicPairingPlayerList({ players, onUpdate, onRemove, disabled }: DynamicPairingPlayerListProps) {
+function DynamicPairingPlayerList({
+  players,
+  onUpdate,
+  onUpdateSkillLevel,
+  onRemove,
+  disabled,
+  skillLevelEditable,
+}: DynamicPairingPlayerListProps) {
   if (players.length === 0) {
     return <p className="empty-state">No players yet. Add a player to the left.</p>;
   }
   return (
     <div className="player-list">
       {players.map((player, index) => (
-        <DynamicPairingPlayerRow key={player.id} index={index} player={player} onUpdate={onUpdate} onRemove={onRemove} disabled={disabled} />
+        <DynamicPairingPlayerRow
+          key={player.id}
+          index={index}
+          player={player}
+          onUpdate={onUpdate}
+          onUpdateSkillLevel={onUpdateSkillLevel}
+          onRemove={onRemove}
+          disabled={disabled}
+          skillLevelEditable={skillLevelEditable}
+        />
       ))}
     </div>
   );
@@ -362,14 +400,25 @@ interface DynamicPairingPlayerRowProps {
   index: number;
   player: Player;
   onUpdate: DynamicPairingPlayerListProps['onUpdate'];
+  onUpdateSkillLevel: (id: string, skillLevel?: number) => void;
   onRemove: (id: string) => void;
   disabled: boolean;
+  skillLevelEditable: boolean;
 }
 
-function DynamicPairingPlayerRow({ index, player, onUpdate, onRemove, disabled }: DynamicPairingPlayerRowProps) {
+function DynamicPairingPlayerRow({
+  index,
+  player,
+  onUpdate,
+  onUpdateSkillLevel,
+  onRemove,
+  disabled,
+  skillLevelEditable,
+}: DynamicPairingPlayerRowProps) {
   const [name, setName] = useState(player.name);
   const [rating, setRating] = useState(player.rating != null ? String(player.rating) : '');
   const [seed, setSeed] = useState(player.startingSeed != null ? String(player.startingSeed) : '');
+  const [skillLevel, setSkillLevel] = useState(player.skillLevel != null ? String(player.skillLevel) : '');
 
   function commit(nextName: string, nextRating: string, nextSeed: string) {
     const trimmedRating = nextRating.trim();
@@ -383,6 +432,12 @@ function DynamicPairingPlayerRow({ index, player, onUpdate, onRemove, disabled }
       parsedSeed != null && !Number.isNaN(parsedSeed) ? parsedSeed : undefined,
       player.availabilityStatus,
     );
+  }
+
+  function commitSkillLevel(nextSkillLevel: string) {
+    const trimmed = nextSkillLevel.trim();
+    const parsed = trimmed === '' ? undefined : parseInt(trimmed, 10);
+    onUpdateSkillLevel(player.id, parsed != null && !Number.isNaN(parsed) ? parsed : undefined);
   }
 
   function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
@@ -435,6 +490,20 @@ function DynamicPairingPlayerRow({ index, player, onUpdate, onRemove, disabled }
         placeholder="Seed"
         aria-label={`Player ${index + 1} starting seed`}
         disabled={disabled}
+      />
+      <input
+        type="number"
+        className="player-row-rating"
+        min={1}
+        step={1}
+        value={skillLevel}
+        onChange={(event) => setSkillLevel(event.target.value)}
+        onBlur={() => commitSkillLevel(skillLevel)}
+        onKeyDown={blurOnEnter}
+        placeholder="Skill"
+        title={skillLevelEditable ? 'Skill level (1 = strongest)' : `Skill level can be set once grading rounds finish`}
+        aria-label={`Player ${index + 1} skill level`}
+        disabled={!skillLevelEditable}
       />
       <select
         className="dp-availability-select"

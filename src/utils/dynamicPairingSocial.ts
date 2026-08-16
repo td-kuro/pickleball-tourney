@@ -64,6 +64,18 @@ export function isDynamicPairingRoundComplete(round: DynamicPairingRound): boole
   return round.courts.every((c) => c.score1 != null && c.score2 != null);
 }
 
+// True once the grading phase is fully behind us — i.e. there's no more
+// grading-round data left to collect, so it's meaningful for the organiser
+// to assign skill levels (see Player.skillLevel and the "skill level"
+// tiebreaker in sortPlayersByRanking). A `gradingRounds` setting of 0 skips
+// grading entirely, so skill levels are assignable from the very first
+// round in that case.
+export function isGradingPhaseComplete(rounds: DynamicPairingRound[], settings: DynamicPairingSettings): boolean {
+  if (settings.gradingRounds <= 0) return true;
+  const lastGradingRound = rounds.find((r) => r.roundNumber === settings.gradingRounds);
+  return lastGradingRound != null && isDynamicPairingRoundComplete(lastGradingRound);
+}
+
 // --- Match/rest history, derived from rounds ---------------------------
 // Mirrors utils/tournament.ts's philosophy: history is derived fresh from
 // `rounds` rather than stored separately, so there's a single source of
@@ -247,10 +259,15 @@ export interface RankedPlayer {
 
 // Ranking priority, applied in order (see README's "Ranking metrics"):
 // 1. win percentage, 2. average point differential, 3. average points
-// scored, 4. head-to-head, 5. starting seed, 6. previous rank, 7. a stable
-// tiebreak. `previousRankById` is supplied by the caller (see
-// calculatePlayerRankings) rather than read off `stats`, since building it
-// is itself a ranking computation one round earlier.
+// scored, 4. head-to-head, 5. organiser-assigned skill level, 6. starting
+// seed, 7. previous rank, 8. a stable tiebreak. Skill level is deliberately
+// a tiebreaker, not a primary sort key — actual results still decide
+// ranking first; skill level (only assignable once grading ends, see
+// isGradingPhaseComplete) just breaks the ties that are common early on,
+// and matters less and less as more results accumulate.
+// `previousRankById` is supplied by the caller (see calculatePlayerRankings)
+// rather than read off `stats`, since building it is itself a ranking
+// computation one round earlier.
 export function sortPlayersByRanking(
   players: Player[],
   stats: DynamicPairingPlayerStats[],
@@ -270,6 +287,9 @@ export function sortPlayersByRanking(
     }
     const h2h = getPlayerHeadToHead(a.player.id, b.player.id, rounds);
     if (h2h !== 0) return h2h;
+    const skillA = a.player.skillLevel ?? Infinity;
+    const skillB = b.player.skillLevel ?? Infinity;
+    if (skillA !== skillB) return skillA - skillB;
     const seedA = a.player.startingSeed ?? Infinity;
     const seedB = b.player.startingSeed ?? Infinity;
     if (seedA !== seedB) return seedA - seedB;
@@ -477,6 +497,19 @@ function makeDynamicPairingId(prefix: string): string {
   return `dp-${prefix}-${Date.now()}-${idCounter}-${Math.floor(Math.random() * 10000)}`;
 }
 
+// Genuine (not deterministic-hash) randomness — used only to shuffle
+// grading-round court order. Unlike stableRandomTiebreak above, this is
+// intentionally allowed to differ between calls: grading rounds are meant
+// to mix players up freely before there's any ranking to preserve.
+function shuffle<T>(items: T[]): T[] {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled;
+}
+
 // The single entry point for generating a Dynamic Pairing Social round —
 // see README's "Next round generation flow" for the numbered version of
 // this same sequence. `players` is the full roster (every availability
@@ -501,18 +534,15 @@ export function generateDynamicPairingRound(
   const { restingIds, activeIds } = selectRestingPlayers(availablePlayers, stats, courtsUsed, lastRoundRestingIds);
   const activeSet = new Set(activeIds);
 
-  // During grading, there isn't enough game data yet to rank meaningfully
-  // — use the organiser's starting seed (falling back to roster order for
-  // unseeded players) instead, per the design brief. Once grading is over,
-  // every subsequent round re-ranks from actual results.
+  // During grading, there isn't enough game data yet to rank meaningfully,
+  // and skill levels aren't assignable yet either (see
+  // isGradingPhaseComplete) — so courts/partnerships are shuffled at
+  // random, per the design brief. Once grading is over, every subsequent
+  // round re-ranks from actual results (see sortPlayersByRanking).
   let orderedActiveIds: string[];
   const previousCourtByPlayerId = new Map<string, number>();
   if (phase === 'grading') {
-    orderedActiveIds = players
-      .filter((p) => activeSet.has(p.id))
-      .slice() // Array.prototype.sort is stable, so unseeded players keep roster order
-      .sort((a, b) => (a.startingSeed ?? Infinity) - (b.startingSeed ?? Infinity))
-      .map((p) => p.id);
+    orderedActiveIds = shuffle(activeIds);
   } else {
     const ranking = calculatePlayerRankings(players, priorRounds);
     orderedActiveIds = ranking.filter((row) => activeSet.has(row.player.id)).map((row) => row.player.id);

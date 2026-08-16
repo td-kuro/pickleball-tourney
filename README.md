@@ -142,11 +142,11 @@ own player roster, its own settings, its own round history, its own
 by, Standard Social Play, Tournament Mode, or King Court.
 
 The goal: make matches progressively more competitive and balanced
-through the session. A handful of **grading rounds** establish a baseline
-ranking using whatever starting information you have (an organiser-set
-seed, or just the player list order); every round after that re-ranks
-players from their actual results so far, and rebuilds courts, partners,
-and opponents around that ranking.
+through the session. A handful of **grading rounds** shuffle players at
+random to get real match data on the board before anyone's ranked (see
+"Skill levels" below for what the organiser can do once grading ends);
+every round after that re-ranks players from their actual results so far,
+and rebuilds courts, partners, and opponents around that ranking.
 
 ### Two independent systems: ranking and rest
 
@@ -173,8 +173,10 @@ with its own card:
   used everywhere else in the app.
 - **Players** — its own dedicated roster (separate from every other
   mode's), each with a name, an optional rating, and an optional
-  **starting seed** (1 = strongest) used to guide grading-round courts
-  before there's enough game data to rank by results.
+  **starting seed** (1 = strongest), used only as a ranking tiebreaker —
+  grading rounds are randomized regardless of seed (see "Grading rounds"
+  below). Once grading finishes, a **skill level** (also 1 = strongest)
+  becomes assignable per player too — see "Skill levels" below.
 - **Grading rounds** — how many of the first rounds are grading rounds.
   Default: **3**.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
@@ -232,9 +234,10 @@ The first N rounds (the **Grading rounds** setting, default 3) are
 grading rounds, badged **Grading Round** on the Current Round/All Rounds
 views. During grading:
 
-- Courts and partnerships are seeded from **starting seed** (falling back
-  to the player list's order for anyone without one) rather than
-  results, since there isn't enough game data yet to rank meaningfully.
+- Courts and partnerships are assigned **at random** — not by starting
+  seed, rating, or results — since there isn't enough game data yet to
+  rank meaningfully, and skill levels aren't assignable yet either (see
+  "Skill levels" below).
 - Every score is still recorded, and rests/partners/opponents are still
   tracked and rotated fairly — grading rounds are real matches, not
   throwaway ones.
@@ -242,6 +245,26 @@ views. During grading:
 Once the grading rounds are done, every subsequent round is a **Ranking
 Round** — badged accordingly — and uses the actual calculated ranking to
 build courts and partnerships instead.
+
+### Skill levels
+
+Once the last grading round is fully scored, a **skill level** (1 =
+strongest) becomes assignable per player from the Players list on the
+Setup tab — an input that stays disabled with an explanatory tooltip
+until that point. This lets the organiser assign an informed skill level
+*after* actually watching players compete in random grading-round matches,
+rather than guessing blind before a single point is played.
+
+Skill level is purely a ranking **tiebreaker** — see step 5 in "Ranking
+metrics" below. Actual results (win %, point differential, points scored,
+head-to-head) always decide ranking first; skill level only breaks ties
+between players, which is common right after grading (small, often-equal
+win/loss records) and matters progressively less as more games
+differentiate players. Setting skill levels is entirely optional —
+**Generate Next Round** never requires it, and unset players simply fall
+through to the next tiebreaker (starting seed). See
+`isGradingPhaseComplete` and the "skill level" step in
+`sortPlayersByRanking`, both in `src/utils/dynamicPairingSocial.ts`.
 
 ### Ranking metrics
 
@@ -262,10 +285,12 @@ divide-by-zero. Ranking priority, applied in order:
 3. Average points scored
 4. Head-to-head result (only when the two tied players have actually
    played each other)
-5. Starting seed
-6. Previous rank (a stabiliser, so statistically-identical players don't
+5. Skill level (only assignable once grading finishes — see "Skill
+   levels" above)
+6. Starting seed
+7. Previous rank (a stabiliser, so statistically-identical players don't
    flip-flop rank every round)
-7. A **deterministic** tiebreaker (not `Math.random()` — it's a stable
+8. A **deterministic** tiebreaker (not `Math.random()` — it's a stable
    hash of the two player ids, so the Rankings table doesn't visibly
    reshuffle itself on every re-render for players who are still tied
    after everything else)
@@ -317,7 +342,7 @@ in `src/utils/dynamicPairingSocial.ts`.
 
 The **Maximum court movement per round** setting (Unrestricted / Max 1
 Court / Max 2 Courts, default Max 1 Court) only applies once ranking
-rounds start (grading rounds always allocate by pure seed/order). It caps
+rounds start (grading rounds always allocate at random). It caps
 how far a player's court can move from wherever they played last, so one
 unusually big win or loss doesn't swing them several courts in one round
 — rankings still correct themselves over time, just gradually. The

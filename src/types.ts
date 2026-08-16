@@ -13,8 +13,15 @@ export interface Player {
   // leaderboard sort tie-breaking only when present.
   rating?: number;
   // Dynamic Pairing Social only: an organiser-assigned starting rank (1 =
-  // strongest) used for grading-round seeding and as a ranking tiebreaker.
+  // strongest), used only as a ranking tiebreaker — grading rounds are
+  // randomized regardless of seed (see generateDynamicPairingRound).
   startingSeed?: number;
+  // Dynamic Pairing Social only: an organiser-assigned rank (1 = strongest)
+  // set *after* grading rounds finish, once the organiser has actually seen
+  // players compete — see isGradingPhaseComplete in
+  // utils/dynamicPairingSocial.ts. Used as a ranking tiebreaker, ahead of
+  // startingSeed (see sortPlayersByRanking).
+  skillLevel?: number;
   // Dynamic Pairing Social only: defaults to 'available' when absent (see
   // isPlayerAvailable in utils/dynamicPairingSocial.ts) — every other mode
   // ignores this field entirely.

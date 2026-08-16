@@ -2,6 +2,7 @@ import type { DynamicPairingRound, DynamicPairingSettings, Player, PlayerAvailab
 import {
   canGenerateDynamicPairingRound,
   generateDynamicPairingRound,
+  isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
 } from '../utils/dynamicPairingSocial';
@@ -42,6 +43,9 @@ export function useDynamicPairingSocial() {
 
   const started = rounds.length > 0;
   const currentRound = rounds.find((r) => r.status === 'current');
+  // Gates the "Set Skill Levels" UI on the Setup tab — see
+  // isGradingPhaseComplete and Player.skillLevel.
+  const gradingPhaseComplete = isGradingPhaseComplete(rounds, settings);
 
   function updateSettings(next: DynamicPairingSettings) {
     setSettings(next);
@@ -64,6 +68,14 @@ export function useDynamicPairingSocial() {
     setPlayers(
       players.map((p) => (p.id === id ? { ...p, name, rating, startingSeed, availabilityStatus } : p)),
     );
+  }
+
+  // Skill level is deliberately its own setter, separate from updatePlayer:
+  // it's only meaningful (and only editable in the UI) once
+  // gradingPhaseComplete is true, unlike name/rating/startingSeed/
+  // availabilityStatus which have their own timing rules.
+  function updatePlayerSkillLevel(id: string, skillLevel?: number) {
+    setPlayers(players.map((p) => (p.id === id ? { ...p, skillLevel } : p)));
   }
 
   function removePlayer(id: string) {
@@ -117,11 +129,13 @@ export function useDynamicPairingSocial() {
     players,
     addPlayer,
     updatePlayer,
+    updatePlayerSkillLevel,
     removePlayer,
     removeAllPlayers,
     rounds,
     currentRound,
     started,
+    gradingPhaseComplete,
     startSession,
     generateNextRound,
     setCourtScore,

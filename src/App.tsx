@@ -354,6 +354,7 @@ function App() {
               players={dynamicPairing.players}
               onAddPlayer={dynamicPairing.addPlayer}
               onUpdatePlayer={dynamicPairing.updatePlayer}
+              onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
               onRemovePlayer={dynamicPairing.removePlayer}
               onRemoveAllPlayers={dynamicPairing.removeAllPlayers}
               onStartSession={() => {
@@ -361,6 +362,7 @@ function App() {
                 setView('dp-rounds');
               }}
               started={dynamicPairing.started}
+              gradingPhaseComplete={dynamicPairing.gradingPhaseComplete}
               onGoToRounds={() => setView('dp-rounds')}
             />
           ) : (
