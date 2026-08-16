@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, Player } from '../types';
-import { isDynamicPairingRoundComplete } from '../utils/dynamicPairingSocial';
+import { isDynamicPairingRoundComplete, nextRoundButtonLabel, roundPhaseLabel } from '../utils/dynamicPairingSocial';
 
 interface DynamicPairingCurrentRoundProps {
   round: DynamicPairingRound | undefined;
+  rounds: DynamicPairingRound[];
   players: Player[];
   onSetScore: (courtNumber: number, score1: number, score2: number) => void;
   onGenerateNextRound: () => void;
@@ -11,11 +12,13 @@ interface DynamicPairingCurrentRoundProps {
 
 // The live/active Dynamic Pairing Social round — mirrors CurrentRoundView's
 // shape (court cards with score entry, a sitting-out list, a gate on
-// generating the next round) but works off DynamicPairingRound/
+// advancing to the next round) but works off DynamicPairingRound/
 // DynamicPairingCourtAssignment instead of Round/Match, since scores here
 // apply to a court (2 fixed teams for the round) rather than an arbitrary
-// MatchSide.
-export function DynamicPairingCurrentRound({ round, players, onSetScore, onGenerateNextRound }: DynamicPairingCurrentRoundProps) {
+// MatchSide. `rounds` (the full history, including any pre-generated
+// 'upcoming' rounds) is only needed to compute nextRoundButtonLabel — see
+// that function for why the button's label/behaviour varies.
+export function DynamicPairingCurrentRound({ round, rounds, players, onSetScore, onGenerateNextRound }: DynamicPairingCurrentRoundProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const allScored = round ? isDynamicPairingRoundComplete(round) : false;
 
@@ -31,13 +34,13 @@ export function DynamicPairingCurrentRound({ round, players, onSetScore, onGener
             <h2>{round ? `Current Round — Round ${round.roundNumber}` : 'Current Round'}</h2>
             {round && (
               <span className={round.phase === 'grading' ? 'mode-badge tournament' : 'mode-badge social'}>
-                {round.phase === 'grading' ? 'Grading Round' : 'Ranking Round'}
+                {roundPhaseLabel(round.phase)}
               </span>
             )}
           </div>
           {round && (
             <button type="button" className="cta-button" onClick={onGenerateNextRound} disabled={!allScored}>
-              Generate Next Round
+              {nextRoundButtonLabel(round, rounds)}
             </button>
           )}
         </div>

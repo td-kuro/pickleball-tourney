@@ -1,11 +1,5 @@
 import type { DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
-
-const STATUS_LABEL: Record<DynamicPairingRoundStatus, string> = {
-  upcoming: 'Upcoming',
-  current: 'Current',
-  completed: 'Completed',
-  locked: 'Completed',
-};
+import { roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
 
 const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
   upcoming: 'status-badge',
@@ -56,8 +50,8 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
             >
               <div className="all-rounds-entry-heading">
                 <h3>Round {round.roundNumber}</h3>
-                <span className={STATUS_CLASS[round.status]}>{STATUS_LABEL[round.status]}</span>
-                <span className="all-rounds-match-type">{round.phase === 'grading' ? 'Grading' : 'Ranking'}</span>
+                <span className={STATUS_CLASS[round.status]}>{roundStatusLabel(round.status)}</span>
+                <span className="all-rounds-match-type">{roundPhaseLabel(round.phase)}</span>
               </div>
               <ul className="all-rounds-matches">
                 {round.courts.map((court) => {

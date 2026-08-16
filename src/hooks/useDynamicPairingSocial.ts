@@ -2,6 +2,8 @@ import type { DynamicPairingRound, DynamicPairingSettings, Player, PlayerAvailab
 import {
   canGenerateDynamicPairingRound,
   generateDynamicPairingRound,
+  generateInitialGradingRounds,
+  isAwaitingSkillReview,
   isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
@@ -46,6 +48,10 @@ export function useDynamicPairingSocial() {
   // Gates the "Set Skill Levels" UI on the Setup tab — see
   // isGradingPhaseComplete and Player.skillLevel.
   const gradingPhaseComplete = isGradingPhaseComplete(rounds, settings);
+  // True once the pre-generated grading batch is fully played and Round 4+
+  // hasn't been generated yet — see isAwaitingSkillReview. Gates showing
+  // DynamicPairingAdminSkillReview in place of Current Round.
+  const awaitingSkillReview = isAwaitingSkillReview(rounds, settings);
 
   function updateSettings(next: DynamicPairingSettings) {
     setSettings(next);
@@ -101,26 +107,59 @@ export function useDynamicPairingSocial() {
     setPlayers([]);
   }
 
-  // "Start Matches" for Dynamic Pairing Social: generates Round 1 (always
-  // a grading round, unless gradingRounds is 0). Rounds are generated one
-  // at a time (like Tournament Mode's Leaderboard format), not
-  // pre-planned, since each round's fair allocation depends on the
-  // previous one's actual results.
+  // "Start Matches" for Dynamic Pairing Social: pre-generates the entire
+  // grading batch (Round 1 through settings.gradingRounds) up front, so
+  // All Rounds shows the whole planned schedule immediately — see
+  // generateInitialGradingRounds. Only Round 1 is playable to start; the
+  // rest are 'upcoming' until generateNextRound activates them in order.
   function startSession() {
-    setRounds([generateDynamicPairingRound(players, settings, [])]);
+    setRounds(generateInitialGradingRounds(players, settings));
   }
 
-  // Locks the current round read-only, then generates the next one —
-  // see generateDynamicPairingRound and README's "Next round generation
-  // flow" for the full sequence this delegates to.
+  // Advances past the current round once every court is scored. Three
+  // cases, mirrored by nextRoundButtonLabel so the button text always
+  // matches what this actually does:
+  // 1. A pre-generated grading round is waiting (Round 2 or 3) — just
+  //    activate it, no generation needed.
+  // 2. This was the last grading round — lock it and stop. No round is
+  //    'current' after this, which is exactly what makes
+  //    isAwaitingSkillReview true; DynamicPairingAdminSkillReview takes it
+  //    from here via confirmSkillReviewAndStartRankingRounds.
+  // 3. Otherwise (Round 4+, already past skill review) — generate a fresh
+  //    ranking round, same as this app always has.
   function generateNextRound() {
     if (!currentRound) return;
     const check = canGenerateDynamicPairingRound(players, settings, currentRound);
     if (!check.ok) return;
 
     const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
+
+    const upcoming = locked.find((r) => r.roundNumber === currentRound.roundNumber + 1 && r.status === 'upcoming');
+    if (upcoming) {
+      setRounds(locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r)));
+      return;
+    }
+
+    if (currentRound.phase === 'grading') {
+      setRounds(locked);
+      return;
+    }
+
     const nextRound = generateDynamicPairingRound(players, settings, locked);
     setRounds([...locked, nextRound]);
+  }
+
+  // Confirms Admin Skill Review and generates Round 4 — the first round to
+  // use real ranking-based pairing (see generateDynamicPairingRound's
+  // 'ranking' phase). Setting skill levels beforehand is optional (see
+  // updatePlayerSkillLevel); only reaching and clicking Confirm is
+  // required to unblock Round 4.
+  function confirmSkillReviewAndStartRankingRounds() {
+    if (!awaitingSkillReview) return;
+    const check = canGenerateDynamicPairingRound(players, settings, undefined);
+    if (!check.ok) return;
+    const nextRound = generateDynamicPairingRound(players, settings, rounds);
+    setRounds([...rounds, nextRound]);
   }
 
   function setCourtScore(roundId: string, courtNumber: number, score1: number, score2: number) {
@@ -152,8 +191,10 @@ export function useDynamicPairingSocial() {
     currentRound,
     started,
     gradingPhaseComplete,
+    awaitingSkillReview,
     startSession,
     generateNextRound,
+    confirmSkillReviewAndStartRankingRounds,
     setCourtScore,
     resetDynamicPairing,
   };

@@ -118,9 +118,10 @@ export function DynamicPairingSetup({
             disabled={started}
           />
           <p className="hint">
-            The first {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} pair courts at random
-            (not by seed or results), while enough game data builds up. Default: 3. Once grading finishes, you can
-            assign a skill level per player below to help guide early ranking rounds.
+            All {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} are generated up front when
+            you start matches, pairing courts at random (not by seed or results) while enough game data builds up —
+            see them all immediately under All Rounds. Default: 3. Once every grading round is scored, an Admin
+            Skill Review screen lets you assign a skill level per player before dynamic pairing begins.
           </p>
         </div>
 
@@ -236,8 +237,8 @@ export function DynamicPairingSetup({
           </p>
           <p className="hint">
             {gradingPhaseComplete
-              ? 'Skill level (1 = strongest) can now be set per player below — it helps break ranking ties while match data is still thin.'
-              : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored.`}
+              ? 'Skill level (1 = strongest) can be set per player below — it helps break ranking ties while match data is still thin. You can also set it from the Admin Skill Review screen shown right after grading finishes.'
+              : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored — you'll also get a dedicated Admin Skill Review screen at that point.`}
           </p>
         </section>
       </div>

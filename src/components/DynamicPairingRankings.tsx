@@ -1,5 +1,5 @@
 import type { DynamicPairingRound, Player } from '../types';
-import { calculatePlayerRankings } from '../utils/dynamicPairingSocial';
+import { calculatePlayerRankings, playedDynamicPairingRounds } from '../utils/dynamicPairingSocial';
 
 interface DynamicPairingRankingsProps {
   players: Player[];
@@ -17,6 +17,9 @@ function formatSigned(value: number): string {
 // previous rank → stable tiebreak). Recalculated fresh from every round
 // played so far, including any scores already entered in the still-open
 // current round, so this stays live as the organiser enters scores.
+// Deliberately excludes pre-generated-but-'upcoming' rounds (see
+// playedDynamicPairingRounds) — those haven't been played yet, so they
+// must not affect anyone's win/loss record.
 export function DynamicPairingRankings({ players, rounds }: DynamicPairingRankingsProps) {
   if (players.length === 0) {
     return (
@@ -27,7 +30,7 @@ export function DynamicPairingRankings({ players, rounds }: DynamicPairingRankin
     );
   }
 
-  const rows = calculatePlayerRankings(players, rounds);
+  const rows = calculatePlayerRankings(players, playedDynamicPairingRounds(rounds));
 
   return (
     <section className="card">

@@ -142,11 +142,13 @@ own player roster, its own settings, its own round history, its own
 by, Standard Social Play, Tournament Mode, or King Court.
 
 The goal: make matches progressively more competitive and balanced
-through the session. A handful of **grading rounds** shuffle players at
-random to get real match data on the board before anyone's ranked (see
-"Skill levels" below for what the organiser can do once grading ends);
-every round after that re-ranks players from their actual results so far,
-and rebuilds courts, partners, and opponents around that ranking.
+through the session. A handful of **grading rounds** — all pre-generated
+together at session start (see "Grading rounds are pre-generated up
+front" below) — shuffle players at random to get real match data on the
+board before anyone's ranked, then hand off to **Admin Skill Review**
+(see below) for what the organiser can do once grading ends; every round
+after that re-ranks players from their actual results so far, and
+rebuilds courts, partners, and opponents around that ranking.
 
 ### Two independent systems: ranking and rest
 
@@ -174,9 +176,10 @@ with its own card:
 - **Players** — its own dedicated roster (separate from every other
   mode's), each with a name, an optional rating, and an optional
   **starting seed** (1 = strongest), used only as a ranking tiebreaker —
-  grading rounds are randomized regardless of seed (see "Grading rounds"
-  below). Once grading finishes, a **skill level** (also 1 = strongest)
-  becomes assignable per player too — see "Skill levels" below.
+  grading rounds are randomized regardless of seed (see "Grading rounds
+  are pre-generated up front" below). Once grading finishes, a **skill
+  level** (also 1 = strongest) becomes assignable per player too — see
+  "Admin Skill Review" below.
 - **Grading rounds** — how many of the first rounds are grading rounds.
   Default: **3**.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
@@ -228,43 +231,70 @@ highest) is the weakest** — the opposite convention from 5-Player King
 Court Mode, where a *higher* court number can be the stronger one. Don't
 mix the two up if you run both formats at the same venue.
 
-### Grading rounds
+### Grading rounds are pre-generated up front
 
 The first N rounds (the **Grading rounds** setting, default 3) are
-grading rounds, badged **Grading Round** on the Current Round/All Rounds
-views. During grading:
+grading rounds, badged **Random Grading** on the Current Round/All Rounds
+views. All N of them are generated together the moment you click **Start
+Matches** — not one at a time — so the organiser can see the entire
+planned grading schedule immediately under **All Rounds**, before a single
+point has been played. See `generateInitialGradingRounds` in
+`src/utils/dynamicPairingSocial.ts`.
+
+Only Round 1 starts out playable (status **Current**); Rounds 2 and 3
+start out **Upcoming** — their courts, partnerships, and resting players
+are already decided (using the same rest/partner/opponent-variety rules
+as always, projected across the whole batch — see "Rest management" and
+"Court allocation and balanced partnerships" below), but score entry stays
+locked to whichever round is currently **Current**. Completing a round's
+scores and advancing (via the button on Current Round) flips the next
+pre-generated round from Upcoming to Current — no new generation happens
+until Round 4.
+
+During every grading round:
 
 - Courts and partnerships are assigned **at random** — not by starting
   seed, rating, or results — since there isn't enough game data yet to
   rank meaningfully, and skill levels aren't assignable yet either (see
-  "Skill levels" below).
+  "Admin Skill Review" below).
 - Every score is still recorded, and rests/partners/opponents are still
   tracked and rotated fairly — grading rounds are real matches, not
   throwaway ones.
 
-Once the grading rounds are done, every subsequent round is a **Ranking
-Round** — badged accordingly — and uses the actual calculated ranking to
-build courts and partnerships instead.
+Once all grading rounds are scored, the app hands off to **Admin Skill
+Review** (see below) instead of immediately generating a next round; every
+round from there on is badged **Dynamic Pairing** and uses the actual
+calculated ranking to build courts and partnerships.
 
-### Skill levels
+### Admin Skill Review
 
-Once the last grading round is fully scored, a **skill level** (1 =
-strongest) becomes assignable per player from the Players list on the
-Setup tab — an input that stays disabled with an explanatory tooltip
-until that point. This lets the organiser assign an informed skill level
-*after* actually watching players compete in random grading-round matches,
-rather than guessing blind before a single point is played.
+The moment the last grading round's scores are saved, **Current Round**
+is replaced by an **Admin Skill Review** screen — a one-time checkpoint
+between random grading and dynamic pairing. It's a derived state, not a
+stored flag (see `isAwaitingSkillReview`), so refreshing mid-review lands
+back here correctly with no extra bookkeeping.
 
-Skill level is purely a ranking **tiebreaker** — see step 5 in "Ranking
-metrics" below. Actual results (win %, point differential, points scored,
-head-to-head) always decide ranking first; skill level only breaks ties
-between players, which is common right after grading (small, often-equal
-win/loss records) and matters progressively less as more games
-differentiate players. Setting skill levels is entirely optional —
-**Generate Next Round** never requires it, and unset players simply fall
-through to the next tiebreaker (starting seed). See
-`isGradingPhaseComplete` and the "skill level" step in
-`sortPlayersByRanking`, both in `src/utils/dynamicPairingSocial.ts`.
+The screen lists every player with their grading-round win/loss record,
+plus a **skill level** input (1 = strongest) the organiser can optionally
+fill in *after* actually watching players compete, rather than guessing
+blind before a single point was played. Skill level is the same field
+also editable from the Players list on the Setup tab once grading is
+done (handy for adjusting it later); setting a value is entirely
+optional — clicking **Confirm & Start Round N** works with any mix of
+filled-in and blank skill levels, and that click is what generates the
+first Dynamic Pairing round. **Round 4 (or whatever the next round number
+is) cannot be generated any other way** — reaching and confirming this
+screen is the one mandatory gate, even though the values themselves
+aren't.
+
+Skill level itself is purely a ranking **tiebreaker** — see step 5 in
+"Ranking metrics" below. Actual results (win %, point differential,
+points scored, head-to-head) always decide ranking first; skill level
+only breaks ties between players, which is common right after grading
+(small, often-equal win/loss records) and matters progressively less as
+more games differentiate players. Unset players simply fall through to
+the next tiebreaker (starting seed). See `sortPlayersByRanking` in
+`src/utils/dynamicPairingSocial.ts`.
 
 ### Ranking metrics
 
@@ -285,8 +315,8 @@ divide-by-zero. Ranking priority, applied in order:
 3. Average points scored
 4. Head-to-head result (only when the two tied players have actually
    played each other)
-5. Skill level (only assignable once grading finishes — see "Skill
-   levels" above)
+5. Skill level (only assignable once grading finishes — see "Admin Skill
+   Review" above)
 6. Starting seed
 7. Previous rank (a stabiliser, so statistically-identical players don't
    flip-flop rank every round)
@@ -373,16 +403,28 @@ Once a session has started, the tab bar becomes **Rounds** / **Rankings**
 Rounds/Leaderboard pair):
 
 - **Rounds** — the familiar **Current Round** / **All Rounds** toggle.
-  Current Round shows the round number, a Grading/Ranking phase badge,
-  every court's Team 1 vs. Team 2 with score entry, who's resting, and
-  **Generate Next Round**. All Rounds is the read-only history, same
-  spirit as the standard modes' All Rounds.
+  Current Round shows the round number, a Random Grading/Dynamic Pairing
+  phase badge, every court's Team 1 vs. Team 2 with score entry, who's
+  resting, and a button to advance (its label adapts — "Continue to Round
+  N" while activating a pre-generated grading round, "Continue to Admin
+  Skill Review" after the last one, "Generate Next Round" from Round 4
+  on). All Rounds is the read-only history, same spirit as the standard
+  modes' All Rounds — but for Dynamic Pairing Social, it shows all 3 (or
+  however many `gradingRounds` is set to) grading rounds immediately after
+  Start Matches, including the ones that haven't been played yet (badged
+  **Upcoming**, matchups visible, no scores). Once grading finishes,
+  Current Round is temporarily replaced by **Admin Skill Review** — see
+  above — until the organiser confirms it.
 - **Rankings** — every field from "Ranking metrics" above, recalculated
   live as scores come in (including the still-open current round's
-  already-entered scores), sorted by rank.
+  already-entered scores), sorted by rank. Only counts rounds that have
+  actually been played — pre-generated-but-Upcoming grading rounds are
+  excluded until they're reached, so they can't inflate anyone's record
+  early (see `playedDynamicPairingRounds`).
 - **Resting Players** — total rests, last round rested, consecutive
   rounds played, and availability status per player — a fairness audit
-  view, deliberately *not* sorted by ranking.
+  view, deliberately *not* sorted by ranking. Same Upcoming-round
+  exclusion as Rankings above.
 - **Session History** — the session's settings recap plus a compact
   round-by-round summary (courts, scored/total, resting count).
 
@@ -1600,8 +1642,12 @@ src/
                              partnerships (createBalancedPartnerships,
                              scorePartnershipOption), and the round-generation/scoring
                              entry points (generateDynamicPairingRound,
-                             processDynamicPairingScore, lockCompletedRound) (Dynamic
-                             Pairing Social)
+                             generateInitialGradingRounds,
+                             processDynamicPairingScore, lockCompletedRound), and the
+                             derived status/label helpers (isAwaitingSkillReview,
+                             playedDynamicPairingRounds, roundStatusLabel,
+                             roundPhaseLabel, nextRoundButtonLabel) (Dynamic Pairing
+                             Social)
   hooks/                    useLocalStorage, usePlayers, useTeams (Add Team roster —
                              see RosterSetup/ParticipantSetup), useTournament
                              (Leaderboard/Social Play state, dispatches into
@@ -1636,10 +1682,13 @@ src/
                              not a reuse of PlayerForm/PlayerList, since it needs
                              starting seed + availability fields those don't have),
                              DynamicPairingRoundsPage (Current Round/All Rounds toggle
-                             parent, mirroring RoundsPage), DynamicPairingCurrentRound,
-                             DynamicPairingAllRounds, DynamicPairingRankings,
-                             DynamicPairingRestingPlayers, DynamicPairingSessionHistory
-                             (Dynamic Pairing Social)
+                             parent, mirroring RoundsPage; also swaps in
+                             DynamicPairingAdminSkillReview in place of Current Round
+                             while awaitingSkillReview is true), DynamicPairingCurrentRound,
+                             DynamicPairingAllRounds, DynamicPairingAdminSkillReview
+                             (the post-grading checkpoint before Round 4),
+                             DynamicPairingRankings, DynamicPairingRestingPlayers,
+                             DynamicPairingSessionHistory (Dynamic Pairing Social)
   App.tsx                   Setup / middle-tab / results views, tab gating, and layout
                              — routes between the Leaderboard/Social Play components,
                              the Pools & Knockout ones, the King Court ones, and the

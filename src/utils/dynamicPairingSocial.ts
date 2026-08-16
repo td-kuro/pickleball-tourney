@@ -21,6 +21,8 @@ import type {
   DynamicPairingCourtAssignment,
   DynamicPairingPlayerStats,
   DynamicPairingRound,
+  DynamicPairingRoundPhase,
+  DynamicPairingRoundStatus,
   DynamicPairingSettings,
   Player,
 } from '../types';
@@ -622,6 +624,90 @@ export function processDynamicPairingScore(
 // DynamicPairingRoundStatus.
 export function lockCompletedRound(round: DynamicPairingRound): DynamicPairingRound {
   return { ...round, status: 'locked' };
+}
+
+// Pre-generates every grading round (settings.gradingRounds, default 3) up
+// front at session start, instead of one at a time — the organiser sees
+// the whole grading schedule immediately in All Rounds. Each round is
+// still built by generateDynamicPairingRound exactly as before, called
+// sequentially with the rounds generated so far as `priorRounds` — so rest
+// fairness and partner/opponent variety are computed against this
+// *projected* schedule (round 3 already knows about round 1 and 2's
+// planned rests/partnerships) even though none of them have been played
+// yet. Only the first round is playable immediately ('current'); the rest
+// are 'upcoming' until generateNextRound activates them in order. A
+// gradingRounds of 0 falls back to pre-generating just Round 1 (which
+// immediately gets phase 'ranking'), matching the pre-pre-generation
+// single-round start behaviour.
+export function generateInitialGradingRounds(
+  players: Player[],
+  settings: DynamicPairingSettings,
+): DynamicPairingRound[] {
+  const roundsToGenerate = Math.max(1, settings.gradingRounds);
+  const rounds: DynamicPairingRound[] = [];
+  for (let i = 0; i < roundsToGenerate; i++) {
+    rounds.push(generateDynamicPairingRound(players, settings, rounds));
+  }
+  return rounds.map((round, index) => (index === 0 ? round : { ...round, status: 'upcoming' }));
+}
+
+// True once every generated round has been played (locked) and none is
+// currently active — i.e. the pre-generated grading batch just finished
+// and Round 4+ hasn't been generated yet. Deliberately derived from
+// `rounds`/`settings` rather than a stored flag, so a page refresh mid-review
+// lands back here automatically (see README's "LocalStorage" section).
+export function isAwaitingSkillReview(rounds: DynamicPairingRound[], settings: DynamicPairingSettings): boolean {
+  if (rounds.length === 0) return false;
+  if (rounds.some((r) => r.status === 'current')) return false;
+  return isGradingPhaseComplete(rounds, settings);
+}
+
+// Rounds that have actually been played (or are being played right now) —
+// excludes 'upcoming' pre-generated rounds. Stats/rankings/rest-history
+// must only ever be computed from this, never the raw `rounds` array,
+// while grading rounds are still pre-generated but not yet reached —
+// otherwise a not-yet-played Round 3 would inflate rest counts, win/loss
+// records, and partner history before it's actually been played. (Round
+// *generation* itself is the one deliberate exception — see
+// generateInitialGradingRounds — since it's meant to plan fairness across
+// the whole projected batch.)
+export function playedDynamicPairingRounds(rounds: DynamicPairingRound[]): DynamicPairingRound[] {
+  return rounds.filter((r) => r.status !== 'upcoming');
+}
+
+// Label for a round's current place in the schedule — see
+// DynamicPairingRoundStatus. 'completed' is a forward-compat synonym this
+// app never actually produces (lockCompletedRound always uses 'locked');
+// both render identically.
+export function roundStatusLabel(status: DynamicPairingRoundStatus): string {
+  switch (status) {
+    case 'upcoming':
+      return 'Upcoming';
+    case 'current':
+      return 'Current';
+    case 'completed':
+    case 'locked':
+      return 'Completed';
+  }
+}
+
+// What the "advance" button on Current Round should say and do next:
+// activate the next pre-generated grading round if one's waiting, hand off
+// to Admin Skill Review if this was the last grading round, or generate a
+// fresh ranking round otherwise (Round 5+). Mirrors the branching in
+// useDynamicPairingSocial's generateNextRound — kept as a pure function so
+// the button label can never drift out of sync with what clicking it
+// actually does.
+export function nextRoundButtonLabel(currentRound: DynamicPairingRound, rounds: DynamicPairingRound[]): string {
+  const upcoming = rounds.find((r) => r.roundNumber === currentRound.roundNumber + 1 && r.status === 'upcoming');
+  if (upcoming) return `Continue to Round ${upcoming.roundNumber}`;
+  if (currentRound.phase === 'grading') return 'Continue to Admin Skill Review';
+  return 'Generate Next Round';
+}
+
+// Display label for a round's phase — see DynamicPairingRoundPhase.
+export function roundPhaseLabel(phase: DynamicPairingRoundPhase): string {
+  return phase === 'grading' ? 'Random Grading' : 'Dynamic Pairing';
 }
 
 export function gameFormatLabel(format: DynamicGameFormat): string {

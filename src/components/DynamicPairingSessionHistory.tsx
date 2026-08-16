@@ -1,5 +1,5 @@
 import type { DynamicPairingRound, DynamicPairingSettings } from '../types';
-import { courtMovementLimitLabel, gameFormatLabel } from '../utils/dynamicPairingSocial';
+import { courtMovementLimitLabel, gameFormatLabel, playedDynamicPairingRounds, roundPhaseLabel } from '../utils/dynamicPairingSocial';
 
 interface DynamicPairingSessionHistoryProps {
   settings: DynamicPairingSettings;
@@ -8,11 +8,15 @@ interface DynamicPairingSessionHistoryProps {
 
 // A session-at-a-glance summary: the settings this session is running
 // under, plus a compact round-by-round recap (see DynamicPairingAllRounds
-// for the full court-by-court detail instead).
+// for the full court-by-court detail instead). The round list below shows
+// every generated round including pre-generated-but-'upcoming' ones (each
+// self-describes via its 0/N scored count), but the "played so far" tally
+// above it deliberately excludes those — see playedDynamicPairingRounds.
 export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairingSessionHistoryProps) {
   const sortedRounds = [...rounds].sort((a, b) => a.roundNumber - b.roundNumber);
-  const gradingCount = sortedRounds.filter((r) => r.phase === 'grading').length;
-  const rankingCount = sortedRounds.length - gradingCount;
+  const playedRounds = playedDynamicPairingRounds(sortedRounds);
+  const gradingCount = playedRounds.filter((r) => r.phase === 'grading').length;
+  const rankingCount = playedRounds.length - gradingCount;
 
   return (
     <>
@@ -27,7 +31,7 @@ export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairin
           · Movement: {courtMovementLimitLabel(settings.maxCourtMovement)}
         </p>
         <p className="session-timing-summary">
-          <strong>{sortedRounds.length}</strong> round{sortedRounds.length === 1 ? '' : 's'} played so far —{' '}
+          <strong>{playedRounds.length}</strong> round{playedRounds.length === 1 ? '' : 's'} played so far —{' '}
           {gradingCount} grading, {rankingCount} ranking.
         </p>
       </section>
@@ -45,7 +49,7 @@ export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairin
               >
                 <div className="all-rounds-entry-heading">
                   <h3>Round {round.roundNumber}</h3>
-                  <span className="all-rounds-match-type">{round.phase === 'grading' ? 'Grading' : 'Ranking'}</span>
+                  <span className="all-rounds-match-type">{roundPhaseLabel(round.phase)}</span>
                 </div>
                 <p className="all-rounds-byes">
                   {round.courts.length} court{round.courts.length === 1 ? '' : 's'} ·{' '}

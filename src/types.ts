@@ -510,15 +510,14 @@ export interface DynamicPairingPlayerStats {
 
 export type DynamicPairingRoundPhase = 'grading' | 'ranking';
 
-// 'upcoming' is unused in this version (rounds are generated one at a time,
-// like Tournament Mode's Leaderboard format — see generateDynamicPairingRound)
-// but kept in the union for forward-compatibility with pre-generating a
-// planned schedule later, mirroring Round['status'] elsewhere in the app.
-// 'completed' vs 'locked': a round becomes 'locked' (read-only) the moment
-// "Generate Next Round" is clicked — see lockCompletedRound. 'completed' is
-// likewise unused today (there's no separate "done but not yet advanced"
-// state to show, since the Current Round view itself reflects that), kept
-// for the same forward-compatibility reason.
+// 'upcoming': a pre-generated grading round (see generateInitialGradingRounds
+// in utils/dynamicPairingSocial.ts) whose courts/partners are already
+// decided but hasn't started yet — no score entry until it becomes
+// 'current'. 'completed' vs 'locked': a round becomes 'locked' (read-only)
+// the moment the next round is activated/generated — see
+// lockCompletedRound. 'completed' is a forward-compatibility synonym this
+// app never actually produces (see roundStatusLabel, which renders both
+// identically as "Completed").
 export type DynamicPairingRoundStatus = 'upcoming' | 'current' | 'completed' | 'locked';
 
 export type DynamicPairingCourtStatus = 'pending' | 'completed';

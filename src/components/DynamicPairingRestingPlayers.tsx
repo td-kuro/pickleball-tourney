@@ -1,5 +1,5 @@
 import type { DynamicPairingRound, Player, PlayerAvailabilityStatus } from '../types';
-import { calculateDynamicPairingStats } from '../utils/dynamicPairingSocial';
+import { calculateDynamicPairingStats, playedDynamicPairingRounds } from '../utils/dynamicPairingSocial';
 
 interface DynamicPairingRestingPlayersProps {
   players: Player[];
@@ -25,7 +25,10 @@ function availabilityLabel(status: PlayerAvailabilityStatus): string {
 // utils/dynamicPairingSocial.ts for the rules this reflects (fewest total
 // rests first, then most consecutive rounds played, then didn't rest last
 // round). Deliberately not sorted by ranking — this view is about rest
-// history only, independent of how competitive a player is.
+// history only, independent of how competitive a player is. Excludes
+// pre-generated-but-'upcoming' rounds (see playedDynamicPairingRounds) —
+// a planned-but-not-yet-played rest shouldn't count until it actually
+// happens.
 export function DynamicPairingRestingPlayers({ players, rounds }: DynamicPairingRestingPlayersProps) {
   if (players.length === 0) {
     return (
@@ -36,7 +39,9 @@ export function DynamicPairingRestingPlayers({ players, rounds }: DynamicPairing
     );
   }
 
-  const statsById = new Map(calculateDynamicPairingStats(players, rounds).map((s) => [s.playerId, s]));
+  const statsById = new Map(
+    calculateDynamicPairingStats(players, playedDynamicPairingRounds(rounds)).map((s) => [s.playerId, s]),
+  );
 
   return (
     <section className="card">
