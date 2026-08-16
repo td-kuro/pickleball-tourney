@@ -54,7 +54,14 @@ export function DynamicPairingCurrentRound({ round, rounds, players, onSetScore,
           <div className="match-list">
             {round.courts.map((court) => (
               <DynamicPairingCourtCard
-                key={court.courtNumber}
+                // Keyed by round + court, not just court number: court
+                // numbers repeat every round (Court 1 always exists), so a
+                // court-number-only key would make React reuse the same
+                // component instance across rounds instead of remounting
+                // it — and since score1/score2 are local state seeded only
+                // on mount, the previous round's scores would stay showing
+                // in the new round's (blank) inputs.
+                key={`${round.id}-${court.courtNumber}`}
                 court={court}
                 team1Label={teamLabel(court.team1PlayerIds)}
                 team2Label={teamLabel(court.team2PlayerIds)}
