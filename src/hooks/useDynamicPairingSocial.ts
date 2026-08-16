@@ -58,6 +58,21 @@ export function useDynamicPairingSocial() {
     ]);
   }
 
+  // Quickly generates `count` empty player slots (named "Player N") so the
+  // organiser can fill in names/ratings/seeds afterward instead of adding
+  // one by one — mirrors usePlayers' addPlayersBulk, adapted for this
+  // roster's own shape (availabilityStatus defaults to 'available', same
+  // as addPlayer above).
+  function addPlayersBulk(count: number) {
+    const startNumber = players.length + 1;
+    const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
+      id: makePlayerId(i),
+      name: `Player ${startNumber + i}`,
+      availabilityStatus: 'available',
+    }));
+    setPlayers([...players, ...newPlayers]);
+  }
+
   function updatePlayer(
     id: string,
     name: string,
@@ -128,6 +143,7 @@ export function useDynamicPairingSocial() {
     updateSettings,
     players,
     addPlayer,
+    addPlayersBulk,
     updatePlayer,
     updatePlayerSkillLevel,
     removePlayer,

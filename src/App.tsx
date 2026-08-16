@@ -353,6 +353,7 @@ function App() {
               onChangeSettings={dynamicPairing.updateSettings}
               players={dynamicPairing.players}
               onAddPlayer={dynamicPairing.addPlayer}
+              onAddPlayersBulk={dynamicPairing.addPlayersBulk}
               onUpdatePlayer={dynamicPairing.updatePlayer}
               onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
               onRemovePlayer={dynamicPairing.removePlayer}

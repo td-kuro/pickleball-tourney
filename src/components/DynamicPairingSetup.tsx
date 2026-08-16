@@ -26,6 +26,7 @@ interface DynamicPairingSetupProps {
   onChangeSettings: (settings: DynamicPairingSettings) => void;
   players: Player[];
   onAddPlayer: (name: string, rating?: number, startingSeed?: number) => void;
+  onAddPlayersBulk: (count: number) => void;
   onUpdatePlayer: (
     id: string,
     name: string,
@@ -54,6 +55,7 @@ export function DynamicPairingSetup({
   onChangeSettings,
   players,
   onAddPlayer,
+  onAddPlayersBulk,
   onUpdatePlayer,
   onUpdatePlayerSkillLevel,
   onRemovePlayer,
@@ -209,7 +211,7 @@ export function DynamicPairingSetup({
       </section>
 
       <div className="setup-grid">
-        <DynamicPairingPlayerForm onAddPlayer={onAddPlayer} disabled={started} />
+        <DynamicPairingPlayerForm onAddPlayer={onAddPlayer} onAddPlayersBulk={onAddPlayersBulk} disabled={started} />
 
         <section className="card">
           <div className="section-heading-row">
@@ -260,15 +262,18 @@ export function DynamicPairingSetup({
 
 interface DynamicPairingPlayerFormProps {
   onAddPlayer: (name: string, rating?: number, startingSeed?: number) => void;
+  onAddPlayersBulk: (count: number) => void;
   disabled: boolean;
 }
 
-function DynamicPairingPlayerForm({ onAddPlayer, disabled }: DynamicPairingPlayerFormProps) {
+function DynamicPairingPlayerForm({ onAddPlayer, onAddPlayersBulk, disabled }: DynamicPairingPlayerFormProps) {
   const [name, setName] = useState('');
   const [rating, setRating] = useState('');
   const [seed, setSeed] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [bulkCount, setBulkCount] = useState('');
   const id = useId();
+  const bulkCountValue = parseInt(bulkCount, 10);
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -292,6 +297,13 @@ function DynamicPairingPlayerForm({ onAddPlayer, disabled }: DynamicPairingPlaye
     setName('');
     setRating('');
     setSeed('');
+  }
+
+  function handleGenerateSlots(event: FormEvent) {
+    event.preventDefault();
+    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
+    onAddPlayersBulk(bulkCountValue);
+    setBulkCount('');
   }
 
   return (
@@ -347,6 +359,29 @@ function DynamicPairingPlayerForm({ onAddPlayer, disabled }: DynamicPairingPlaye
           </button>
         </div>
       </form>
+
+      <div className="bulk-add">
+        <p className="bulk-add-label">Or generate multiple player slots</p>
+        <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
+          <input
+            type="number"
+            min={1}
+            value={bulkCount}
+            onChange={(event) => setBulkCount(event.target.value)}
+            placeholder="e.g. 15"
+            aria-label="Number of players to generate"
+            disabled={disabled}
+          />
+          <button
+            type="submit"
+            className="secondary"
+            disabled={disabled || Number.isNaN(bulkCountValue) || bulkCountValue < 1}
+          >
+            Generate Player Slots
+          </button>
+        </form>
+      </div>
+
       {disabled && <p className="hint">The roster is locked while a session is active — use Reset to start over.</p>}
     </section>
   );
