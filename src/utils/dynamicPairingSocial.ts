@@ -714,6 +714,14 @@ export function gameFormatLabel(format: DynamicGameFormat): string {
   return format === 'timed' ? 'Timed Round' : 'First to Score';
 }
 
+// Shared by DynamicPairingRankings and DynamicPairingAdminSkillReview so a
+// point differential always reads the same way (e.g. "+3.5" / "-2") in both
+// places.
+export function formatSignedPoints(value: number): string {
+  const rounded = Math.round(value * 10) / 10;
+  return rounded > 0 ? `+${rounded}` : String(rounded);
+}
+
 export function courtMovementLimitLabel(limit: CourtMovementLimit): string {
   switch (limit) {
     case 'unrestricted':

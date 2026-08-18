@@ -1,14 +1,9 @@
 import type { DynamicPairingRound, Player } from '../types';
-import { calculatePlayerRankings, playedDynamicPairingRounds } from '../utils/dynamicPairingSocial';
+import { calculatePlayerRankings, formatSignedPoints, playedDynamicPairingRounds } from '../utils/dynamicPairingSocial';
 
 interface DynamicPairingRankingsProps {
   players: Player[];
   rounds: DynamicPairingRound[];
-}
-
-function formatSigned(value: number): string {
-  const rounded = Math.round(value * 10) / 10;
-  return rounded > 0 ? `+${rounded}` : String(rounded);
 }
 
 // Current standings — see calculatePlayerRankings in
@@ -70,8 +65,8 @@ export function DynamicPairingRankings({ players, rounds }: DynamicPairingRankin
                 <td>{(stats.winPercentage * 100).toFixed(0)}%</td>
                 <td>{stats.pointsFor}</td>
                 <td>{stats.pointsAgainst}</td>
-                <td>{formatSigned(stats.pointDifferential)}</td>
-                <td>{formatSigned(stats.averagePointDifferential)}</td>
+                <td>{formatSignedPoints(stats.pointDifferential)}</td>
+                <td>{formatSignedPoints(stats.averagePointDifferential)}</td>
                 <td>{stats.averagePointsScored.toFixed(1)}</td>
                 <td>{stats.totalRests}</td>
                 <td>{stats.currentCourt ?? '—'}</td>
