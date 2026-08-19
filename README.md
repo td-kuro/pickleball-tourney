@@ -602,6 +602,200 @@ Champion, Runner-up, 3rd Place, and 4th Place (when there is a 3rd Place
 Match), followed by every pool's final standings and the full knockout
 bracket read-only.
 
+## Dynamic Team Qualifier
+
+A third **Tournament Format**, alongside Leaderboard and Pools & Knockout.
+Unlike Pools & Knockout's fixed pools, Dynamic Team Qualifier runs a
+*dynamic* — results-based, not fixed-pool — qualifying stage: fixed
+doubles teams play a fair rest rotation across a set number of qualifying
+rounds, then the top 4 teams face off in a small Semis/Gold/Bronze medal
+bracket. It's a completely separate data model from both Leaderboard and
+Pools & Knockout (own roster, own settings, own rounds, own `localStorage`
+keys, own logic file `utils/dynamicTeamQualifier.ts` and hook
+`useDynamicTeamQualifier.ts`) — selecting it doesn't affect any other mode.
+
+**Fixed-partner doubles only**: a *team* (two players, registered
+together) is the ranking and pairing unit throughout — there's no
+individual-player roster to fall back on, and partner changes lock once a
+team has played its first completed match (emergency substitution with an
+audit trail is a future placeholder — see "Current limitations" below).
+
+### Setup
+
+The **Dynamic Team Qualifier Setup** card configures: division/tournament
+name, number of courts (the same clickable court-count picker used
+everywhere else), a number-of-teams planning target, qualifying rounds,
+game duration, result/movement buffer, medal bracket scoring (first
+to/win by/hard cap — only **Top 4** bracket size is supported in this
+version), and a **random seed**. The seed drives every randomised decision
+in this mode (rest schedule shuffling, Round 1-2 pairing, tiebreak
+ordering) deterministically — the same seed always reproduces the same
+schedule, and **Regenerate Seed** rolls a fresh one to try again.
+
+Defaults mirror the reference scenario: **18 teams / 6 courts / 9
+qualifying rounds**, which works out to each team playing **6 qualifying
+games and resting 3 rounds**. The number-of-teams field is a planning
+target only — the actual schedule is always generated from however many
+teams are checked in and non-withdrawn when qualifying starts, spreading
+rest quotas as evenly as possible (`floor`/`ceil` of the total rest slots
+divided across the roster) for any other team count too.
+
+### Team registration and check-in
+
+The **Teams** card (combined registration + check-in, since there's
+nothing to structurally distinguish "still registering" from "checking
+teams in" before Round 1 starts) lets you add teams — two player names,
+an optional team name, optional rating/DUPR, optional seed — and mark each
+as **Checked in**. Team codes (T01, T02, ...) are assigned automatically
+in registration order. Only checked-in, non-withdrawn teams are counted
+and scheduled; **Start Qualifying** stays disabled until at least 4 are
+checked in with both player names filled in, with a clear validation
+message explaining why. **Withdraw** is shown on each team row but
+disabled ("Coming later") — see "Current limitations" below.
+
+### Rest schedule
+
+Clicking **Start Qualifying** locks the checked-in roster and generates
+the *entire* qualifying-stage rest schedule up front, before Round 1
+starts — every round's resting teams are decided all at once, not round
+by round, so All Rounds can show the whole plan immediately (see "All
+Rounds view" below). The schedule is validated against a set of fairness
+invariants before the tournament is allowed to start:
+
+- Every team's total rests are within 1 of every other team's (exactly
+  equal when the numbers divide evenly, e.g. exactly 3 each for the
+  18-team/6-court/9-round default).
+- Every round has exactly the right number of resting teams (team count
+  minus 2× courts used).
+- No team rests in consecutive rounds.
+
+Team strength never factors into rest selection — only how many times a
+team has rested so far (fewest first) and whether it rested last round
+(never twice in a row). If the generated schedule somehow fails
+validation, qualifying doesn't start; a clear error is shown along with a
+**Regenerate Rest Schedule & Retry** option, which rolls a fresh random
+seed and tries again.
+
+### Qualifying rounds and pairing
+
+Round 1's pairings are generated immediately at start (seeded-random, since
+there's no result data yet to pair on); Rounds 2 onward are generated one
+at a time as each previous round is closed, since their pairing depends on
+standings that don't exist until that point. **Rounds 1-2** use
+seeded-random pairing; **Round 3 onward** orders active teams by
+provisional standing and pairs the closest-performing teams that haven't
+already played — a **hard rule, never relaxed**: no two teams face each
+other twice during qualifying. The pairing algorithm is a readable greedy
+matcher (walk the ranked list, pair each team with the nearest team it
+hasn't played), retried with reshuffled ordering a bounded number of
+times; if that still can't find a valid pairing, a simple **rest-slot
+repair** is attempted (swap one resting team in for one scheduled-to-play
+team and try again) before giving up and blocking round publication with
+a clear warning — never silently creating a repeat matchup. A true
+minimum-cost matching algorithm (e.g. the blossom algorithm) could replace
+the greedy matcher for a more globally optimal pairing in a future
+version — see the comments in `utils/dynamicTeamQualifier.ts`.
+
+**Court allocation**: once pairs are formed, Court 1 always gets the
+strongest available matchup (lowest combined standing rank), Court 2 the
+next, and so on — the court number itself never awards ranking points.
+
+**Scoring**: qualifying matches are timed (8-minute games by default), no
+draws allowed — if a game is tied at time, the organiser enters the final
+score directly *including* the golden point (e.g. an 8-8 tie that goes to
+one more point becomes "9-8"), and ticks the **Golden point** checkbox as
+a record-keeping marker. A **Forfeit** checkbox swaps score entry for a
+plain winner pick. Every qualifying match's ranking contribution is
+capped at **+7 for the winner / -7 for the loser** (the raw score is
+still stored untouched — only this derived ranking figure is capped), so
+one lopsided blowout can't dominate standings.
+
+### Director Dashboard
+
+Folded into the top of the **Current Round** view (rather than a separate
+tab, since its whole job is to summarise and act on exactly that round):
+current round number, active courts, missing scores, resting team count,
+a live **Current Standings** preview, and the round-progression actions —
+**Close Round** (enabled once every match has a result), **Generate Next
+Round** (enabled once the round is closed; blocked with a clear warning if
+pairing can't be resolved), **View All Rounds**, and — once every
+qualifying round is locked — **Generate Medal Bracket**.
+
+### Standings
+
+Teams may have played a different number of games at any given point
+(because of scheduled rests), so **Provisional Standings** (shown live
+throughout qualifying) rank by **win % first**, not raw wins: win % →
+opponent win % (a strength-of-schedule tie-break: the average win % of
+every opponent faced so far) → total wins → capped point differential → a
+stable deterministic tiebreak. A resting team keeps its ranking position
+untouched — no win, loss, points, or differential change for a bye round.
+
+Once every qualifying round is locked, **Final Standings** become
+available with a different order, matching a genuine end-of-qualifying
+ranking: total wins → opponent win % → **head-to-head** (only when a
+*complete* mini round-robin exists among the exact set of tied teams —
+e.g. two teams tied on both wins and opponent win % who played each other
+directly; a 3+-way tie only uses head-to-head if every pair in the tied
+group actually played each other, otherwise it's skipped entirely) →
+capped point differential → total points scored → a stable deterministic
+tiebreak standing in for a tournament-director draw. Final Standings are
+only meaningful once every active team has completed all of its
+qualifying games, which the app enforces automatically.
+
+### Medal bracket
+
+Generated from the top 4 Final Standings teams: **Semifinal 1** is Seed 1
+vs. Seed 4, **Semifinal 2** is Seed 2 vs. Seed 3 — both playable at once
+(independent courts, unlike a normal single-elimination bracket's strictly
+sequential "one current match" convention). Once both semifinals are
+complete, the winners move to the **Gold Match** and the losers to the
+**Bronze Match**. Bracket games are first-to-11, win-by-2, hard cap at 15
+by default (configurable in Setup); qualifying scores don't carry into the
+bracket, and bracket rematches are allowed (no no-repeat rule here). Once
+Gold and Bronze are both scored, **Final Results** shows Champion,
+Runner-up, 3rd Place, and 4th Place.
+
+### All Rounds view
+
+The **Rounds** tab has the same **Current Round / All Rounds** toggle as
+every other rotating-round mode. All Rounds is read-only (score entry
+stays in Current Round) and shows every qualifying round generated so
+far — including still-**Upcoming** rounds, whose resting teams are already
+known from the rest schedule even before their pairings exist ("Pairings
+will be generated after previous round results are locked"). Each round
+shows its status (**Upcoming** / **Current** / **Completed** / **Locked**),
+court assignments, scores, golden point flags, winners, and resting teams.
+Once the medal bracket is generated, it appears as its own trailing
+section with the same read-only treatment — Semifinals, Gold Match, Bronze
+Match, each with scores, winners, and final placement once complete.
+
+### Resetting
+
+**Reset Dynamic Team Qualifier** clears every team, check-in status, the
+rest schedule, every round/pairing/score, standings, the medal bracket,
+and audit events.
+
+### Current limitations (Dynamic Team Qualifier-specific)
+
+- Only **Top 4** bracket size is supported — the medal bracket's
+  Semifinal/Gold/Bronze shape is hardcoded to exactly 4 teams.
+- **Withdraw Team**, injury retirement, late arrival, and a score
+  correction workflow are all placeholders in this version — the
+  underlying data model supports them (`DynamicTeam.withdrawn`,
+  `AuditEvent`, ...), but the UI controls are disabled ("Coming later").
+  Pre-tournament roster cleanup is available via **Remove** instead.
+- The rest-slot repair (used when a round's pairing would otherwise force
+  a repeat matchup) tries the first swap that works, not the swap that
+  best preserves rest fairness — a smarter repair could replace this
+  later.
+- The qualifying pairing algorithm is a readable greedy matcher with
+  retries, not a guaranteed-optimal matching — see "Qualifying rounds and
+  pairing" above for where a minimum-cost matching algorithm could
+  improve on it.
+- No import/export — data lives only in the current browser's
+  `localStorage`, same as every other mode.
+
 ## 5-Player King Court Mode
 
 A third **Play Mode**, structurally separate from Tournament and Social
@@ -1537,6 +1731,11 @@ handed out fairly:
   separate list (Doubles only, a simple (not globally optimal) court
   movement resolution, only two partnership splits considered per court,
   score confirmation/manual overrides as placeholders, and more).
+- **Dynamic Team Qualifier** — see "Current limitations (Dynamic Team
+  Qualifier-specific)" under "Dynamic Team Qualifier" above; it has its
+  own separate list (Top 4 bracket size only, withdrawal/injury/late
+  arrival/score correction as placeholders, a first-working-swap rest
+  repair, and more).
 
 ## Future features
 
@@ -1556,6 +1755,10 @@ handed out fairly:
   manual court/partnership overrides, a proper "hold out for one round"
   late-arrival flow, and a globally optimal court-movement resolution
   instead of the current nearest-available-court search.
+- Dynamic Team Qualifier: bracket sizes beyond Top 4, real withdrawal/
+  injury retirement/late-arrival/score-correction workflows backed by the
+  existing `AuditEvent` trail, a smarter rest-slot repair, and a
+  minimum-cost matching algorithm in place of the current greedy pairing.
 
 ## UI theme and branding
 
@@ -1610,7 +1813,10 @@ src/
                              KingCourtCycle/KingCourtGame/KingCourtStanding/
                              KingCourtMovement/..., Dynamic Pairing Social's
                              DynamicPairingSettings/DynamicPairingPlayerStats/
-                             DynamicPairingRound/DynamicPairingCourtAssignment/...)
+                             DynamicPairingRound/DynamicPairingCourtAssignment/...,
+                             Dynamic Team Qualifier's DynamicTeamQualifierSettings/
+                             DynamicTeam/RestAssignment/QualifyingRound/
+                             QualifyingMatch/TeamStanding/MedalBracket/AuditEvent/...)
   utils/tournament.ts       Pure logic: validation, stats (including PF/PA/+/-),
                              mode helpers, session timing, and the original 'balanced'
                              pairing algorithm (createRound, createFixedTeamRound) plus
@@ -1648,14 +1854,31 @@ src/
                              playedDynamicPairingRounds, roundStatusLabel,
                              roundPhaseLabel, nextRoundButtonLabel) (Dynamic Pairing
                              Social)
+  utils/dynamicTeamQualifier.ts
+                             Pure logic, entirely self-contained: rest schedule
+                             generation/validation (generateRestSchedule,
+                             validateRestSchedule — a seeded, least-slack-first
+                             greedy fill), provisional/final standings
+                             (calculateProvisionalStandings, calculateFinalStandings,
+                             calculateOpponentWinPercentage,
+                             calculateCappedPointDifferential), no-repeat qualifying
+                             pairing (generateQualifyingPairings,
+                             validateNoRepeatQualifyingMatchups, a rest-slot repair
+                             in generateNextQualifyingRound), court allocation, the
+                             Semis/Gold/Bronze medal bracket (generateMedalBracket,
+                             processBracketResult), and a small seeded PRNG
+                             (makeSeededRandom) used for every randomised decision
+                             in this mode (Dynamic Team Qualifier)
   hooks/                    useLocalStorage, usePlayers, useTeams (Add Team roster —
                              see RosterSetup/ParticipantSetup), useTournament
                              (Leaderboard/Social Play state, dispatches into
                              utils/pairing.ts), usePoolsKnockout (Pools & Knockout
                              state), useKingCourt (King Court state),
                              useDynamicPairingSocial (its own roster/settings/rounds,
-                             entirely separate from every other hook here) — all
-                             persisted to localStorage
+                             entirely separate from every other hook here),
+                             useDynamicTeamQualifier (its own team roster/settings/
+                             rest schedule/rounds/medal bracket, also entirely
+                             separate) — all persisted to localStorage
   components/                CourtSelector (clickable court-count picker, used
                              everywhere courts are configured); PlayerForm, PlayerList,
                              TeamForm, TeamList (PlayerRow/TeamRow also take an optional
@@ -1688,12 +1911,27 @@ src/
                              DynamicPairingAllRounds, DynamicPairingAdminSkillReview
                              (the post-grading checkpoint before Round 4),
                              DynamicPairingRankings, DynamicPairingRestingPlayers,
-                             DynamicPairingSessionHistory (Dynamic Pairing Social)
+                             DynamicPairingSessionHistory (Dynamic Pairing Social);
+                             DynamicTeamQualifierSetup (session-level settings),
+                             DynamicTeamRoster (combined team registration + check-in
+                             + Start Qualifying, mirroring DynamicPairingSetup's
+                             shape), DynamicTeamQualifierRoundsPage (Current
+                             Round/All Rounds toggle parent, mirroring RoundsPage),
+                             DynamicTeamQualifierCurrentRound (also renders the
+                             Director Dashboard summary/actions at the top),
+                             DynamicTeamQualifierAllRounds (qualifying rounds plus
+                             the medal bracket as a trailing section),
+                             DynamicTeamQualifierStandings (Provisional/Final,
+                             switching on stage), DynamicTeamQualifierMedalBracket,
+                             DynamicTeamQualifierFinalResults (Dynamic Team
+                             Qualifier)
   App.tsx                   Setup / middle-tab / results views, tab gating, and layout
                              — routes between the Leaderboard/Social Play components,
-                             the Pools & Knockout ones, the King Court ones, and the
-                             Dynamic Pairing Social ones depending on settings.playMode
-                             (and settings.socialFormat when playMode is 'social');
+                             the Pools & Knockout ones, the King Court ones, the
+                             Dynamic Pairing Social ones, and the Dynamic Team
+                             Qualifier ones depending on settings.playMode (and
+                             settings.socialFormat when playMode is 'social', or
+                             settings.tournamentFormat when playMode is 'tournament');
                              computes the effective roster (individual players / fixed
                              teams / the union for mixed Doubles) passed down to the
                              Leaderboard/Social Play components
@@ -1701,14 +1939,18 @@ src/
 
 Business logic lives in `src/utils` and `src/hooks`, separate from the
 components in `src/components`, so the pairing/scoring rules can evolve
-later without rewriting the UI. Pools & Knockout, King Court, and Dynamic
-Pairing Social are all self-contained additions alongside the original
-Leaderboard/Social Play code (each with its own utils file, its own hook,
-its own components, its own `localStorage` keys) rather than a rewrite of
-it — Dynamic Pairing Social doesn't even share `usePlayers`/`useTeams`,
-only the `Player` *type* (extended with optional `startingSeed`/
-`availabilityStatus` fields every other mode simply never sets) — King
-Court shares only the `Player` type and `usePlayers` roster (and UI/CSS building
+later without rewriting the UI. Pools & Knockout, King Court, Dynamic
+Pairing Social, and Dynamic Team Qualifier are all self-contained
+additions alongside the original Leaderboard/Social Play code (each with
+its own utils file, its own hook, its own components, its own
+`localStorage` keys) rather than a rewrite of it — Dynamic Pairing Social
+and Dynamic Team Qualifier don't even share `usePlayers`/`useTeams`, only
+the `Player` *type* in Dynamic Pairing Social's case (extended with
+optional `startingSeed`/`availabilityStatus` fields every other mode
+simply never sets); Dynamic Team Qualifier doesn't use the shared `Player`
+or `Team` types at all — it has its own `DynamicTeam` shape, since a team
+(not a player) is the ranking/pairing unit throughout. King Court shares
+only the `Player` type and `usePlayers` roster (and UI/CSS building
 blocks) with the rest of the app; everything else about it (settings,
 state, logic) is independent. `utils/tournament.ts` and `utils/pairing.ts`
 import from each other (tournament.ts's createRound/createFixedTeamRound

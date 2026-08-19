@@ -143,7 +143,14 @@ export interface SessionPlan {
 //   See src/utils/poolsKnockout.ts and the Pool/KnockoutBracket types below
 //   — this format doesn't use Round/Match/computePlayerStats at all, it's
 //   an entirely separate data model.
-export type TournamentFormat = 'leaderboard' | 'pools-knockout';
+// - 'dynamic-team-qualifier': fixed-partner doubles Teams play a dynamic
+//   (results-based, not fixed-pool) qualifying stage with a fair rest
+//   rotation, then the top 4 teams face off in a small Semis/Gold/Bronze
+//   medal bracket. See the "Dynamic Team Qualifier" section near the end of
+//   this file and src/utils/dynamicTeamQualifier.ts — another entirely
+//   separate data model, kept independent of both Leaderboard and Pools &
+//   Knockout.
+export type TournamentFormat = 'leaderboard' | 'pools-knockout' | 'dynamic-team-qualifier';
 
 export interface PoolKnockoutSettings {
   numberOfPools: number;
@@ -614,3 +621,224 @@ export interface KingCourtPlayerStats {
   // Court number the player was on at the end of each cycle, in order.
   courtHistory: number[];
 }
+
+// --- Dynamic Team Qualifier ------------------------------------------------
+// A Tournament Mode format (see TournamentFormat above): fixed-partner
+// doubles Teams (not individually-paired players) play a dynamic — i.e.
+// results-based, not a fixed round-robin pool — qualifying stage with a
+// fair rest rotation, then the top 4 teams face off in a small Semis /
+// Gold / Bronze medal bracket. A completely separate data model from
+// Round/Match/TournamentState *and* from Pools & Knockout's Pool/
+// KnockoutBracket — own localStorage keys, own logic file
+// (src/utils/dynamicTeamQualifier.ts) and hook
+// (src/hooks/useDynamicTeamQualifier.ts). See README.md's "Dynamic Team
+// Qualifier" section for the full write-up.
+
+export interface DynamicTeamQualifierSettings {
+  divisionName: string;
+  numberOfCourts: number;
+  // The number of teams the organiser is planning for — a planning target
+  // only. The actual schedule is always generated from however many teams
+  // are checked in and non-withdrawn when Round 1 starts (see
+  // lockRosterAndGenerateSchedule), so this doesn't need to match exactly.
+  numberOfTeams: number;
+  qualifyingRounds: number;
+  qualifyingGameDurationMinutes: number;
+  resultBufferMinutes: number;
+  // Planning-only echo of the default 18-team/6-court/9-round math (6 games
+  // + 3 rests per team) — see calculateQualifyingPlan. The actual per-team
+  // rest quota is always derived from the checked-in roster, not read from
+  // this field directly.
+  gamesPerTeam: number;
+  restsPerTeam: number;
+  // Only 4 ("Top 4") is implemented in this version — see MedalBracket,
+  // whose shape (semifinal1/semifinal2/goldMatch/bronzeMatch) is hardcoded
+  // to a 4-team bracket. Kept as a field for forward compatibility.
+  bracketSize: number;
+  bracketGameTarget: number;
+  bracketWinBy: number;
+  bracketCap: number;
+  // Deterministic seed for every randomised decision in this mode (rest
+  // schedule shuffling, Round 1-2 seeded-random pairing, tiebreak ordering)
+  // — see makeSeededRandom in utils/dynamicTeamQualifier.ts. Regenerated
+  // (not reused) each time the organiser clicks "Regenerate Rest Schedule",
+  // so a fresh attempt actually produces a different schedule.
+  randomSeed: number;
+}
+
+// A fixed doubles competitor for the whole qualifier — the ranking and
+// pairing unit (never individual players). Distinct from the shared `Team`
+// type above: this mode needs its own fields (teamCode, check-in,
+// withdrawal, partner-lock) that don't apply to Leaderboard/Pools &
+// Knockout teams.
+export interface DynamicTeam {
+  id: string;
+  // Display identifier assigned in registration order — "T01", "T02", ...
+  // — see makeTeamCode. Purely cosmetic/display; `id` is the stable
+  // identity used by every reference (RestAssignment, QualifyingMatch, ...).
+  teamCode: string;
+  // User-entered, or auto-generated from the two player names when left
+  // blank (mirrors useTeams' Team.name behaviour).
+  displayName: string;
+  playerAName: string;
+  playerBName: string;
+  seed?: number;
+  rating?: number;
+  checkedIn: boolean;
+  // Functional in this version — set any time before Round 1 starts (see
+  // "Only checked-in, non-withdrawn teams can be scheduled"). Mid-
+  // tournament withdrawal/injury retirement is a future placeholder only —
+  // see the disabled "Withdraw Team" control once qualifying has started.
+  withdrawn: boolean;
+  // Locked (organiser can no longer edit playerAName/playerBName) once this
+  // team has a completed qualifying match — see lockPartnersForPlayedTeams.
+  // Emergency substitution with an audit trail is a future placeholder.
+  partnerLocked: boolean;
+}
+
+// One team's scheduled rest for one qualifying round — the full set for
+// every round is generated up front (see generateRestSchedule) so the
+// organiser can see the whole plan (and All Rounds can show resting teams
+// for rounds whose pairings haven't been generated yet) before Round 1
+// starts.
+export interface RestAssignment {
+  teamId: string;
+  roundNumber: number;
+  // 'schedule': part of the original generated schedule. 'repair': added
+  // by a fallback rest-slot swap when a round's pairing would otherwise
+  // create an unavoidable repeat matchup — see generateQualifyingPairings.
+  source: 'schedule' | 'repair';
+  // True once the round it belongs to has been played — a past rest can't
+  // be edited by a later repair, only future ones.
+  locked: boolean;
+}
+
+export type QualifyingMatchStatus = 'pending' | 'completed';
+
+export interface QualifyingMatch {
+  id: string;
+  roundNumber: number;
+  courtNumber: number;
+  teamAId: string;
+  teamBId: string;
+  scoreA?: number;
+  scoreB?: number;
+  winnerId?: string;
+  // The organiser enters the final score directly (e.g. "9-8"), already
+  // including any golden point — this flag is a record-keeping marker, not
+  // an automatic score transformer.
+  goldenPoint: boolean;
+  forfeit: boolean;
+  status: QualifyingMatchStatus;
+  submittedAt?: number;
+  // Placeholder for future auth — always undefined in this version.
+  submittedBy?: string;
+  // Which pairing pass produced this match — bumped whenever a round's
+  // pairings are (re)generated, so stale UI state referencing a since-
+  // regenerated match can be detected. Always 1 in this version (pairings
+  // are never regenerated once published), kept for forward compatibility.
+  sourcePairingVersion: number;
+}
+
+// 'upcoming': listed (from the rest schedule) but pairings not generated
+// yet — pairings depend on standings as of the previous round's close, so
+// only Round 1 (and, for the seeded-random Rounds 1-2, arguably Round 2)
+// can ever be pre-paired; every later round's `matches` stays empty with
+// only `restingTeamIds` populated until generateNextQualifyingRound runs.
+// 'current': the single active round, pairings generated, score entry
+// open. 'completed': every match scored, organiser has clicked "Close
+// Round" but the next round hasn't been generated yet. 'locked': the next
+// round has been generated — permanently read-only from here on.
+export type QualifyingRoundStatus = 'upcoming' | 'current' | 'completed' | 'locked';
+
+export interface QualifyingRound {
+  roundNumber: number;
+  stage: 'qualifying';
+  startTime?: number;
+  durationMinutes: number;
+  status: QualifyingRoundStatus;
+  restingTeamIds: string[];
+  matches: QualifyingMatch[];
+}
+
+// Per-team qualifying-stage record, computed fresh from `matches` (never
+// stored separately — same "derived, not duplicated" approach as
+// DynamicPairingPlayerStats) — see calculateProvisionalStandings /
+// calculateFinalStandings in utils/dynamicTeamQualifier.ts.
+export interface TeamStanding {
+  teamId: string;
+  gamesPlayed: number;
+  wins: number;
+  losses: number;
+  pointsFor: number;
+  pointsAgainst: number;
+  winPercentage: number;
+  // Average win % of every opponent this team has faced so far — a
+  // strength-of-schedule tiebreaker, see calculateOpponentWinPercentage.
+  opponentWinPercentage: number;
+  // Sum of each match's per-game differential, capped at +7 for the winner
+  // and -7 for the loser — see calculateCappedPointDifferential. The raw
+  // score is still stored on QualifyingMatch; only this ranking figure is
+  // capped.
+  cappedPointDifferential: number;
+  totalPointsScored: number;
+  restCount: number;
+  rank: number;
+}
+
+export type MedalBracketMatchLabel = 'semifinal1' | 'semifinal2' | 'gold' | 'bronze';
+export type MedalBracketMatchStatus = 'upcoming' | 'current' | 'completed';
+
+export interface MedalBracketMatch {
+  id: string;
+  label: MedalBracketMatchLabel;
+  roundName: string;
+  teamAId?: string;
+  teamBId?: string;
+  scoreA?: number;
+  scoreB?: number;
+  winnerId?: string;
+  loserId?: string;
+  status: MedalBracketMatchStatus;
+}
+
+// Fixed Semis / Gold / Bronze structure for the top 4 qualifying teams —
+// see generateMedalBracket. Unlike Pools & Knockout's generic
+// power-of-two KnockoutBracket, this shape is hardcoded to exactly 4 teams
+// (matching bracketSize's only supported value in this version): Semifinal
+// 1 is Seed 1 vs. Seed 4, Semifinal 2 is Seed 2 vs. Seed 3 — both playable
+// at once, unlike a normal single-elimination bracket's strictly one
+// "current" match at a time.
+export interface MedalBracket {
+  semifinal1: MedalBracketMatch;
+  semifinal2: MedalBracketMatch;
+  goldMatch: MedalBracketMatch;
+  bronzeMatch: MedalBracketMatch;
+  champion?: string;
+  runnerUp?: string;
+  thirdPlace?: string;
+  fourthPlace?: string;
+}
+
+// Placeholder audit trail for future score-correction / substitution /
+// withdrawal workflows — recorded but not yet surfaced in any UI beyond
+// what's needed for those future features.
+export interface AuditEvent {
+  id: string;
+  actor?: string;
+  timestamp: number;
+  eventType: string;
+  oldValue?: string;
+  newValue?: string;
+  reason?: string;
+}
+
+// 'setup' covers both team registration and check-in (the same screen —
+// see DynamicTeamQualifierSetup) since there's nothing to structurally
+// distinguish "still registering" from "checking teams in" until Round 1
+// actually starts. 'qualifying': Rounds 1..N in progress. 'final-standings':
+// every qualifying round is locked and final standings are ready to review,
+// but the medal bracket hasn't been generated yet. 'medal-bracket': Semis/
+// Gold/Bronze in progress. 'complete': Gold and Bronze matches both
+// completed.
+export type DynamicTeamQualifierStage = 'setup' | 'qualifying' | 'final-standings' | 'medal-bracket' | 'complete';

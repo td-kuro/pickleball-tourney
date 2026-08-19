@@ -6,6 +6,12 @@ import { DynamicPairingRestingPlayers } from './components/DynamicPairingResting
 import { DynamicPairingRoundsPage } from './components/DynamicPairingRoundsPage';
 import { DynamicPairingSessionHistory } from './components/DynamicPairingSessionHistory';
 import { DynamicPairingSetup } from './components/DynamicPairingSetup';
+import { DynamicTeamQualifierFinalResults } from './components/DynamicTeamQualifierFinalResults';
+import { DynamicTeamQualifierMedalBracket } from './components/DynamicTeamQualifierMedalBracket';
+import { DynamicTeamQualifierRoundsPage } from './components/DynamicTeamQualifierRoundsPage';
+import { DynamicTeamQualifierSetup } from './components/DynamicTeamQualifierSetup';
+import { DynamicTeamQualifierStandings } from './components/DynamicTeamQualifierStandings';
+import { DynamicTeamRoster } from './components/DynamicTeamRoster';
 import { FinalResults } from './components/FinalResults';
 import { FixedTeamResults } from './components/FixedTeamResults';
 import { KingCourtCycleHistory } from './components/KingCourtCycleHistory';
@@ -21,6 +27,7 @@ import { RoundsPage } from './components/RoundsPage';
 import { ThemeToggle } from './components/ThemeToggle';
 import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
 import { useDynamicPairingSocial } from './hooks/useDynamicPairingSocial';
+import { useDynamicTeamQualifier } from './hooks/useDynamicTeamQualifier';
 import { useKingCourt } from './hooks/useKingCourt';
 import { usePlayers } from './hooks/usePlayers';
 import { usePoolsKnockout } from './hooks/usePoolsKnockout';
@@ -40,10 +47,15 @@ type View =
   | 'dp-rounds'
   | 'dp-rankings'
   | 'dp-resting'
-  | 'dp-history';
+  | 'dp-history'
+  | 'dtq-rounds'
+  | 'dtq-standings'
+  | 'dtq-bracket'
+  | 'dtq-results';
 const KING_COURT_VIEWS: View[] = ['setup', 'kc-court', 'kc-standings', 'kc-history'];
 const STANDARD_VIEWS: View[] = ['setup', 'rounds', 'results'];
 const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-resting', 'dp-history'];
+const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standings', 'dtq-bracket', 'dtq-results'];
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
@@ -53,8 +65,10 @@ function App() {
   const poolsKnockout = usePoolsKnockout();
   const kingCourt = useKingCourt();
   const dynamicPairing = useDynamicPairingSocial();
+  const dynamicTeamQualifier = useDynamicTeamQualifier();
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const isDynamicTeamQualifier = settings.playMode === 'tournament' && settings.tournamentFormat === 'dynamic-team-qualifier';
   const isKingCourt = settings.playMode === 'king-court-5';
   // Dynamic Pairing Social is a Social Format (see SocialFormat in
   // types.ts), not its own PlayMode — see TournamentSetup's Social Format
@@ -103,18 +117,24 @@ function App() {
         ? dynamicPairing.started
           ? 'dp-rounds'
           : 'setup'
-        : rounds.length > 0 || poolsKnockout.stage !== 'setup'
-          ? 'rounds'
-          : 'setup',
+        : isDynamicTeamQualifier
+          ? dynamicTeamQualifier.started
+            ? 'dtq-rounds'
+            : 'setup'
+          : rounds.length > 0 || poolsKnockout.stage !== 'setup'
+            ? 'rounds'
+            : 'setup',
   );
 
   const started = isKingCourt
     ? kingCourt.started
     : isDynamicPairingSocial
       ? dynamicPairing.started
-      : isPoolsKnockout
-        ? poolsKnockout.stage !== 'setup'
-        : rounds.length > 0;
+      : isDynamicTeamQualifier
+        ? dynamicTeamQualifier.started
+        : isPoolsKnockout
+          ? poolsKnockout.stage !== 'setup'
+          : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
   const startCheck = isPoolsKnockout
     ? validatePoolsKnockoutSetup(effectivePlayers, settings, teams)
@@ -134,24 +154,33 @@ function App() {
     ? 'Reset King Court'
     : isDynamicPairingSocial
       ? 'Reset Dynamic Pairing Social'
-      : isSocial
-        ? 'Reset Social Play'
-        : 'Reset Tournament';
+      : isDynamicTeamQualifier
+        ? 'Reset Dynamic Team Qualifier'
+        : isSocial
+          ? 'Reset Social Play'
+          : 'Reset Tournament';
 
   // Defense in depth: Rounds / results (or, in King Court Mode, King
-  // Court / Standings / Cycle History; or, in Dynamic Pairing Social,
-  // Rounds / Rankings / Resting Players / Session History) are only ever
-  // reachable once matches have actually started for the current mode. If
-  // `view` ever ends up on a screen that doesn't belong to the current
-  // mode (e.g. the Play Mode/Social Format was switched mid-session) or
-  // without an active session/cycle — e.g. leftover state — snap back to
-  // Setup instead of rendering a broken screen.
+  // Court / Standings / Cycle History; in Dynamic Pairing Social, Rounds /
+  // Rankings / Resting Players / Session History; or, in Dynamic Team
+  // Qualifier, Rounds / Standings / Medal Bracket / Final Results) are only
+  // ever reachable once matches have actually started for the current
+  // mode. If `view` ever ends up on a screen that doesn't belong to the
+  // current mode (e.g. the Play Mode/Tournament Format was switched
+  // mid-session) or without an active session/cycle — e.g. leftover state —
+  // snap back to Setup instead of rendering a broken screen.
   useEffect(() => {
-    const validViews = isKingCourt ? KING_COURT_VIEWS : isDynamicPairingSocial ? DYNAMIC_PAIRING_VIEWS : STANDARD_VIEWS;
+    const validViews = isKingCourt
+      ? KING_COURT_VIEWS
+      : isDynamicPairingSocial
+        ? DYNAMIC_PAIRING_VIEWS
+        : isDynamicTeamQualifier
+          ? DYNAMIC_TEAM_QUALIFIER_VIEWS
+          : STANDARD_VIEWS;
     if (!validViews.includes(view) || (view !== 'setup' && !started)) {
       setView('setup');
     }
-  }, [view, started, isKingCourt, isDynamicPairingSocial]);
+  }, [view, started, isKingCourt, isDynamicPairingSocial, isDynamicTeamQualifier]);
 
   function handleStartMatches() {
     if (isPoolsKnockout) {
@@ -172,15 +201,18 @@ function App() {
         ? 'Are you sure you want to reset King Court? This will clear all players, court assignments, cycles, scores, and stats.'
         : isDynamicPairingSocial
           ? 'Are you sure you want to reset Dynamic Pairing Social? This will clear all players, settings, rounds, scores, rankings, and rest history.'
-          : isSocial
-            ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
-            : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
+          : isDynamicTeamQualifier
+            ? 'Are you sure you want to reset Dynamic Team Qualifier? This will clear all teams, check-in status, the rest schedule, rounds, scores, standings, and the medal bracket.'
+            : isSocial
+              ? 'Are you sure you want to reset Social Play? This will clear all players, teams, rounds, scores, and stats.'
+              : 'Are you sure you want to reset the tournament? This will clear all players, teams, rounds, scores, and stats.',
     );
     if (confirmed) {
       resetTournament();
       poolsKnockout.resetPoolsKnockout();
       kingCourt.resetKingCourt();
       dynamicPairing.resetDynamicPairing();
+      dynamicTeamQualifier.resetDynamicTeamQualifier();
       removeAllPlayers();
       removeAllTeams();
       setView('setup');
@@ -268,6 +300,41 @@ function App() {
                 disabled={!started}
               >
                 Session History
+              </button>
+            </>
+          ) : isDynamicTeamQualifier ? (
+            <>
+              <button
+                type="button"
+                className={view === 'dtq-rounds' ? 'tab active' : 'tab'}
+                onClick={() => setView('dtq-rounds')}
+                disabled={!started}
+              >
+                Rounds
+              </button>
+              <button
+                type="button"
+                className={view === 'dtq-standings' ? 'tab active' : 'tab'}
+                onClick={() => setView('dtq-standings')}
+                disabled={!started}
+              >
+                Standings
+              </button>
+              <button
+                type="button"
+                className={view === 'dtq-bracket' ? 'tab active' : 'tab'}
+                onClick={() => setView('dtq-bracket')}
+                disabled={!started || !dynamicTeamQualifier.medalBracket}
+              >
+                Medal Bracket
+              </button>
+              <button
+                type="button"
+                className={view === 'dtq-results' ? 'tab active' : 'tab'}
+                onClick={() => setView('dtq-results')}
+                disabled={!started}
+              >
+                Final Results
               </button>
             </>
           ) : (
@@ -366,6 +433,32 @@ function App() {
               gradingPhaseComplete={dynamicPairing.gradingPhaseComplete}
               onGoToRounds={() => setView('dp-rounds')}
             />
+          ) : isDynamicTeamQualifier ? (
+            <>
+              <DynamicTeamQualifierSetup
+                settings={dynamicTeamQualifier.settings}
+                onChangeSettings={dynamicTeamQualifier.updateSettings}
+                onRegenerateSeed={dynamicTeamQualifier.regenerateRandomSeed}
+                started={dynamicTeamQualifier.started}
+              />
+              <DynamicTeamRoster
+                teams={dynamicTeamQualifier.teams}
+                numberOfCourts={dynamicTeamQualifier.settings.numberOfCourts}
+                onAddTeam={dynamicTeamQualifier.addTeam}
+                onUpdateTeam={dynamicTeamQualifier.updateTeam}
+                onSetCheckedIn={dynamicTeamQualifier.setCheckedIn}
+                onRemoveTeam={dynamicTeamQualifier.removeTeam}
+                onRemoveAllTeams={dynamicTeamQualifier.removeAllTeams}
+                started={dynamicTeamQualifier.started}
+                startError={dynamicTeamQualifier.startError}
+                onStartQualifying={() => {
+                  const result = dynamicTeamQualifier.startQualifying();
+                  if (result.ok) setView('dtq-rounds');
+                }}
+                onRegenerateSeed={dynamicTeamQualifier.regenerateRandomSeed}
+                onGoToRounds={() => setView('dtq-rounds')}
+              />
+            </>
           ) : (
             <>
               <RosterSetup
@@ -454,6 +547,42 @@ function App() {
 
       {view === 'dp-history' && started && (
         <DynamicPairingSessionHistory settings={dynamicPairing.settings} rounds={dynamicPairing.rounds} />
+      )}
+
+      {view === 'dtq-rounds' && started && (
+        <DynamicTeamQualifierRoundsPage
+          teams={dynamicTeamQualifier.teams}
+          rounds={dynamicTeamQualifier.rounds}
+          restAssignments={dynamicTeamQualifier.restAssignments}
+          medalBracket={dynamicTeamQualifier.medalBracket}
+          qualifyingRounds={dynamicTeamQualifier.settings.qualifyingRounds}
+          stage={dynamicTeamQualifier.stage}
+          onSetScore={(matchId, result) => dynamicTeamQualifier.setMatchScore(matchId, result)}
+          onCloseRound={dynamicTeamQualifier.closeCurrentRound}
+          onGenerateNextRound={dynamicTeamQualifier.generateNextRound}
+          onGenerateMedalBracket={dynamicTeamQualifier.startMedalBracket}
+        />
+      )}
+
+      {view === 'dtq-standings' && started && (
+        <DynamicTeamQualifierStandings
+          teams={dynamicTeamQualifier.teams}
+          rounds={dynamicTeamQualifier.rounds}
+          restAssignments={dynamicTeamQualifier.restAssignments}
+          stage={dynamicTeamQualifier.stage}
+        />
+      )}
+
+      {view === 'dtq-bracket' && started && (
+        <DynamicTeamQualifierMedalBracket
+          bracket={dynamicTeamQualifier.medalBracket}
+          teams={dynamicTeamQualifier.teams}
+          onSetScore={dynamicTeamQualifier.setBracketScore}
+        />
+      )}
+
+      {view === 'dtq-results' && started && (
+        <DynamicTeamQualifierFinalResults bracket={dynamicTeamQualifier.medalBracket} teams={dynamicTeamQualifier.teams} />
       )}
 
       {view === 'rounds' &&

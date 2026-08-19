@@ -42,6 +42,7 @@ const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scores
 // below.
 export function TournamentSetup({ settings, onChange, rosterCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
+  const isDynamicTeamQualifier = settings.playMode === 'tournament' && settings.tournamentFormat === 'dynamic-team-qualifier';
   const isKingCourt = settings.playMode === 'king-court-5';
   // "Social Play Mode" is a UI grouping over two underlying playMode
   // values — 'social' (Standard Social Play / Dynamic Pairing Social) and
@@ -97,7 +98,7 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
     <section className="card">
       <h2>Session Setup</h2>
 
-      {!isKingCourt && !isDynamicPairingSocial && (
+      {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
         <div className="form-row">
           <span>Match Type</span>
           <div className="toggle-group" role="group" aria-label="Match type">
@@ -126,6 +127,10 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
 
       {isDynamicPairingSocial && (
         <p className="hint">Dynamic Pairing Social is doubles only — each court seats 4 players.</p>
+      )}
+
+      {isDynamicTeamQualifier && (
+        <p className="hint">Dynamic Team Qualifier is fixed-partner doubles only — teams, not individual players, are the ranking unit.</p>
       )}
 
       <div className="form-row">
@@ -214,16 +219,36 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
             >
               Pools & Knockout
             </button>
+            <button
+              type="button"
+              className={
+                settings.tournamentFormat === 'dynamic-team-qualifier' ? 'toggle-option active toggle-option-green' : 'toggle-option'
+              }
+              onClick={() => handleFormatChange('dynamic-team-qualifier')}
+              disabled={tournamentInProgress}
+            >
+              Dynamic Team Qualifier
+            </button>
           </div>
           <p className="hint">
-            {settings.tournamentFormat === 'leaderboard'
-              ? 'Everyone plays rotating rounds, ranked by total points, wins, and byes.'
-              : 'Fixed teams play round-robin pools, then the top teams face off in a single-elimination knockout bracket.'}
+            {settings.tournamentFormat === 'leaderboard' &&
+              'Everyone plays rotating rounds, ranked by total points, wins, and byes.'}
+            {settings.tournamentFormat === 'pools-knockout' &&
+              'Fixed teams play round-robin pools, then the top teams face off in a single-elimination knockout bracket.'}
+            {settings.tournamentFormat === 'dynamic-team-qualifier' &&
+              'Fixed doubles teams play a dynamic, results-based qualifying stage with a fair rest rotation, then the top 4 face off in a Semis / Gold / Bronze medal bracket — see the setup card below.'}
           </p>
         </div>
       )}
 
       {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} rosterCount={rosterCount} />}
+
+      {isDynamicTeamQualifier && (
+        <p className="hint">
+          Division name, courts, qualifying rounds, bracket scoring, team registration, and check-in are all on the
+          cards below.
+        </p>
+      )}
 
       {/* Pools & Knockout still needs an exclusive choice between
           auto-paired players and declared teams (see formTeams), so it
@@ -296,7 +321,7 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
         </div>
       )}
 
-      {!isKingCourt && !isDynamicPairingSocial && (
+      {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
         <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
       )}
 
