@@ -15,6 +15,7 @@ interface ParticipantSetupProps {
   teams: Team[];
   teamPlayers: Player[];
   onAddTeam: (player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
+  onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
   onRemoveTeam: (id: string) => void;
   onRemoveAllParticipants: () => void;
@@ -37,12 +38,15 @@ export function ParticipantSetup({
   teams,
   teamPlayers,
   onAddTeam,
+  onAddTeamsBulk,
   onUpdateTeam,
   onRemoveTeam,
   onRemoveAllParticipants,
 }: ParticipantSetupProps) {
   const [bulkCount, setBulkCount] = useState('');
   const bulkCountValue = parseInt(bulkCount, 10);
+  const [teamBulkCount, setTeamBulkCount] = useState('');
+  const teamBulkCountValue = parseInt(teamBulkCount, 10);
   const perCourt = playersNeededPerMatch(settings.matchType);
   const maxPlayers = maxPlayersForRound(settings);
   const totalParticipants = players.length + teams.length * 2;
@@ -52,6 +56,13 @@ export function ParticipantSetup({
     if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
     onAddPlayersBulk(bulkCountValue);
     setBulkCount('');
+  }
+
+  function handleGenerateTeamSlots(event: FormEvent) {
+    event.preventDefault();
+    if (Number.isNaN(teamBulkCountValue) || teamBulkCountValue < 1) return;
+    onAddTeamsBulk(teamBulkCountValue);
+    setTeamBulkCount('');
   }
 
   function handleRemoveAll() {
@@ -87,6 +98,23 @@ export function ParticipantSetup({
         <h2 className="participant-setup-team-heading">Add Team</h2>
         <p className="hint">A fixed team of 2 players who stay paired together every round.</p>
         <TeamForm onSubmit={onAddTeam} />
+
+        <div className="bulk-add">
+          <p className="bulk-add-label">Or generate multiple team slots</p>
+          <form className="bulk-add-form" onSubmit={handleGenerateTeamSlots}>
+            <input
+              type="number"
+              min={1}
+              value={teamBulkCount}
+              onChange={(event) => setTeamBulkCount(event.target.value)}
+              placeholder="e.g. 8"
+              aria-label="Number of teams to generate"
+            />
+            <button type="submit" className="secondary" disabled={Number.isNaN(teamBulkCountValue) || teamBulkCountValue < 1}>
+              Generate Team Slots
+            </button>
+          </form>
+        </div>
       </section>
 
       <section className="card">

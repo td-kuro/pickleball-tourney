@@ -44,6 +44,32 @@ export function useTeams() {
     setTeams([...teams, team]);
   }
 
+  // Quickly generates `count` empty team slots (named "Team N Player 1"/
+  // "Team N Player 2", mirroring usePlayers.addPlayersBulk's "Player N") so
+  // the organiser can fill in real names/ratings afterward instead of
+  // adding one team at a time — see TeamForm/TeamList, which no longer
+  // collect a separate team name up front (it's always derived from the
+  // two player names, same as here).
+  function addTeamsBulk(count: number) {
+    const startNumber = teams.length + 1;
+    const newPlayers: Player[] = [];
+    const newTeams: Team[] = [];
+    for (let i = 0; i < count; i++) {
+      const teamNumber = startNumber + i;
+      const player1: Player = { id: makeTeamPlayerId(i * 2), name: `Team ${teamNumber} Player 1` };
+      const player2: Player = { id: makeTeamPlayerId(i * 2 + 1), name: `Team ${teamNumber} Player 2` };
+      newPlayers.push(player1, player2);
+      newTeams.push({
+        id: `${makeTeamId()}-${i}`,
+        name: displayName('', player1.name, player2.name),
+        playerIds: [player1.id, player2.id],
+        isFixedTeam: true,
+      });
+    }
+    setTeamPlayers([...teamPlayers, ...newPlayers]);
+    setTeams([...teams, ...newTeams]);
+  }
+
   function updateTeam(id: string, player1Name: string, player2Name: string, teamName: string, rating?: number) {
     const team = teams.find((t) => t.id === id);
     if (!team) return;
@@ -75,5 +101,5 @@ export function useTeams() {
     setTeamPlayers([]);
   }
 
-  return { teams, teamPlayers, addTeam, updateTeam, removeTeam, removeAllTeams };
+  return { teams, teamPlayers, addTeam, addTeamsBulk, updateTeam, removeTeam, removeAllTeams };
 }

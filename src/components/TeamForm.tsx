@@ -4,12 +4,12 @@ interface TeamFormProps {
   onSubmit: (player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
 }
 
-// Quick "add one fixed team" form: 2 required player names, an optional
-// team name (auto-generated from the player names if left blank — see
-// useTeams.addTeam), and an optional rating. (Editing existing teams
-// happens inline in TeamList, not here — same pattern as PlayerForm.)
+// Quick "add one fixed team" form: 2 required player names and an optional
+// rating — the team's display name is always derived from the two player
+// names (e.g. "Thai / Alex"); it can still be customised afterward inline
+// in TeamList, but isn't collected here. (Editing existing teams happens
+// inline in TeamList, not here — same pattern as PlayerForm.)
 export function TeamForm({ onSubmit }: TeamFormProps) {
-  const [teamName, setTeamName] = useState('');
   const [player1Name, setPlayer1Name] = useState('');
   const [player2Name, setPlayer2Name] = useState('');
   const [rating, setRating] = useState('');
@@ -38,8 +38,7 @@ export function TeamForm({ onSubmit }: TeamFormProps) {
     }
 
     setError(null);
-    onSubmit(trimmedPlayer1, trimmedPlayer2, teamName.trim(), parsedRating);
-    setTeamName('');
+    onSubmit(trimmedPlayer1, trimmedPlayer2, '', parsedRating);
     setPlayer1Name('');
     setPlayer2Name('');
     setRating('');
@@ -47,16 +46,6 @@ export function TeamForm({ onSubmit }: TeamFormProps) {
 
   return (
     <form className="player-form" onSubmit={handleSubmit}>
-      <div className="form-row">
-        <label htmlFor={`${id}-team-name`}>Team name (optional)</label>
-        <input
-          id={`${id}-team-name`}
-          type="text"
-          value={teamName}
-          onChange={(event) => setTeamName(event.target.value)}
-          placeholder="e.g. Thai / Alex"
-        />
-      </div>
       <div className="form-row">
         <label htmlFor={`${id}-player1`}>Player 1</label>
         <input

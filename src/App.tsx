@@ -59,7 +59,7 @@ const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standi
 
 function App() {
   const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
-  const { teams, teamPlayers, addTeam, updateTeam, removeTeam, removeAllTeams } = useTeams();
+  const { teams, teamPlayers, addTeam, addTeamsBulk, updateTeam, removeTeam, removeAllTeams } = useTeams();
   const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
     useTournament();
   const poolsKnockout = usePoolsKnockout();
@@ -445,6 +445,7 @@ function App() {
                 teams={dynamicTeamQualifier.teams}
                 numberOfCourts={dynamicTeamQualifier.settings.numberOfCourts}
                 onAddTeam={dynamicTeamQualifier.addTeam}
+                onAddTeamsBulk={dynamicTeamQualifier.addTeamsBulk}
                 onUpdateTeam={dynamicTeamQualifier.updateTeam}
                 onSetCheckedIn={dynamicTeamQualifier.setCheckedIn}
                 onRemoveTeam={dynamicTeamQualifier.removeTeam}
@@ -472,6 +473,7 @@ function App() {
                 teams={teams}
                 teamPlayers={teamPlayers}
                 onAddTeam={addTeam}
+                onAddTeamsBulk={addTeamsBulk}
                 onUpdateTeam={updateTeam}
                 onRemoveTeam={removeTeam}
                 onRemoveAllTeams={removeAllTeams}

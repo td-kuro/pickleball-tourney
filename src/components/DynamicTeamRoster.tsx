@@ -6,6 +6,7 @@ interface DynamicTeamRosterProps {
   teams: DynamicTeam[];
   numberOfCourts: number;
   onAddTeam: (playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
+  onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onSetCheckedIn: (id: string, checkedIn: boolean) => void;
   onRemoveTeam: (id: string) => void;
@@ -27,6 +28,7 @@ export function DynamicTeamRoster({
   teams,
   numberOfCourts,
   onAddTeam,
+  onAddTeamsBulk,
   onUpdateTeam,
   onSetCheckedIn,
   onRemoveTeam,
@@ -49,7 +51,7 @@ export function DynamicTeamRoster({
   return (
     <>
       <div className="setup-grid">
-        <DynamicTeamForm onAddTeam={onAddTeam} disabled={started} />
+        <DynamicTeamForm onAddTeam={onAddTeam} onAddTeamsBulk={onAddTeamsBulk} disabled={started} />
 
         <section className="card">
           <div className="section-heading-row">
@@ -119,16 +121,18 @@ export function DynamicTeamRoster({
 
 interface DynamicTeamFormProps {
   onAddTeam: (playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
+  onAddTeamsBulk: (count: number) => void;
   disabled: boolean;
 }
 
-function DynamicTeamForm({ onAddTeam, disabled }: DynamicTeamFormProps) {
-  const [teamName, setTeamName] = useState('');
+function DynamicTeamForm({ onAddTeam, onAddTeamsBulk, disabled }: DynamicTeamFormProps) {
   const [playerAName, setPlayerAName] = useState('');
   const [playerBName, setPlayerBName] = useState('');
   const [rating, setRating] = useState('');
   const [seed, setSeed] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [bulkCount, setBulkCount] = useState('');
+  const bulkCountValue = parseInt(bulkCount, 10);
   const id = useId();
 
   function handleSubmit(event: FormEvent) {
@@ -150,30 +154,25 @@ function DynamicTeamForm({ onAddTeam, disabled }: DynamicTeamFormProps) {
       return;
     }
     setError(null);
-    onAddTeam(trimmedA, trimmedB, teamName.trim(), parsedRating, parsedSeed);
-    setTeamName('');
+    onAddTeam(trimmedA, trimmedB, '', parsedRating, parsedSeed);
     setPlayerAName('');
     setPlayerBName('');
     setRating('');
     setSeed('');
   }
 
+  function handleGenerateSlots(event: FormEvent) {
+    event.preventDefault();
+    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
+    onAddTeamsBulk(bulkCountValue);
+    setBulkCount('');
+  }
+
   return (
     <section className="card">
       <h2>Add Team</h2>
-      <p className="hint">Dynamic Team Qualifier uses fixed doubles teams — the team, not the individual player, is the ranking and pairing unit.</p>
+      <p className="hint">Dynamic Team Qualifier uses fixed doubles teams — the team, not the individual player, is the ranking and pairing unit. Each team's display name is derived from its two player names.</p>
       <form className="player-form" onSubmit={handleSubmit}>
-        <div className="form-row">
-          <label htmlFor={`${id}-team-name`}>Team name (optional)</label>
-          <input
-            id={`${id}-team-name`}
-            type="text"
-            value={teamName}
-            onChange={(event) => setTeamName(event.target.value)}
-            placeholder="e.g. Thai / Alex"
-            disabled={disabled}
-          />
-        </div>
         <div className="form-row">
           <label htmlFor={`${id}-player-a`}>Player 1 name</label>
           <input
@@ -231,6 +230,25 @@ function DynamicTeamForm({ onAddTeam, disabled }: DynamicTeamFormProps) {
           </button>
         </div>
       </form>
+
+      <div className="bulk-add">
+        <p className="bulk-add-label">Or generate multiple team slots</p>
+        <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
+          <input
+            type="number"
+            min={1}
+            value={bulkCount}
+            onChange={(event) => setBulkCount(event.target.value)}
+            placeholder="e.g. 8"
+            aria-label="Number of teams to generate"
+            disabled={disabled}
+          />
+          <button type="submit" className="secondary" disabled={disabled || Number.isNaN(bulkCountValue) || bulkCountValue < 1}>
+            Generate Team Slots
+          </button>
+        </form>
+      </div>
+
       {disabled && <p className="hint">The roster is locked while qualifying is in progress — use Reset to start over.</p>}
     </section>
   );
