@@ -1,10 +1,11 @@
 import { useId, useState, type FormEvent } from 'react';
-import type { DynamicTeam } from '../types';
+import type { DynamicTeam, DynamicTeamQualifierSettings } from '../types';
 import { validateCheckedInTeams } from '../utils/dynamicTeamQualifier';
+import { DynamicTeamRestSchedulePreview } from './DynamicTeamRestSchedulePreview';
 
 interface DynamicTeamRosterProps {
   teams: DynamicTeam[];
-  numberOfCourts: number;
+  settings: DynamicTeamQualifierSettings;
   onAddTeam: (playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
@@ -23,10 +24,13 @@ interface DynamicTeamRosterProps {
 // registering" from "checking teams in" until qualifying actually starts,
 // same reasoning as DynamicPairingSetup folding roster management and
 // Start into one card). Only checked-in, non-withdrawn teams count toward
-// the "ready to start" check — see validateCheckedInTeams.
+// the "ready to start" check — see validateCheckedInTeams. Also renders a
+// live rest-schedule preview (see DynamicTeamRestSchedulePreview) above
+// the Start button, so "Regenerate" has something concrete to show for
+// itself instead of a bare seed number.
 export function DynamicTeamRoster({
   teams,
-  numberOfCourts,
+  settings,
   onAddTeam,
   onAddTeamsBulk,
   onUpdateTeam,
@@ -39,7 +43,7 @@ export function DynamicTeamRoster({
   onRegenerateSeed,
   onGoToRounds,
 }: DynamicTeamRosterProps) {
-  const startCheck = validateCheckedInTeams(teams, numberOfCourts);
+  const startCheck = validateCheckedInTeams(teams, settings.numberOfCourts);
   const checkedInCount = teams.filter((t) => t.checkedIn && !t.withdrawn).length;
 
   function handleRemoveAll() {
@@ -85,6 +89,8 @@ export function DynamicTeamRoster({
           </p>
         </section>
       </div>
+
+      {!started && <DynamicTeamRestSchedulePreview teams={teams} settings={settings} onRegenerate={onRegenerateSeed} />}
 
       <section className="card start-matches-card">
         {!started ? (

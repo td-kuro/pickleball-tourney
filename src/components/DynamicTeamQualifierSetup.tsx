@@ -5,17 +5,17 @@ import { CourtSelector } from './CourtSelector';
 interface DynamicTeamQualifierSetupProps {
   settings: DynamicTeamQualifierSettings;
   onChangeSettings: (settings: DynamicTeamQualifierSettings) => void;
-  onRegenerateSeed: () => void;
   started: boolean;
 }
 
 // Settings card for Dynamic Team Qualifier — session-level fields only (see
-// DynamicTeamRoster for team registration/check-in and the Start button).
-// Mirrors DynamicPairingSetup's shape: a self-contained card with its own
-// fields rather than reusing TournamentSetup's generic Number of Courts/
-// timing sections, since this format's fields (qualifying rounds, bracket
-// scoring, a deterministic random seed) don't apply anywhere else.
-export function DynamicTeamQualifierSetup({ settings, onChangeSettings, onRegenerateSeed, started }: DynamicTeamQualifierSetupProps) {
+// DynamicTeamRoster for team registration/check-in, the live rest-schedule
+// preview, and the Start button). Mirrors DynamicPairingSetup's shape: a
+// self-contained card with its own fields rather than reusing
+// TournamentSetup's generic Number of Courts/timing sections, since this
+// format's fields (qualifying rounds, bracket scoring, ...) don't apply
+// anywhere else.
+export function DynamicTeamQualifierSetup({ settings, onChangeSettings, started }: DynamicTeamQualifierSetupProps) {
   function handleNumberChange(field: keyof DynamicTeamQualifierSettings, event: ChangeEvent<HTMLInputElement>) {
     const parsed = parseInt(event.target.value, 10);
     onChangeSettings({ ...settings, [field]: Number.isNaN(parsed) ? 0 : parsed });
@@ -139,18 +139,10 @@ export function DynamicTeamQualifierSetup({ settings, onChangeSettings, onRegene
         </label>
       </div>
 
-      <div className="form-row">
-        <span>Random seed</span>
-        <p className="session-timing-summary">
-          Seed <strong>{settings.randomSeed}</strong> drives the rest schedule and Round 1-2 pairing — the same seed
-          always reproduces the same schedule. Regenerating tries a different one.
-        </p>
-        <div className="form-actions">
-          <button type="button" className="secondary" onClick={onRegenerateSeed} disabled={started}>
-            Regenerate Seed
-          </button>
-        </div>
-      </div>
+      <p className="hint">
+        Once teams are checked in below, the Teams card shows a live preview of the resulting rest schedule — see how
+        it actually turns out before you commit, and shuffle it if you want a different one.
+      </p>
     </section>
   );
 }

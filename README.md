@@ -625,12 +625,14 @@ audit trail is a future placeholder — see "Current limitations" below).
 The **Dynamic Team Qualifier Setup** card configures: division/tournament
 name, number of courts (the same clickable court-count picker used
 everywhere else), a number-of-teams planning target, qualifying rounds,
-game duration, result/movement buffer, medal bracket scoring (first
+game duration, result/movement buffer, and medal bracket scoring (first
 to/win by/hard cap — only **Top 4** bracket size is supported in this
-version), and a **random seed**. The seed drives every randomised decision
-in this mode (rest schedule shuffling, Round 1-2 pairing, tiebreak
-ordering) deterministically — the same seed always reproduces the same
-schedule, and **Regenerate Seed** rolls a fresh one to try again.
+version). Every randomised decision in this mode (rest schedule
+shuffling, Round 1-2 pairing, tiebreak ordering) is driven deterministically
+by an internal random seed — the same seed always reproduces the same
+schedule — but the seed's raw numeric value isn't shown or meant to be
+read; see "Rest schedule preview" below for the actual, tangible way to
+see (and reroll) what it produces.
 
 Defaults mirror the reference scenario: **18 teams / 6 courts / 9
 qualifying rounds**, which works out to each team playing **6 qualifying
@@ -645,13 +647,30 @@ divided across the roster) for any other team count too.
 The **Teams** card (combined registration + check-in, since there's
 nothing to structurally distinguish "still registering" from "checking
 teams in" before Round 1 starts) lets you add teams — two player names,
-an optional team name, optional rating/DUPR, optional seed — and mark each
-as **Checked in**. Team codes (T01, T02, ...) are assigned automatically
-in registration order. Only checked-in, non-withdrawn teams are counted
-and scheduled; **Start Qualifying** stays disabled until at least 4 are
-checked in with both player names filled in, with a clear validation
-message explaining why. **Withdraw** is shown on each team row but
-disabled ("Coming later") — see "Current limitations" below.
+optional rating/DUPR, optional seed — and mark each as **Checked in**. A
+team's display name is always derived from its two player names (e.g.
+"Thai / Alex") rather than collected separately. **Or generate multiple
+team slots** quickly creates several blank teams (e.g. "T05 Player 1"/"T05
+Player 2") to fill in afterward, instead of adding one at a time. Team
+codes (T01, T02, ...) are assigned automatically in registration order.
+Only checked-in, non-withdrawn teams are counted and scheduled; **Start
+Qualifying** stays disabled until at least 4 are checked in with both
+player names filled in, with a clear validation message explaining why.
+**Withdraw** is shown on each team row but disabled ("Coming later") —
+see "Current limitations" below.
+
+### Rest schedule preview
+
+Once at least 4 teams are checked in, a **Rest Schedule Preview** card
+shows exactly what **Start Qualifying** would produce right now: Round 1's
+real court-by-court matchups (that round's pairing doesn't depend on any
+results, so it's fully knowable ahead of time) plus every later round's
+resting teams from the rest schedule. It's a genuine dry run — the same
+`lockRosterAndStartQualifying` function Start Qualifying itself calls, just
+not committed to state — so what you see here is exactly what you'll get.
+**Shuffle Preview** rerolls the underlying random seed and recomputes it,
+so you can see the actual matchups/rest lists change and keep trying until
+you're happy, with nothing committed until you click **Start Qualifying**.
 
 ### Rest schedule
 

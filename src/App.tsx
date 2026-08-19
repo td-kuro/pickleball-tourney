@@ -438,12 +438,11 @@ function App() {
               <DynamicTeamQualifierSetup
                 settings={dynamicTeamQualifier.settings}
                 onChangeSettings={dynamicTeamQualifier.updateSettings}
-                onRegenerateSeed={dynamicTeamQualifier.regenerateRandomSeed}
                 started={dynamicTeamQualifier.started}
               />
               <DynamicTeamRoster
                 teams={dynamicTeamQualifier.teams}
-                numberOfCourts={dynamicTeamQualifier.settings.numberOfCourts}
+                settings={dynamicTeamQualifier.settings}
                 onAddTeam={dynamicTeamQualifier.addTeam}
                 onAddTeamsBulk={dynamicTeamQualifier.addTeamsBulk}
                 onUpdateTeam={dynamicTeamQualifier.updateTeam}
