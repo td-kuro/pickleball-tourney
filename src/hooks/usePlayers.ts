@@ -1,4 +1,4 @@
-import type { Player } from '../types';
+import type { Player, PlayerAvailabilityStatus } from '../types';
 import { useLocalStorage } from './useLocalStorage';
 
 const STORAGE_KEY = 'pickleball-tourney:players';
@@ -31,6 +31,16 @@ export function usePlayers() {
     setPlayers(players.map((player) => (player.id === id ? { ...player, name, rating } : player)));
   }
 
+  // Mid-session availability change (Standard Social Play + King Court —
+  // see PlayerAvailabilityStatus in types.ts). Deliberately its own setter,
+  // separate from updatePlayer: it's the one field callers change *during*
+  // an active session rather than only at Setup, and future round/cycle
+  // generation reads it to exclude the player — see
+  // isPlayerAvailableForScheduling in utils/tournament.ts.
+  function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus) {
+    setPlayers(players.map((player) => (player.id === id ? { ...player, availabilityStatus: status } : player)));
+  }
+
   function removePlayer(id: string) {
     setPlayers(players.filter((player) => player.id !== id));
   }
@@ -41,5 +51,5 @@ export function usePlayers() {
     setPlayers([]);
   }
 
-  return { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers };
+  return { players, addPlayer, addPlayersBulk, updatePlayer, setAvailabilityStatus, removePlayer, removeAllPlayers };
 }

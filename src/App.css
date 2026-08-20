@@ -1383,3 +1383,71 @@ button.danger:hover:not(:disabled) {
 .dtq-placeholder-button {
   opacity: 0.55;
 }
+
+.dtq-team-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Mid-session player/court controls (Standard Social Play, Dynamic Pairing
+   Social, King Court) — see SessionControls, PlayerAvailabilityControls,
+   SwapPlayerModal, KingCourtManageCourts. */
+.availability-row {
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.availability-row-name {
+  flex: 1 1 160px;
+  min-width: 120px;
+}
+
+.availability-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.session-controls-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.session-adjustment-notice {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 20, 35, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 50;
+}
+
+.modal-card {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  margin-bottom: 0;
+}
+
+.court-count-warning {
+  color: #c0392b;
+}

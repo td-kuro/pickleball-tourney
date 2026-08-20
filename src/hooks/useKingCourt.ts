@@ -1,4 +1,4 @@
-import type { KingCourtCycle, KingCourtPlayerAssignment, Player } from '../types';
+import type { KingCourtCycle, KingCourtPlayerAssignment, Player, SessionAdjustment, SessionAdjustmentType } from '../types';
 import {
   applyCourtMovement,
   applyMovementDirections,
@@ -8,14 +8,21 @@ import {
   generateNextKingCourtCycle,
   isCourtFull,
   isCurrentGameComplete,
+  substitutePlayerInCycle,
+  validateNextCycleAssignments,
 } from '../utils/kingCourt';
 import { useLocalStorage } from './useLocalStorage';
 
 const COURTS_KEY = 'pickleball-tourney:kc:numberOfCourts';
 const ASSIGNMENTS_KEY = 'pickleball-tourney:kc:assignments';
 const CYCLES_KEY = 'pickleball-tourney:kc:cycles';
+const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:kc:sessionAdjustments';
 
 const DEFAULT_COURTS = 2;
+
+function makeAdjustmentId(): string {
+  return `kc-adj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
 
 // Manages 5-Player King Court Mode state, persisted to localStorage,
 // completely independent of useTournament's rounds/plannedRounds and
@@ -26,9 +33,17 @@ export function useKingCourt() {
   const [numberOfCourts, setNumberOfCourts] = useLocalStorage<number>(COURTS_KEY, DEFAULT_COURTS);
   const [assignments, setAssignments] = useLocalStorage<KingCourtPlayerAssignment[]>(ASSIGNMENTS_KEY, []);
   const [cycles, setCycles] = useLocalStorage<KingCourtCycle[]>(CYCLES_KEY, []);
+  const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
   const started = cycles.length > 0;
   const currentCycle = cycles.length > 0 ? cycles[cycles.length - 1] : null;
+
+  function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
+    setSessionAdjustments([
+      ...sessionAdjustments,
+      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
+    ]);
+  }
 
   // --- Seeding (pre-Cycle-1) ----------------------------------------------
 
@@ -173,23 +188,52 @@ export function useKingCourt() {
   }
 
   // "Move Players & Start Next Cycle": marks the current cycle completed
-  // and generates the next one from the confirmed movement preview.
-  function confirmMovementAndAdvance(players: Player[]) {
-    if (!currentCycle || currentCycle.status !== 'awaiting-movement') return;
+  // and generates the next one from the confirmed movement preview — but
+  // only once every resulting court still has exactly 5 players (see
+  // validateNextCycleAssignments); a court count change (or a player
+  // becoming unavailable) can leave one short, in which case this returns
+  // the specific reason instead of proceeding (generateNextKingCourtCycle
+  // would otherwise throw deep inside assignPlayersToLetters). The
+  // organiser resolves this with the existing per-player "move to court"
+  // override already in the Movement Preview UI, and/or a substitution
+  // (see substitutePlayer) — see README's "Mid-session player and court
+  // changes" for the full writeup of why King Court stays this manual.
+  function confirmMovementAndAdvance(players: Player[]): { ok: true } | { ok: false; reason: string } {
+    if (!currentCycle || currentCycle.status !== 'awaiting-movement') {
+      return { ok: false, reason: 'No cycle is awaiting movement.' };
+    }
 
     const allMovements = currentCycle.courts.flatMap((court) => court.movementPreview);
     const nextAssignments = applyCourtMovement(allMovements);
+    const check = validateNextCycleAssignments(nextAssignments, numberOfCourts);
+    if (!check.ok) return check;
+
     const completed = cycles.map((cycle, index) => (index !== cycles.length - 1 ? cycle : { ...cycle, status: 'completed' as const }));
     const partnerHistory = buildKingCourtPartnerHistory(completed);
     const nextCycle = generateNextKingCourtCycle(nextAssignments, players, currentCycle.cycleNumber + 1, partnerHistory);
 
     setCycles([...completed, nextCycle]);
+    return { ok: true };
+  }
+
+  // Manual, explicit mid-cycle substitution — see substitutePlayerInCycle
+  // for the exact rule (only the current cycle's not-yet-completed games on
+  // that one court; history is untouched).
+  function substitutePlayer(courtNumber: number, outgoingId: string, incomingId: string) {
+    if (!currentCycle) return;
+    setCycles(
+      cycles.map((cycle, index) =>
+        index !== cycles.length - 1 ? cycle : substitutePlayerInCycle(cycle, courtNumber, outgoingId, incomingId),
+      ),
+    );
+    logAdjustment('player-swapped', { cycleNumber: currentCycle.cycleNumber, fromCourt: courtNumber, playerIds: [outgoingId, incomingId] });
   }
 
   function resetKingCourt() {
     setNumberOfCourts(DEFAULT_COURTS);
     setAssignments([]);
     setCycles([]);
+    setSessionAdjustments([]);
   }
 
   return {
@@ -205,6 +249,8 @@ export function useKingCourt() {
     startCycle1,
     setGameScore,
     advanceGame,
+    substitutePlayer,
+    sessionAdjustments,
     setManualTiebreakOrder,
     setManualMovementOverride,
     confirmMovementAndAdvance,

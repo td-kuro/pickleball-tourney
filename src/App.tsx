@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
+import type { PlayerAvailabilityStatus } from './types';
 import { CourtSeeding } from './components/CourtSeeding';
 import { DynamicPairingRankings } from './components/DynamicPairingRankings';
 import { DynamicPairingRestingPlayers } from './components/DynamicPairingRestingPlayers';
@@ -24,6 +25,7 @@ import { PlayerStats } from './components/PlayerStats';
 import { PoolsKnockoutPage } from './components/PoolsKnockoutPage';
 import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
+import { SessionControls } from './components/SessionControls';
 import { ThemeToggle } from './components/ThemeToggle';
 import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
 import { useDynamicPairingSocial } from './hooks/useDynamicPairingSocial';
@@ -58,10 +60,23 @@ const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-
 const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standings', 'dtq-bracket', 'dtq-results'];
 
 function App() {
-  const { players, addPlayer, addPlayersBulk, updatePlayer, removePlayer, removeAllPlayers } = usePlayers();
+  const { players, addPlayer, addPlayersBulk, updatePlayer, setAvailabilityStatus, removePlayer, removeAllPlayers } =
+    usePlayers();
   const { teams, teamPlayers, addTeam, addTeamsBulk, updateTeam, removeTeam, removeAllTeams } = useTeams();
-  const { settings, updateSettings, rounds, plannedRounds, nextRound, startSession, setMatchScore, resetTournament } =
-    useTournament();
+  const {
+    settings,
+    updateSettings,
+    rounds,
+    plannedRounds,
+    nextRound,
+    startSession,
+    setMatchScore,
+    resetTournament,
+    sessionAdjustments,
+    regenerateFutureRounds,
+    changeCourtCount,
+    swapPlayerInCurrentRound,
+  } = useTournament();
   const poolsKnockout = usePoolsKnockout();
   const kingCourt = useKingCourt();
   const dynamicPairing = useDynamicPairingSocial();
@@ -108,6 +123,9 @@ function App() {
       : isMixedDoubles
         ? [...players, ...teamPlayers]
         : players;
+  // Surfaces confirmMovementAndAdvance's validation failure (e.g. a court
+  // left short by an availability change) — see KingCourtManageCourts.
+  const [kcConfirmError, setKcConfirmError] = useState<string | null>(null);
   const [view, setView] = useState<View>(
     isKingCourt
       ? kingCourt.started
@@ -193,6 +211,26 @@ function App() {
 
   function handleFinishSession() {
     setView('results');
+  }
+
+  // Sets the player's status, then immediately regenerates the still-
+  // 'upcoming' rounds against the updated roster — computed here rather
+  // than read back from `players` state (which won't reflect the change
+  // until the next render) so the two stay in sync within one click. Only
+  // ever wired up for Standard Social Play (see SessionControls, only
+  // rendered there) — Tournament Mode never calls this.
+  function handleSetPlayerAvailability(playerId: string, status: PlayerAvailabilityStatus) {
+    setAvailabilityStatus(playerId, status);
+    const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
+    regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
+  }
+
+  function handleChangeCourts(newCourts: number, regenerateCurrent: boolean) {
+    changeCourtCount(newCourts, players, teams, teamPlayers, regenerateCurrent);
+  }
+
+  function handleSwapPlayer(activePlayerId: string, byePlayerId: string) {
+    return swapPlayerInCurrentRound(activePlayerId, byePlayerId, teams);
   }
 
   function handleReset() {
@@ -447,6 +485,7 @@ function App() {
                 onAddTeamsBulk={dynamicTeamQualifier.addTeamsBulk}
                 onUpdateTeam={dynamicTeamQualifier.updateTeam}
                 onSetCheckedIn={dynamicTeamQualifier.setCheckedIn}
+                onCheckInAllTeams={dynamicTeamQualifier.checkInAllTeams}
                 onRemoveTeam={dynamicTeamQualifier.removeTeam}
                 onRemoveAllTeams={dynamicTeamQualifier.removeAllTeams}
                 started={dynamicTeamQualifier.started}
@@ -510,11 +549,18 @@ function App() {
           numberOfCourts={kingCourt.numberOfCourts}
           cycles={kingCourt.cycles}
           currentCycle={kingCourt.currentCycle}
+          sessionAdjustments={kingCourt.sessionAdjustments}
+          confirmError={kcConfirmError}
           onSetGameScore={kingCourt.setGameScore}
           onAdvanceGame={kingCourt.advanceGame}
           onSetManualTiebreakOrder={kingCourt.setManualTiebreakOrder}
           onSetManualMovementOverride={kingCourt.setManualMovementOverride}
-          onConfirmMovement={() => kingCourt.confirmMovementAndAdvance(players)}
+          onConfirmMovement={() => {
+            const result = kingCourt.confirmMovementAndAdvance(players);
+            setKcConfirmError(result.ok ? null : result.reason);
+          }}
+          onSetAvailability={setAvailabilityStatus}
+          onSubstitute={kingCourt.substitutePlayer}
         />
       )}
 
@@ -543,7 +589,16 @@ function App() {
       )}
 
       {view === 'dp-resting' && started && (
-        <DynamicPairingRestingPlayers players={dynamicPairing.players} rounds={dynamicPairing.rounds} />
+        <DynamicPairingRestingPlayers
+          players={dynamicPairing.players}
+          rounds={dynamicPairing.rounds}
+          currentRound={dynamicPairing.currentRound}
+          numberOfCourts={dynamicPairing.settings.numberOfCourts}
+          sessionAdjustments={dynamicPairing.sessionAdjustments}
+          onSetAvailability={dynamicPairing.setAvailabilityStatus}
+          onChangeCourts={dynamicPairing.changeCourtCount}
+          onSwap={dynamicPairing.swapPlayerInCurrentRound}
+        />
       )}
 
       {view === 'dp-history' && started && (
@@ -600,16 +655,30 @@ function App() {
             onSetKnockoutScore={poolsKnockout.setKnockoutMatchScore}
           />
         ) : (
-          <RoundsPage
-            players={effectivePlayers}
-            settings={settings}
-            rounds={rounds}
-            plannedRounds={plannedRounds}
-            onNextRound={() => nextRound(players, teams, teamPlayers)}
-            onFinishSession={handleFinishSession}
-            onSetScore={setMatchScore}
-            teams={teams}
-          />
+          <>
+            <RoundsPage
+              players={effectivePlayers}
+              settings={settings}
+              rounds={rounds}
+              plannedRounds={plannedRounds}
+              onNextRound={() => nextRound(players, teams, teamPlayers)}
+              onFinishSession={handleFinishSession}
+              onSetScore={setMatchScore}
+              teams={teams}
+            />
+            {settings.playMode === 'social' && (
+              <SessionControls
+                players={players}
+                teams={teams}
+                currentRound={rounds.find((round) => round.status === 'current')}
+                courts={settings.courts}
+                sessionAdjustments={sessionAdjustments}
+                onSetAvailability={handleSetPlayerAvailability}
+                onChangeCourts={handleChangeCourts}
+                onSwap={handleSwapPlayer}
+              />
+            )}
+          </>
         ))}
 
       {view === 'results' &&

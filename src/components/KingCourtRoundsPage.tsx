@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { KingCourtCycle, Player } from '../types';
+import type { KingCourtCycle, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
 import { KingCourtAllRoundsView } from './KingCourtAllRoundsView';
+import { KingCourtManageCourts } from './KingCourtManageCourts';
 import { KingCourtView } from './KingCourtView';
 
 type KingCourtRoundsSubView = 'current' | 'all';
@@ -10,11 +11,15 @@ interface KingCourtRoundsPageProps {
   numberOfCourts: number;
   cycles: KingCourtCycle[];
   currentCycle: KingCourtCycle;
+  sessionAdjustments: SessionAdjustment[];
+  confirmError: string | null;
   onSetGameScore: (courtNumber: number, gameNumber: number, team1Score: number, team2Score: number) => void;
   onAdvanceGame: () => void;
   onSetManualTiebreakOrder: (courtNumber: number, orderedPlayerIds: string[]) => void;
   onSetManualMovementOverride: (courtNumber: number, playerId: string, toCourt: number) => void;
   onConfirmMovement: () => void;
+  onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
+  onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
 }
 
 // Parent for King Court's "Rounds" tab: a Current Round / All Rounds
@@ -29,11 +34,15 @@ export function KingCourtRoundsPage({
   numberOfCourts,
   cycles,
   currentCycle,
+  sessionAdjustments,
+  confirmError,
   onSetGameScore,
   onAdvanceGame,
   onSetManualTiebreakOrder,
   onSetManualMovementOverride,
   onConfirmMovement,
+  onSetAvailability,
+  onSubstitute,
 }: KingCourtRoundsPageProps) {
   const [subView, setSubView] = useState<KingCourtRoundsSubView>('current');
 
@@ -59,16 +68,26 @@ export function KingCourtRoundsPage({
       </div>
 
       {subView === 'current' ? (
-        <KingCourtView
-          players={players}
-          numberOfCourts={numberOfCourts}
-          currentCycle={currentCycle}
-          onSetGameScore={onSetGameScore}
-          onAdvanceGame={onAdvanceGame}
-          onSetManualTiebreakOrder={onSetManualTiebreakOrder}
-          onSetManualMovementOverride={onSetManualMovementOverride}
-          onConfirmMovement={onConfirmMovement}
-        />
+        <>
+          <KingCourtView
+            players={players}
+            numberOfCourts={numberOfCourts}
+            currentCycle={currentCycle}
+            onSetGameScore={onSetGameScore}
+            onAdvanceGame={onAdvanceGame}
+            onSetManualTiebreakOrder={onSetManualTiebreakOrder}
+            onSetManualMovementOverride={onSetManualMovementOverride}
+            onConfirmMovement={onConfirmMovement}
+          />
+          <KingCourtManageCourts
+            players={players}
+            currentCycle={currentCycle}
+            sessionAdjustments={sessionAdjustments}
+            onSetAvailability={onSetAvailability}
+            onSubstitute={onSubstitute}
+            confirmError={confirmError}
+          />
+        </>
       ) : (
         <KingCourtAllRoundsView players={players} cycles={cycles} />
       )}

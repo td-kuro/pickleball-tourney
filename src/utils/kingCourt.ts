@@ -15,6 +15,7 @@ import type {
   Player,
   RoundStatus,
 } from '../types';
+import { isPlayerAvailableForScheduling } from './tournament';
 
 // --- The fixed 5-game rotation --------------------------------------------
 //
@@ -377,6 +378,108 @@ export function isCourtFull(
   excludingPlayerId?: string,
 ): boolean {
   return assignments.filter((a) => a.courtNumber === courtNumber && a.playerId !== excludingPlayerId).length >= 5;
+}
+
+// --- Mid-session player/court changes -------------------------------------
+// See README's "Mid-session player and court changes". King Court is
+// deliberately the most conservative of the three Social Play modes here,
+// per the design brief: a cycle's 5-game rotation is generated once and
+// never auto-reshuffled mid-cycle — only ever a manual, explicit
+// substitution the organiser triggers (see substitutePlayerInCycle), and
+// court-count changes only ever take effect once every court has exactly 5
+// players again (checked here, not silently assumed).
+
+// Every court in `assignments` (whatever's about to seed the *next* cycle —
+// either the pre-Cycle-1 seeding, or applyCourtMovement's output) must have
+// exactly 5 players, or generateNextKingCourtCycle would throw deep inside
+// assignPlayersToLetters/generateFivePlayerRotation. Checked explicitly
+// here instead, with a message that names which court and which way it's
+// off — this is also what "Do not start a new King Court cycle unless
+// every active court has exactly 5 players" (and "New court requires 5
+// players") means in practice: increasing numberOfCourts doesn't
+// automatically create a new court's group out of nowhere, so the
+// organiser must have manually placed 5 players on it first.
+export function validateNextCycleAssignments(
+  assignments: KingCourtPlayerAssignment[],
+  numberOfCourts: number,
+): { ok: true } | { ok: false; reason: string } {
+  for (let court = 1; court <= numberOfCourts; court++) {
+    const count = assignments.filter((a) => a.courtNumber === court).length;
+    if (count === 0) {
+      return { ok: false, reason: `Court ${court} has no players assigned — a new court requires exactly 5 players.` };
+    }
+    if (count < 5) {
+      return { ok: false, reason: `Court ${court} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
+    }
+    if (count > 5) {
+      return { ok: false, reason: `Court ${court} has ${count} players — each court can only have 5.` };
+    }
+  }
+  const orphaned = assignments.filter((a) => a.courtNumber > numberOfCourts);
+  if (orphaned.length > 0) {
+    return {
+      ok: false,
+      reason: `${orphaned.length} player${orphaned.length === 1 ? '' : 's'} are assigned to a court beyond the current court count — move them to an active court first.`,
+    };
+  }
+  return { ok: true };
+}
+
+// True if `playerId` still has an unplayed game left in `courtNumber` this
+// cycle — used to warn the organiser that marking someone unavailable
+// mid-cycle leaves a real gap on court, not just a cosmetic label change.
+export function playerHasRemainingGamesOnCourt(cycle: KingCourtCycle, courtNumber: number, playerId: string): boolean {
+  const court = cycle.courts.find((c) => c.courtNumber === courtNumber);
+  if (!court) return false;
+  return court.games.some(
+    (game) => game.status !== 'completed' && (game.team1PlayerIds.includes(playerId) || game.team2PlayerIds.includes(playerId) || game.restingPlayerId === playerId),
+  );
+}
+
+// Roster players not currently placed on any court this cycle and marked
+// available — the only pool substitutePlayerInCycle can draw from. Given
+// King Court's roster is normally an exact players.length === courts * 5
+// fit (see validateKingCourtSetup), this is often empty; a genuinely
+// "waiting" player only exists if the roster has more people than the
+// courts currently seat. Matches the spec's own fallback: "if no
+// replacement exists, organiser must manually resolve."
+export function availableSubstitutes(players: Player[], cycle: KingCourtCycle): Player[] {
+  const onCourtIds = new Set(cycle.courts.flatMap((c) => c.playerIds));
+  return players.filter((p) => !onCourtIds.has(p.id) && isPlayerAvailableForScheduling(p));
+}
+
+// Manual, explicit substitution within the *current* cycle only — replaces
+// `outgoingId` with `incomingId` in every one of `courtNumber`'s
+// not-yet-completed games (score/status untouched on games already
+// played, so history stays accurate). Never touches any other court or any
+// earlier cycle.
+export function substitutePlayerInCycle(
+  cycle: KingCourtCycle,
+  courtNumber: number,
+  outgoingId: string,
+  incomingId: string,
+): KingCourtCycle {
+  const replaceIn = (ids: string[]) => ids.map((id) => (id === outgoingId ? incomingId : id));
+  return {
+    ...cycle,
+    courts: cycle.courts.map((court) => {
+      if (court.courtNumber !== courtNumber) return court;
+      return {
+        ...court,
+        playerIds: replaceIn(court.playerIds),
+        games: court.games.map((game) =>
+          game.status === 'completed'
+            ? game
+            : {
+                ...game,
+                team1PlayerIds: replaceIn(game.team1PlayerIds),
+                team2PlayerIds: replaceIn(game.team2PlayerIds),
+                restingPlayerId: game.restingPlayerId === outgoingId ? incomingId : game.restingPlayerId,
+              },
+        ),
+      };
+    }),
+  };
 }
 
 // Status of one game (1-5) within a cycle, for the All Rounds view — the

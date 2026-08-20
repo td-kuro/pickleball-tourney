@@ -1,5 +1,5 @@
 import type { Player, Round, TournamentSettings } from '../types';
-import { computePlayerStats, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
+import { availabilityStatusLabel, computePlayerStats, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
 
 interface PlayerStatsProps {
   players: Player[];
@@ -44,6 +44,7 @@ export function PlayerStats({ players, rounds, settings }: PlayerStatsProps) {
           <thead>
             <tr>
               <th>Player</th>
+              <th>Status</th>
               <th>Played</th>
               <th>Byes</th>
               {showPartners && <th>Partners</th>}
@@ -59,6 +60,7 @@ export function PlayerStats({ players, rounds, settings }: PlayerStatsProps) {
               return (
                 <tr key={player.id}>
                   <td>{player.name}</td>
+                  <td>{availabilityStatusLabel(player.availabilityStatus ?? 'available')}</td>
                   <td>{stats.matchesPlayed}</td>
                   <td>{stats.byes}</td>
                   {showPartners && <td className="stats-names">{namesFor(stats.partnerIds)}</td>}

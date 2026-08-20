@@ -10,6 +10,7 @@ interface DynamicTeamRosterProps {
   onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onSetCheckedIn: (id: string, checkedIn: boolean) => void;
+  onCheckInAllTeams: () => void;
   onRemoveTeam: (id: string) => void;
   onRemoveAllTeams: () => void;
   started: boolean;
@@ -35,6 +36,7 @@ export function DynamicTeamRoster({
   onAddTeamsBulk,
   onUpdateTeam,
   onSetCheckedIn,
+  onCheckInAllTeams,
   onRemoveTeam,
   onRemoveAllTeams,
   started,
@@ -45,6 +47,7 @@ export function DynamicTeamRoster({
 }: DynamicTeamRosterProps) {
   const startCheck = validateCheckedInTeams(teams, settings.numberOfCourts);
   const checkedInCount = teams.filter((t) => t.checkedIn && !t.withdrawn).length;
+  const uncheckedCount = teams.filter((t) => !t.checkedIn && !t.withdrawn).length;
 
   function handleRemoveAll() {
     if (window.confirm('Are you sure you want to remove all teams?')) {
@@ -61,9 +64,16 @@ export function DynamicTeamRoster({
           <div className="section-heading-row">
             <h2>Teams ({teams.length})</h2>
             {teams.length > 0 && !started && (
-              <button type="button" className="danger" onClick={handleRemoveAll}>
-                Remove All Teams
-              </button>
+              <div className="dtq-team-header-actions">
+                {uncheckedCount > 0 && (
+                  <button type="button" className="secondary" onClick={onCheckInAllTeams}>
+                    Check In All Teams
+                  </button>
+                )}
+                <button type="button" className="danger" onClick={handleRemoveAll}>
+                  Remove All Teams
+                </button>
+              </div>
             )}
           </div>
 

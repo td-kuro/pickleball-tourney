@@ -1,12 +1,23 @@
-import type { Player, Round, Team, TournamentSettings } from '../types';
+import type { Player, Round, SessionAdjustment, SessionAdjustmentType, Team, TournamentSettings } from '../types';
 import { generateLeaderboardRound } from '../utils/pairing';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
-import { calculateSessionPlan, DEFAULT_SESSION_TIMING } from '../utils/tournament';
+import {
+  calculateSessionPlan,
+  canSwapPlayerInRound,
+  DEFAULT_SESSION_TIMING,
+  isPlayerAvailableForScheduling,
+  swapPlayerInRound,
+} from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:settings';
 const ROUNDS_KEY = 'pickleball-tourney:rounds';
 const PLANNED_ROUNDS_KEY = 'pickleball-tourney:plannedRounds';
+const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:sessionAdjustments';
+
+function makeAdjustmentId(): string {
+  return `adj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
 
 const defaultSettings: TournamentSettings = {
   playMode: 'tournament',
@@ -56,19 +67,48 @@ export function useTournament() {
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
   const [plannedRounds, setPlannedRounds] = useLocalStorage<number | null>(PLANNED_ROUNDS_KEY, null);
+  // Mid-session change log — Social Play only in practice (nothing sets a
+  // player's availabilityStatus or calls the functions below outside a
+  // Social Play session — see App.tsx), but kept unconditionally on this
+  // hook rather than split out, same rationale as socialScoringMode on
+  // TournamentSettings. See README's "Mid-session player and court changes".
+  const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
   function updateSettings(next: TournamentSettings) {
     setSettings(next);
   }
 
-  // Single entry point for every Leaderboard/Social Play round, regardless
-  // of match type or roster shape (rotating players only, fixed teams
-  // only, or a mix of both — see generateLeaderboardRound in
-  // utils/pairing.ts, which picks the right sub-engine). Pairing Style only
-  // ever applies in Tournament Mode's Leaderboard format — Social Play
-  // always uses 'balanced' (the original fewest-meetings behaviour), same
-  // as before the Pairing Style selector existed.
-  function generateRound(
+  function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
+    setSessionAdjustments([
+      ...sessionAdjustments,
+      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
+    ]);
+  }
+
+  // Filters a roster down to who's actually schedulable right now — a
+  // fixed team needs *both* players available, since there's no automatic
+  // 1-player split (same reason canSwapPlayerInRound/isFixedTeamSide
+  // refuse to split one for a swap). Shared by every round-generation path
+  // below, so a player marked left-early/injured/unavailable/resting-this-
+  // round is never dealt into a new round no matter which entry point
+  // generated it.
+  function filterAvailable(players: Player[], teams: Team[], teamPlayers: Player[]) {
+    const availablePlayers = players.filter(isPlayerAvailableForScheduling);
+    const availableTeamPlayers = teamPlayers.filter(isPlayerAvailableForScheduling);
+    const availableTeamPlayerIds = new Set(availableTeamPlayers.map((p) => p.id));
+    const availableTeams = teams.filter((team) => team.playerIds.every((id) => availableTeamPlayerIds.has(id)));
+    return { availablePlayers, availableTeams, availableTeamPlayers };
+  }
+
+  // The one place every round of Leaderboard/Social Play actually gets
+  // built, regardless of match type or roster shape (see
+  // generateLeaderboardRound in utils/pairing.ts, which picks the right
+  // sub-engine) — takes `withSettings` explicitly (rather than closing over
+  // the hook's `settings`) so callers that just changed a setting (see
+  // changeCourtCount) can generate against the new value in the same
+  // synchronous call, without waiting for a re-render.
+  function generateRoundWith(
+    withSettings: TournamentSettings,
     players: Player[],
     teams: Team[],
     teamPlayers: Player[],
@@ -77,8 +117,55 @@ export function useTournament() {
     status: Round['status'],
   ): Round {
     const pairingStyle =
-      settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' ? settings.pairingStyle : 'balanced';
-    return generateLeaderboardRound(players, teams, teamPlayers, settings, roundNumber, priorRounds, status, pairingStyle);
+      withSettings.playMode === 'tournament' && withSettings.tournamentFormat === 'leaderboard' ? withSettings.pairingStyle : 'balanced';
+    const { availablePlayers, availableTeams, availableTeamPlayers } = filterAvailable(players, teams, teamPlayers);
+    return generateLeaderboardRound(
+      availablePlayers,
+      availableTeams,
+      availableTeamPlayers,
+      withSettings,
+      roundNumber,
+      priorRounds,
+      status,
+      pairingStyle,
+    );
+  }
+
+  // Convenience wrapper for the common case (generate against whatever
+  // settings currently are) — startSession/nextRound below.
+  function generateRound(
+    players: Player[],
+    teams: Team[],
+    teamPlayers: Player[],
+    roundNumber: number,
+    priorRounds: Round[],
+    status: Round['status'],
+  ): Round {
+    return generateRoundWith(settings, players, teams, teamPlayers, roundNumber, priorRounds, status);
+  }
+
+  // Regenerates exactly `count` fresh 'upcoming' rounds on top of `prefix`
+  // (whatever 'completed'/'current' rounds — or, for a current-round
+  // regeneration, a freshly-rebuilt current round — precede them),
+  // chaining each one off the rounds generated so far for fair bye/matchup
+  // rotation. The one tail-building routine every mid-session regenerate
+  // function below shares.
+  function buildUpcomingTail(
+    withSettings: TournamentSettings,
+    prefix: Round[],
+    count: number,
+    players: Player[],
+    teams: Team[],
+    teamPlayers: Player[],
+  ): Round[] {
+    let generated = [...prefix];
+    for (let i = 0; i < count; i++) {
+      generated = [
+        ...generated,
+        generateRoundWith(withSettings, players, teams, teamPlayers, generated.length + 1, generated, 'upcoming'),
+      ];
+    }
+    return generated;
   }
 
   // Called by "Start Matches". Tournament Mode isn't time-boxed, so it just
@@ -152,6 +239,96 @@ export function useTournament() {
     );
   }
 
+  // --- Mid-session player/court changes (Social Play only in practice) ----
+  // See README's "Mid-session player and court changes" for the full
+  // behaviour writeup. Only ever regenerates rounds still 'upcoming' —
+  // 'completed' and 'current' rounds are never silently rewritten, matching
+  // every other mode's "lock what's already been played" rule.
+
+  // Regenerates every 'upcoming' round (keeping 'completed'/'current'
+  // exactly as they are) — called after a player's availability changes or
+  // the court count changes, so future rounds actually reflect the new
+  // state.
+  function regenerateFutureRounds(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
+    if (settings.playMode !== 'social') return;
+    const kept = rounds.filter((round) => round.status !== 'upcoming');
+    const upcomingCount = rounds.length - kept.length;
+    if (upcomingCount === 0) return;
+
+    setRounds(buildUpcomingTail(settings, kept, upcomingCount, players, teams, teamPlayers));
+    logAdjustment('future-rounds-regenerated');
+  }
+
+  // Regenerates the *current* round itself (in place — same roundNumber),
+  // then the upcoming tail after it — only when the organiser explicitly
+  // asks for it and it hasn't been scored yet. Used when a mid-round change
+  // (a player leaving, a court count change) should apply immediately
+  // rather than from next round.
+  function regenerateCurrentRound(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
+    if (settings.playMode !== 'social') return;
+    const currentIndex = rounds.findIndex((round) => round.status === 'current');
+    if (currentIndex === -1) return;
+    const current = rounds[currentIndex];
+    const hasAnyScore = current.matches.some((match) => match.scoreA != null || match.scoreB != null);
+    if (hasAnyScore) return;
+
+    const before = rounds.slice(0, currentIndex);
+    const freshCurrent = generateRoundWith(settings, players, teams, teamPlayers, current.roundNumber, before, 'current');
+    const upcomingCount = rounds.filter((round) => round.status === 'upcoming').length;
+    setRounds(buildUpcomingTail(settings, [...before, freshCurrent], upcomingCount, players, teams, teamPlayers));
+    logAdjustment('future-rounds-regenerated');
+  }
+
+  // "Change Courts": updates the court count, then always regenerates the
+  // upcoming tail (future capacity must reflect it) and, only if
+  // `regenerateCurrent` is true (organiser confirmed and the current round
+  // has no scores yet — see the disabled state on that button in
+  // SessionControls), the current round too. Generates against
+  // `nextSettings` explicitly (see generateRoundWith) since setSettings
+  // above hasn't taken effect in this render yet.
+  function changeCourtCount(newCourts: number, players: Player[], teams: Team[], teamPlayers: Player[], regenerateCurrent: boolean) {
+    const oldCourts = settings.courts;
+    if (newCourts === oldCourts) return;
+    const nextSettings = { ...settings, courts: newCourts };
+    setSettings(nextSettings);
+    logAdjustment('court-count-changed', { oldValue: String(oldCourts), newValue: String(newCourts) });
+
+    if (rounds.length === 0) return;
+    const currentIndex = rounds.findIndex((round) => round.status === 'current');
+    if (regenerateCurrent && currentIndex !== -1) {
+      const current = rounds[currentIndex];
+      const hasAnyScore = current.matches.some((match) => match.scoreA != null || match.scoreB != null);
+      if (!hasAnyScore) {
+        const before = rounds.slice(0, currentIndex);
+        const freshCurrent = generateRoundWith(nextSettings, players, teams, teamPlayers, current.roundNumber, before, 'current');
+        const upcomingCount = rounds.filter((round) => round.status === 'upcoming').length;
+        setRounds(buildUpcomingTail(nextSettings, [...before, freshCurrent], upcomingCount, players, teams, teamPlayers));
+        logAdjustment('future-rounds-regenerated');
+        return;
+      }
+    }
+    const kept = rounds.filter((round) => round.status !== 'upcoming');
+    const upcomingCount = rounds.length - kept.length;
+    if (upcomingCount === 0) return;
+    setRounds(buildUpcomingTail(nextSettings, kept, upcomingCount, players, teams, teamPlayers));
+    logAdjustment('future-rounds-regenerated');
+  }
+
+  // Live edit to the current round only (see canSwapPlayerInRound for the
+  // full rule set) — an active player currently assigned to an unscored
+  // match trades places with a player on bye this round. Never touches any
+  // other round.
+  function swapPlayerInCurrentRound(activePlayerId: string, byePlayerId: string, teams: Team[] = []) {
+    const currentRound = rounds.find((round) => round.status === 'current');
+    if (!currentRound) return { ok: false as const, reason: 'No current round.' };
+    const check = canSwapPlayerInRound(currentRound, activePlayerId, byePlayerId, teams);
+    if (!check.ok) return check;
+
+    setRounds(rounds.map((round) => (round.id === currentRound.id ? swapPlayerInRound(round, activePlayerId, byePlayerId) : round)));
+    logAdjustment('player-swapped', { roundNumber: currentRound.roundNumber, playerIds: [activePlayerId, byePlayerId] });
+    return { ok: true as const };
+  }
+
   // Full session wipe for "Reset Tournament"/"Reset Social Play": clears
   // rounds, the planned-rounds target, and every setting back to its
   // default (play mode, social scoring mode, courts, match type, session
@@ -162,6 +339,7 @@ export function useTournament() {
     setSettings(defaultSettings);
     setRounds([]);
     setPlannedRounds(null);
+    setSessionAdjustments([]);
   }
 
   return {
@@ -173,5 +351,10 @@ export function useTournament() {
     startSession,
     setMatchScore,
     resetTournament,
+    sessionAdjustments,
+    regenerateFutureRounds,
+    regenerateCurrentRound,
+    changeCourtCount,
+    swapPlayerInCurrentRound,
   };
 }

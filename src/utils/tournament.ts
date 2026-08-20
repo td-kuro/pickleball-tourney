@@ -12,6 +12,7 @@ import type {
   MatchType,
   PairingStyle,
   Player,
+  PlayerAvailabilityStatus,
   PlayerStats,
   Round,
   RoundStatus,
@@ -108,6 +109,97 @@ export function validateCourtCount(value: number): { ok: true } | { ok: false; r
 
 export function isRoundComplete(round: Round): boolean {
   return round.matches.every((match) => match.scoreA != null && match.scoreB != null);
+}
+
+// --- Mid-session player availability (Standard Social Play + King Court) --
+// Shared here (rather than duplicated per mode, unlike Dynamic Pairing
+// Social/Dynamic Team Qualifier's deliberately-isolated logic files) because
+// Standard Social Play and King Court both already read the *same*
+// usePlayers roster directly, so they're not architecturally independent of
+// each other the way those two are. Tournament Mode never calls either of
+// these — see canGenerateRound/createRound, which take `players` as given
+// and don't filter it — so a Tournament player's (always-absent)
+// availabilityStatus can never affect anything.
+export function isPlayerAvailableForScheduling(player: Player): boolean {
+  return (player.availabilityStatus ?? 'available') === 'available';
+}
+
+export function availabilityStatusLabel(status: PlayerAvailabilityStatus): string {
+  switch (status) {
+    case 'available':
+      return 'Available';
+    case 'resting-this-round':
+      return 'Resting This Round';
+    case 'left-early':
+      return 'Left Early';
+    case 'injured':
+      return 'Injured';
+    case 'unavailable':
+      return 'Unavailable';
+  }
+}
+
+// --- Swapping an active player with a bye player, mid-round --------------
+// A live edit to the current round's already-generated data (never a
+// regeneration) — see README's "Mid-session player and court changes".
+// Deliberately doesn't cover fixed-team sides (see isFixedTeamSide below):
+// splitting a declared Team mid-round would break the "stays together"
+// guarantee the rest of the app relies on (see useTeams/createFixedTeamRound)
+// — only individual-player sides (Singles, rotating Doubles, or the
+// individual-player half of a mixed Doubles roster) can be swapped.
+
+export function isFixedTeamSide(playerIds: string[], teams: Team[]): boolean {
+  if (playerIds.length !== 2) return false;
+  const key = teamKey(playerIds);
+  return teams.some((team) => teamKey(team.playerIds) === key);
+}
+
+export function canSwapPlayerInRound(
+  round: Round,
+  activePlayerId: string,
+  byePlayerId: string,
+  teams: Team[],
+): { ok: true } | { ok: false; reason: string } {
+  if (round.status !== 'current') {
+    return { ok: false, reason: 'Swaps are only allowed in the current round.' };
+  }
+  if (activePlayerId === byePlayerId) {
+    return { ok: false, reason: 'Choose two different players to swap.' };
+  }
+  if (!round.byePlayerIds.includes(byePlayerId)) {
+    return { ok: false, reason: 'That player is not on a bye this round.' };
+  }
+  const match = round.matches.find(
+    (m) => m.teamA.playerIds.includes(activePlayerId) || m.teamB.playerIds.includes(activePlayerId),
+  );
+  if (!match) {
+    return { ok: false, reason: 'That player is not assigned to a match this round.' };
+  }
+  if (match.scoreA != null || match.scoreB != null) {
+    return { ok: false, reason: 'That match already has a score — swaps are only allowed before a score is submitted.' };
+  }
+  const side = match.teamA.playerIds.includes(activePlayerId) ? match.teamA : match.teamB;
+  if (isFixedTeamSide(side.playerIds, teams)) {
+    return { ok: false, reason: "That player is on a fixed team, which can't be split by a swap." };
+  }
+  return { ok: true };
+}
+
+// Pure round edit: replaces `activePlayerId` with `byePlayerId` wherever the
+// former appears in the round's matches, and swaps their bye-list
+// membership. Callers must check canSwapPlayerInRound first — this
+// function doesn't re-validate.
+export function swapPlayerInRound(round: Round, activePlayerId: string, byePlayerId: string): Round {
+  const replaceIn = (playerIds: string[]) => playerIds.map((id) => (id === activePlayerId ? byePlayerId : id));
+  return {
+    ...round,
+    matches: round.matches.map((match) => ({
+      ...match,
+      teamA: { ...match.teamA, playerIds: replaceIn(match.teamA.playerIds) },
+      teamB: { ...match.teamB, playerIds: replaceIn(match.teamB.playerIds) },
+    })),
+    byePlayerIds: round.byePlayerIds.map((id) => (id === byePlayerId ? activePlayerId : id)),
+  };
 }
 
 // True for Doubles + Fixed Teams — the one combination where the roster is

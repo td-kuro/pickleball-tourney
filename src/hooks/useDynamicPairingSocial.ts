@@ -1,18 +1,26 @@
-import type { DynamicPairingRound, DynamicPairingSettings, Player, PlayerAvailabilityStatus } from '../types';
+import type { DynamicPairingRound, DynamicPairingSettings, Player, PlayerAvailabilityStatus, SessionAdjustment, SessionAdjustmentType } from '../types';
 import {
   canGenerateDynamicPairingRound,
+  canSwapPlayerInDynamicPairingRound,
   generateDynamicPairingRound,
   generateInitialGradingRounds,
   isAwaitingSkillReview,
   isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
+  regenerateUpcomingGradingRounds,
+  swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:dp:settings';
 const PLAYERS_KEY = 'pickleball-tourney:dp:players';
 const ROUNDS_KEY = 'pickleball-tourney:dp:rounds';
+const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:dp:sessionAdjustments';
+
+function makeAdjustmentId(): string {
+  return `dp-adj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
 
 export const DEFAULT_DYNAMIC_PAIRING_SETTINGS: DynamicPairingSettings = {
   sessionName: '',
@@ -42,6 +50,14 @@ export function useDynamicPairingSocial() {
   const [settings, setSettings] = useLocalStorage<DynamicPairingSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_PAIRING_SETTINGS);
   const [players, setPlayers] = useLocalStorage<Player[]>(PLAYERS_KEY, []);
   const [rounds, setRounds] = useLocalStorage<DynamicPairingRound[]>(ROUNDS_KEY, []);
+  const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
+
+  function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
+    setSessionAdjustments([
+      ...sessionAdjustments,
+      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
+    ]);
+  }
 
   const started = rounds.length > 0;
   const currentRound = rounds.find((r) => r.status === 'current');
@@ -97,6 +113,60 @@ export function useDynamicPairingSocial() {
   // availabilityStatus which have their own timing rules.
   function updatePlayerSkillLevel(id: string, skillLevel?: number) {
     setPlayers(players.map((p) => (p.id === id ? { ...p, skillLevel } : p)));
+  }
+
+  // Mid-session availability change — its own setter (not updatePlayer,
+  // which replaces name/rating/startingSeed wholesale and would wipe them)
+  // so it only ever touches this one field. See README's "Mid-session
+  // player and court changes". Regenerates the still-'upcoming' pre-
+  // generated grading rounds against the updated roster immediately —
+  // Round 4+ needs no such regeneration, since generateDynamicPairingRound
+  // already filters by isPlayerAvailable on every call (this format has
+  // always excluded unavailable players from scheduling, from the very
+  // first version — see that function).
+  function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus) {
+    const updatedPlayers = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
+    setPlayers(updatedPlayers);
+    const regenerated = regenerateUpcomingGradingRounds(updatedPlayers, settings, rounds);
+    if (regenerated !== rounds) {
+      setRounds(regenerated);
+      logAdjustment('future-rounds-regenerated');
+    }
+  }
+
+  // "Change Courts": updates numberOfCourts, then regenerates the
+  // still-'upcoming' pre-generated grading rounds (if any) against the new
+  // court count — generated against `nextSettings` explicitly since
+  // setSettings above hasn't taken effect in this render yet. A no-op past
+  // grading (see regenerateUpcomingGradingRounds) — Round 4+ picks up the
+  // new court count automatically on the next generateNextRound call.
+  function changeCourtCount(newCourts: number) {
+    if (newCourts === settings.numberOfCourts) return;
+    const nextSettings = { ...settings, numberOfCourts: newCourts };
+    setSettings(nextSettings);
+    logAdjustment('court-count-changed', { oldValue: String(settings.numberOfCourts), newValue: String(newCourts) });
+
+    const regenerated = regenerateUpcomingGradingRounds(players, nextSettings, rounds);
+    if (regenerated !== rounds) {
+      setRounds(regenerated);
+      logAdjustment('future-rounds-regenerated');
+    }
+  }
+
+  // Live edit to the current round only — see
+  // canSwapPlayerInDynamicPairingRound for the full rule set.
+  function swapPlayerInCurrentRound(activePlayerId: string, restingPlayerId: string) {
+    if (!currentRound) return { ok: false as const, reason: 'No current round.' };
+    const check = canSwapPlayerInDynamicPairingRound(currentRound, activePlayerId, restingPlayerId);
+    if (!check.ok) return check;
+
+    setRounds(
+      rounds.map((round) =>
+        round.id === currentRound.id ? swapPlayerInDynamicPairingRound(round, activePlayerId, restingPlayerId) : round,
+      ),
+    );
+    logAdjustment('player-swapped', { roundNumber: currentRound.roundNumber, playerIds: [activePlayerId, restingPlayerId] });
+    return { ok: true as const };
   }
 
   function removePlayer(id: string) {
@@ -175,6 +245,7 @@ export function useDynamicPairingSocial() {
     setSettings(DEFAULT_DYNAMIC_PAIRING_SETTINGS);
     setPlayers([]);
     setRounds([]);
+    setSessionAdjustments([]);
   }
 
   return {
@@ -185,6 +256,7 @@ export function useDynamicPairingSocial() {
     addPlayersBulk,
     updatePlayer,
     updatePlayerSkillLevel,
+    setAvailabilityStatus,
     removePlayer,
     removeAllPlayers,
     rounds,
@@ -196,6 +268,9 @@ export function useDynamicPairingSocial() {
     generateNextRound,
     confirmSkillReviewAndStartRankingRounds,
     setCourtScore,
+    changeCourtCount,
+    swapPlayerInCurrentRound,
+    sessionAdjustments,
     resetDynamicPairing,
   };
 }

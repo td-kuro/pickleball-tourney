@@ -1,25 +1,18 @@
 import { useId, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
 import type { CourtMovementLimit, DynamicGameFormat, DynamicPairingSettings, Player, PlayerAvailabilityStatus } from '../types';
-import { canGenerateDynamicPairingRound, courtMovementLimitLabel, gameFormatLabel } from '../utils/dynamicPairingSocial';
+import {
+  canGenerateDynamicPairingRound,
+  courtMovementLimitLabel,
+  dynamicPairingAvailabilityLabel,
+  gameFormatLabel,
+} from '../utils/dynamicPairingSocial';
 import { CourtSelector } from './CourtSelector';
 
 const MOVEMENT_LIMITS: CourtMovementLimit[] = ['unrestricted', 'max-1', 'max-2'];
-const AVAILABILITY_OPTIONS: PlayerAvailabilityStatus[] = ['available', 'late', 'withdrawn', 'injured'];
-
-function availabilityLabel(status: PlayerAvailabilityStatus): string {
-  switch (status) {
-    case 'available':
-      return 'Available';
-    case 'late':
-      return 'Late';
-    case 'resting':
-      return 'Resting';
-    case 'withdrawn':
-      return 'Withdrawn';
-    case 'injured':
-      return 'Injured';
-  }
-}
+// 'resting-this-round' isn't offered here deliberately — it's a live,
+// current-round action (see PlayerAvailabilityControls in
+// DynamicPairingRestingPlayers.tsx), not a setup-time roster edit.
+const AVAILABILITY_OPTIONS: PlayerAvailabilityStatus[] = ['available', 'unavailable', 'left-early', 'injured'];
 
 interface DynamicPairingSetupProps {
   settings: DynamicPairingSettings;
@@ -549,7 +542,7 @@ function DynamicPairingPlayerRow({
       >
         {AVAILABILITY_OPTIONS.map((status) => (
           <option key={status} value={status}>
-            {availabilityLabel(status)}
+            {dynamicPairingAvailabilityLabel(status)}
           </option>
         ))}
       </select>

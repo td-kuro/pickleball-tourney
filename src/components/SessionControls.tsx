@@ -1,0 +1,140 @@
+import { useState } from 'react';
+import type { Player, PlayerAvailabilityStatus, Round, SessionAdjustment, Team } from '../types';
+import { availabilityStatusLabel, isFixedTeamSide } from '../utils/tournament';
+import { CourtSelector } from './CourtSelector';
+import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
+import { SwapPlayerModal } from './SwapPlayerModal';
+
+interface SessionControlsProps {
+  // Individual players only (not fixed-team members embedded in `teams`) —
+  // mid-session availability/swap is deliberately scoped to individual
+  // players, see isFixedTeamSide below.
+  players: Player[];
+  teams: Team[];
+  currentRound: Round | undefined;
+  courts: number;
+  sessionAdjustments: SessionAdjustment[];
+  onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
+  onChangeCourts: (newCourts: number, regenerateCurrent: boolean) => void;
+  onSwap: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
+}
+
+// Organiser control area for a live Standard Social Play session — see
+// README's "Mid-session player and court changes". Deliberately its own
+// section below Current Round/Bye rather than folded into either: match
+// cards stay uncluttered (see SwapPlayerModal's file comment), and this
+// still reads as one clear "manage the session" home, matching the design
+// brief's suggested Current Round / Bye / Session Controls / Player Stats
+// layout.
+export function SessionControls({
+  players,
+  teams,
+  currentRound,
+  courts,
+  sessionAdjustments,
+  onSetAvailability,
+  onChangeCourts,
+  onSwap,
+}: SessionControlsProps) {
+  const [pendingCourts, setPendingCourts] = useState(courts);
+  const [swapOpen, setSwapOpen] = useState(false);
+  const [noticeDismissed, setNoticeDismissed] = useState(false);
+
+  const currentRoundHasScores = currentRound?.matches.some((m) => m.scoreA != null || m.scoreB != null) ?? false;
+  const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
+
+  function handleApplyCourts() {
+    if (pendingCourts === courts) return;
+    const message =
+      pendingCourts > courts
+        ? `Change from ${courts} court${courts === 1 ? '' : 's'} to ${pendingCourts} courts? This will apply from the next round.`
+        : `Change from ${courts} court${courts === 1 ? '' : 's'} to ${pendingCourts} court${pendingCourts === 1 ? '' : 's'}? More players may sit out from the next round.`;
+    if (!window.confirm(message)) {
+      setPendingCourts(courts);
+      return;
+    }
+    let regenerateCurrent = false;
+    if (!currentRoundHasScores && currentRound) {
+      regenerateCurrent = window.confirm('Apply this to the current round too? It has no scores entered yet.');
+    }
+    onChangeCourts(pendingCourts, regenerateCurrent);
+    setNoticeDismissed(false);
+  }
+
+  // Only individual (non-fixed-team) players are eligible for a swap — see
+  // isFixedTeamSide and canSwapPlayerInRound's file comment in
+  // utils/tournament.ts.
+  const playerNameById = new Map(players.map((p) => [p.id, p.name]));
+  const activeOptions = currentRound
+    ? currentRound.matches
+        .filter((match) => match.scoreA == null && match.scoreB == null)
+        .flatMap((match) => [match.teamA, match.teamB])
+        .filter((side) => !isFixedTeamSide(side.playerIds, teams))
+        .flatMap((side) => side.playerIds)
+        .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
+    : [];
+  const byeOptions = currentRound
+    ? currentRound.byePlayerIds
+        .filter((id) => !teams.some((team) => team.playerIds.includes(id)))
+        .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
+    : [];
+
+  return (
+    <>
+      {lastNotice?.type === 'future-rounds-regenerated' && !noticeDismissed && (
+        <div className="session-adjustment-notice">
+          <span className="hint">Future rounds were regenerated due to player/court changes.</span>
+          <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      <section className="card">
+        <h2>Session Controls</h2>
+
+        <div className="form-row">
+          <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
+          <div className="session-controls-actions">
+            <button type="button" className="secondary" onClick={handleApplyCourts} disabled={pendingCourts === courts}>
+              Change Courts
+            </button>
+            <p className="hint">Applies from the next round by default; completed and locked rounds are never changed.</p>
+          </div>
+        </div>
+
+        <div className="form-row">
+          <span>Byes / Sitting Out This Round</span>
+          {!currentRound || currentRound.byePlayerIds.length === 0 ? (
+            <p className="empty-state">No one is sitting out this round.</p>
+          ) : (
+            <ul className="bye-list">
+              {currentRound.byePlayerIds.map((id) => (
+                <li key={id} className="bye-chip">
+                  {playerNameById.get(id) ?? 'Unknown player'}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="form-actions">
+          <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>
+            Swap Active Player with Bye Player
+          </button>
+        </div>
+      </section>
+
+      <PlayerAvailabilityControls players={players} onSetStatus={onSetAvailability} statusLabel={availabilityStatusLabel} />
+
+      {swapOpen && (
+        <SwapPlayerModal
+          activeOptions={activeOptions}
+          byeOptions={byeOptions}
+          onSwap={onSwap}
+          onClose={() => setSwapOpen(false)}
+        />
+      )}
+    </>
+  );
+}

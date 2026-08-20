@@ -134,6 +134,15 @@ export function useDynamicTeamQualifier() {
     setTeams(teams.map((t) => (t.id === id ? { ...t, checkedIn } : t)));
   }
 
+  // Checks in every non-withdrawn team at once (a single setTeams call, not
+  // a loop of individual setCheckedIn calls — those would each read the
+  // same stale `teams` closure and only the last one would stick). Mirrors
+  // each row's own checkbox, which is likewise disabled for withdrawn
+  // teams — see DynamicTeamRow.
+  function checkInAllTeams() {
+    setTeams(teams.map((t) => (t.withdrawn ? t : { ...t, checkedIn: true })));
+  }
+
   // Functional pre-tournament (see DynamicTeam.withdrawn) — mid-tournament
   // withdrawal/injury retirement stays a disabled "Coming later" control in
   // the UI once qualifying has started (see DynamicTeamRoster).
@@ -265,6 +274,7 @@ export function useDynamicTeamQualifier() {
     addTeamsBulk,
     updateTeam,
     setCheckedIn,
+    checkInAllTeams,
     setWithdrawn,
     removeTeam,
     removeAllTeams,

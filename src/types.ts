@@ -1,10 +1,26 @@
 // Core data shapes for the tournament app.
 
-// Dynamic Pairing Social only (see the "Dynamic Pairing Social" section
-// near the end of this file) — kept optional on the shared Player shape
-// rather than a separate type so every other mode's Player usage is
-// completely unaffected (they simply never set these).
-export type PlayerAvailabilityStatus = 'available' | 'late' | 'resting' | 'withdrawn' | 'injured';
+// Shared across every Social Play mode (Standard Social Play, Dynamic
+// Pairing Social, 5-Player King Court) for mid-session player-availability
+// changes — a player going home early, getting injured, or sitting out a
+// round without losing their roster slot or completed stats. Kept optional
+// on the shared Player shape rather than a separate type so Tournament
+// Mode's Player usage is completely unaffected (it simply never sets this;
+// see canGenerateRound/createRound, which never read it). Defaults to
+// 'available' when absent everywhere it's read.
+// - 'available': normal — eligible for future rounds/cycles, and eligible
+//   to be swapped into the current one (see the various swapPlayerInRound
+//   functions).
+// - 'resting-this-round': sitting out by choice. Deliberately does NOT
+//   auto-revert to 'available' after one round — see README's "Mid-session
+//   player and court changes" for why an explicit "Make Available" is
+//   preferred over a timed auto-expiry (ambiguous if no new round/cycle is
+//   generated for a while).
+// - 'left-early' / 'injured' / 'unavailable': excluded from future round/
+//   cycle generation until explicitly set back to 'available'. Distinct
+//   labels for the organiser's benefit (why they're out); behaviourally
+//   identical — all three are simply "not available".
+export type PlayerAvailabilityStatus = 'available' | 'resting-this-round' | 'left-early' | 'injured' | 'unavailable';
 
 export interface Player {
   id: string;
@@ -22,10 +38,37 @@ export interface Player {
   // utils/dynamicPairingSocial.ts. Used as a ranking tiebreaker, ahead of
   // startingSeed (see sortPlayersByRanking).
   skillLevel?: number;
-  // Dynamic Pairing Social only: defaults to 'available' when absent (see
-  // isPlayerAvailable in utils/dynamicPairingSocial.ts) — every other mode
-  // ignores this field entirely.
+  // Mid-session availability — see PlayerAvailabilityStatus above.
   availabilityStatus?: PlayerAvailabilityStatus;
+}
+
+// One mid-session change worth surfacing back to the organiser — a light,
+// practical audit trail (not exhaustive event sourcing): each Social Play
+// mode keeps its own array of these, shown as a small dismissible notice
+// rather than a full history browser, per the design brief's "prefer
+// simple, reliable behaviour over complex automation".
+export type SessionAdjustmentType =
+  | 'player-rested'
+  | 'player-left'
+  | 'player-injured'
+  | 'player-unavailable'
+  | 'player-made-available'
+  | 'player-swapped'
+  | 'court-count-changed'
+  | 'future-rounds-regenerated';
+
+export interface SessionAdjustment {
+  id: string;
+  type: SessionAdjustmentType;
+  roundNumber?: number;
+  cycleNumber?: number;
+  playerIds: string[];
+  fromCourt?: number;
+  toCourt?: number;
+  oldValue?: string;
+  newValue?: string;
+  timestamp: number;
+  note?: string;
 }
 
 export type MatchType = 'singles' | 'doubles';

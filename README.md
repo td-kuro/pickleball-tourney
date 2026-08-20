@@ -1131,6 +1131,83 @@ Tournament Mode doesn't show Session Timing or a round target — it isn't
 time-boxed the same way, and rounds there are still generated one at a
 time (gated on scores being entered), same as before.
 
+## Mid-session player and court changes
+
+Real-world sessions change mid-stream — someone goes home early, gets
+injured, or wants to sit out a round; a court frees up or becomes
+unavailable. All three Social Play modes (**Standard Social Play**,
+**Dynamic Pairing Social**, **5-Player King Court**) let the organiser
+handle this live, without losing a player's completed stats or history.
+Tournament Mode doesn't have this — it's Social Play only.
+
+### Player availability
+
+Every player has a status: **Available**, **Resting This Round**, **Left
+Early**, **Injured**, or **Unavailable**. Setting anything other than
+Available excludes that player from every future round/cycle generated
+from that point on — but never deletes them, never touches their
+already-completed stats, and never rewrites a round that's already been
+played. **Resting This Round** doesn't auto-expire back to Available after
+one round; you switch them back explicitly with **Make available** when
+they're ready — deliberately simpler and more predictable than a timed
+auto-revert, which gets ambiguous fast if no new round happens to get
+generated right away.
+
+Standard Social Play and King Court share one status field on the
+player roster (**Session Controls** → **Manage Player Availability**, or
+King Court's **Manage Courts / Players**); Dynamic Pairing Social has its
+own (**Resting Players** tab), since it keeps its own independent player
+roster.
+
+### Swapping an active player with a bye player
+
+If someone currently assigned to a match needs to step out — but hasn't
+been marked unavailable — you can swap them directly with a player who's
+on bye/resting **this round**: pick **Swap Active Player with Bye Player**
+(Standard Social Play) or **Swap Active Player with Resting Player**
+(Dynamic Pairing Social), choose the two players, and confirm. This only
+ever edits the *current* round in place — never a completed or locked one
+— and only before that specific match's score has been submitted.
+
+### Changing the number of courts mid-session
+
+**Change Courts** (Standard Social Play's Session Controls, or Dynamic
+Pairing Social's Resting Players tab) applies from the *next* round by
+default — completed and locked rounds are never touched, and the current
+round only changes if you explicitly confirm regenerating it (only
+possible while it still has no scores entered). Standard Social Play
+regenerates its entire pre-generated **Upcoming** tail against the new
+court count and current player pool; Dynamic Pairing Social only ever has
+to regenerate the still-upcoming pre-generated grading rounds (Rounds 1-3)
+this way — Round 4 onward is already generated one round at a time, so a
+court-count change just takes effect the next time you generate a round,
+with nothing to regenerate. Either way, a small notice — *"Future rounds
+were regenerated due to player/court changes"* — confirms what happened.
+
+### King Court is the most manual of the three, by design
+
+A King Court cycle's 5-game rotation is generated once and never
+auto-reshuffled mid-cycle — there's no safe automatic way to splice a live
+5-player rotation. If a player becomes unavailable while games remain in
+their court's current cycle, **Manage Courts / Players** shows a clear
+warning and lets you manually **substitute** a genuine replacement (an
+available player not already on any court this cycle) into that court's
+remaining games — completed games and history stay untouched either way.
+Court-count changes only take effect at the next cycle boundary, and
+**Move Players & Start Next Cycle** now validates that every resulting
+court still has exactly 5 players before proceeding, with a specific
+message (*"Court 3 needs 1 more player"*, *"Court 5 has too many
+players"*) rather than silently breaking — resolved with that
+substitution and/or the existing per-player "move to court" override
+already in the Movement Preview screen.
+
+**Current limitation**: because King Court's roster is normally an exact
+`courts × 5` fit (see "Setup must be completed before matches start"
+below), a genuine spare player to substitute in only exists if the roster
+has more people than the courts currently seat. If none exists, the
+organiser resolves it manually — play the court short-handed, or use the
+Movement Preview's per-player override once the cycle finishes.
+
 ## What it does
 
 - **Setup screen** — the app's starting point every time: choose Singles

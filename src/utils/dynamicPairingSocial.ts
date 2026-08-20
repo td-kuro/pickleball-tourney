@@ -25,6 +25,7 @@ import type {
   DynamicPairingRoundStatus,
   DynamicPairingSettings,
   Player,
+  PlayerAvailabilityStatus,
 } from '../types';
 
 // --- Capacity ---------------------------------------------------------
@@ -39,6 +40,25 @@ export function calculateCourtsUsed(availableCourts: number, availablePlayers: n
 
 export function isPlayerAvailable(player: Player): boolean {
   return (player.availabilityStatus ?? 'available') === 'available';
+}
+
+// Shared by DynamicPairingSetup and DynamicPairingRestingPlayers, kept in
+// this file (rather than utils/tournament.ts) so this mode's label wording
+// can't be affected by an unrelated change to Standard Social Play's copy —
+// same isolation rationale as everything else in this file.
+export function dynamicPairingAvailabilityLabel(status: PlayerAvailabilityStatus): string {
+  switch (status) {
+    case 'available':
+      return 'Available';
+    case 'resting-this-round':
+      return 'Resting This Round';
+    case 'left-early':
+      return 'Left Early';
+    case 'injured':
+      return 'Injured';
+    case 'unavailable':
+      return 'Unavailable';
+  }
 }
 
 export function canGenerateDynamicPairingRound(
@@ -624,6 +644,85 @@ export function processDynamicPairingScore(
 // DynamicPairingRoundStatus.
 export function lockCompletedRound(round: DynamicPairingRound): DynamicPairingRound {
   return { ...round, status: 'locked' };
+}
+
+// --- Mid-session player/court changes -------------------------------------
+// See README's "Mid-session player and court changes". Only ever touches
+// pre-generated-but-'upcoming' grading rounds (Round 4+ is generated one at
+// a time by generateNextRound, so a court-count or availability change just
+// takes effect on the next click there — nothing to regenerate) and the
+// live 'current' round (for a swap). 'locked'/'completed' rounds are never
+// rewritten.
+
+// Regenerates every still-'upcoming' pre-generated grading round against
+// the current player pool/settings — call after a player's availability
+// changes or the court count changes, mid-grading-phase. A no-op once
+// grading is over (there's nothing left pre-generated to regenerate).
+export function regenerateUpcomingGradingRounds(
+  players: Player[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] {
+  const kept = rounds.filter((round) => round.status !== 'upcoming');
+  const upcomingCount = rounds.length - kept.length;
+  if (upcomingCount === 0) return rounds;
+
+  let generated = [...kept];
+  for (let i = 0; i < upcomingCount; i++) {
+    generated = [...generated, { ...generateDynamicPairingRound(players, settings, generated), status: 'upcoming' }];
+  }
+  return generated;
+}
+
+// Only individual players are ever in play here (Dynamic Pairing Social has
+// no fixed-team concept at all — see the file header comment), so unlike
+// Standard Social Play's swap this needs no fixed-team exclusion check.
+export function canSwapPlayerInDynamicPairingRound(
+  round: DynamicPairingRound,
+  activePlayerId: string,
+  restingPlayerId: string,
+): { ok: true } | { ok: false; reason: string } {
+  if (round.status !== 'current') {
+    return { ok: false, reason: 'Swaps are only allowed in the current round.' };
+  }
+  if (activePlayerId === restingPlayerId) {
+    return { ok: false, reason: 'Choose two different players to swap.' };
+  }
+  if (!round.restingPlayerIds.includes(restingPlayerId)) {
+    return { ok: false, reason: 'That player is not resting this round.' };
+  }
+  const court = round.courts.find((c) => c.playerIds.includes(activePlayerId));
+  if (!court) {
+    return { ok: false, reason: 'That player is not assigned to a court this round.' };
+  }
+  if (court.score1 != null || court.score2 != null) {
+    return { ok: false, reason: "That court's score is already submitted — swaps are only allowed before that." };
+  }
+  return { ok: true };
+}
+
+// Pure round edit — see canSwapPlayerInDynamicPairingRound for the rules.
+// Preserves which team the swapped-in player joins (team1 vs team2).
+export function swapPlayerInDynamicPairingRound(
+  round: DynamicPairingRound,
+  activePlayerId: string,
+  restingPlayerId: string,
+): DynamicPairingRound {
+  const replaceIn = (playerIds: string[]) => playerIds.map((id) => (id === activePlayerId ? restingPlayerId : id));
+  return {
+    ...round,
+    courts: round.courts.map((court) =>
+      court.playerIds.includes(activePlayerId)
+        ? {
+            ...court,
+            playerIds: replaceIn(court.playerIds),
+            team1PlayerIds: replaceIn(court.team1PlayerIds),
+            team2PlayerIds: replaceIn(court.team2PlayerIds),
+          }
+        : court,
+    ),
+    restingPlayerIds: round.restingPlayerIds.map((id) => (id === restingPlayerId ? activePlayerId : id)),
+  };
 }
 
 // Pre-generates every grading round (settings.gradingRounds, default 3) up
