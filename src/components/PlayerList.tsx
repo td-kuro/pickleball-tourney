@@ -33,9 +33,24 @@ interface PlayerRowProps {
   // "Player" badge alongside "Team" rows in the same merged list. Omitted
   // (default) everywhere else, so plain Add Player usage is unchanged.
   badge?: string;
+  // Also ParticipantList-only: renders a checkbox so the organiser can pick
+  // two individual players to promote into a fixed team (see
+  // ParticipantList's onMakeTeam). Omitted everywhere else.
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }
 
-export function PlayerRow({ index, player, onUpdate, onRemove, badge }: PlayerRowProps) {
+export function PlayerRow({
+  index,
+  player,
+  onUpdate,
+  onRemove,
+  badge,
+  selectable,
+  selected,
+  onToggleSelect,
+}: PlayerRowProps) {
   const [name, setName] = useState(player.name);
   const [rating, setRating] = useState(player.rating != null ? String(player.rating) : '');
 
@@ -72,6 +87,15 @@ export function PlayerRow({ index, player, onUpdate, onRemove, badge }: PlayerRo
 
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
+      {selectable && (
+        <input
+          type="checkbox"
+          className="player-row-select"
+          checked={selected ?? false}
+          onChange={() => onToggleSelect?.(player.id)}
+          aria-label={`Select ${player.name || `Player ${index + 1}`} to form a team`}
+        />
+      )}
       <span className="player-row-index">{index + 1}</span>
       {badge && <span className="participant-badge participant-badge-player">{badge}</span>}
       <input

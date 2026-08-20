@@ -63,7 +63,7 @@
   margin-top: 16px;
   height: 4px;
   border-radius: 999px;
-  background: linear-gradient(90deg, var(--brand-blue), var(--brand-green));
+  background: linear-gradient(90deg, var(--brand-yellow), var(--brand-green));
 }
 
 /* Tab navigation */
@@ -82,14 +82,14 @@
   gap: 6px;
   padding: 4px;
   background: var(--code-bg);
-  border-radius: 10px;
+  border-radius: 999px;
   width: fit-content;
   max-width: 100%;
 }
 
 .tab {
   padding: 9px 20px;
-  border-radius: 7px;
+  border-radius: 999px;
   border: none;
   background: transparent;
   color: var(--text);
@@ -104,8 +104,8 @@
 }
 
 .tab.active {
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
 }
 
 .tab:disabled {
@@ -132,8 +132,7 @@
 .card {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: var(--shadow);
+  border-radius: 8px;
   padding: 20px;
   margin-bottom: 20px;
 }
@@ -154,6 +153,36 @@
 
 .section-heading-row h2 {
   margin: 0;
+}
+
+.participant-header-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Shown once exactly two player checkboxes are selected in ParticipantList
+   — confirms turning them into a fixed team (see onMakeTeam). */
+.make-team-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.player-row-select {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent-fill);
+  cursor: pointer;
 }
 
 .mode-badge {
@@ -177,26 +206,6 @@
   color: var(--accent-2);
 }
 
-/* Setup view layout */
-
-.setup-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 20px;
-  margin-bottom: 20px;
-}
-
-.setup-grid .card {
-  margin-bottom: 0;
-}
-
-@media (min-width: 800px) {
-  .setup-grid {
-    grid-template-columns: 1fr 1fr;
-    align-items: start;
-  }
-}
-
 .start-matches-card {
   text-align: center;
 }
@@ -215,14 +224,6 @@
 .start-button {
   padding: 14px 32px;
   font-size: 16px;
-}
-
-/* Player form */
-
-.player-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
 }
 
 .form-row {
@@ -279,41 +280,11 @@ button.danger:hover:not(:disabled) {
   background: rgba(192, 57, 43, 0.1);
 }
 
-/* Quick "generate multiple player slots" form */
-
-.bulk-add {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-}
-
 .bulk-add-label {
   margin: 0 0 8px;
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-}
-
-.bulk-add-form {
-  display: flex;
-  gap: 8px;
-}
-
-.bulk-add-form input {
-  width: 90px;
-  flex-shrink: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  font-size: 16px;
-  background: var(--bg);
-  color: var(--text-h);
-}
-
-.bulk-add-form button {
-  flex: 1;
-  font-size: 14px;
-  padding: 8px 16px;
 }
 
 /* Player list — always-editable rows */
@@ -365,7 +336,8 @@ button.danger:hover:not(:disabled) {
   min-width: 80px;
 }
 
-.player-row button.danger {
+.player-row button.danger,
+.player-row button.secondary {
   flex-shrink: 0;
   padding: 8px 14px;
   font-size: 13px;
@@ -399,8 +371,7 @@ button.danger:hover:not(:disabled) {
 
 .card > button:disabled,
 .match-card button:disabled,
-.section-heading-row button:disabled,
-.bulk-add-form button:disabled {
+.section-heading-row button:disabled {
   background: var(--code-bg);
   color: var(--text);
   border-color: var(--border);
@@ -432,9 +403,9 @@ button.danger:hover:not(:disabled) {
 }
 
 .toggle-option.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+  border-color: var(--accent-fill);
 }
 
 /* Social Play's toggle reuses the green accent so the blue/green pairing
@@ -499,7 +470,7 @@ button.danger:hover:not(:disabled) {
   border-radius: 8px;
   background: var(--accent-bg);
   border: 1px solid var(--accent-border);
-  color: var(--accent-hover);
+  color: var(--accent);
   font-weight: 600;
 }
 
@@ -567,6 +538,8 @@ button.danger:hover:not(:disabled) {
   padding: 10px;
   border: 1px solid var(--border);
   border-radius: 6px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-size: 18px;
   font-weight: 600;
   text-align: center;
@@ -639,9 +612,9 @@ button.danger:hover:not(:disabled) {
 }
 
 .court-btn.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
+  border-color: var(--accent-fill);
 }
 
 .court-selector-other-input {
@@ -699,7 +672,7 @@ button.danger:hover:not(:disabled) {
   border-radius: 999px;
   background: var(--accent-bg);
   border: 1px solid var(--accent-border);
-  color: var(--accent-hover);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 600;
 }
@@ -714,6 +687,7 @@ button.danger:hover:not(:disabled) {
   width: 100%;
   border-collapse: collapse;
   font-size: 14px;
+  font-variant-numeric: tabular-nums;
 }
 
 .leaderboard-table th,
@@ -927,6 +901,8 @@ button.danger:hover:not(:disabled) {
 
 .all-rounds-score {
   color: var(--text);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   font-weight: 600;
   white-space: nowrap;
 }
@@ -999,7 +975,7 @@ button.danger:hover:not(:disabled) {
   border-radius: 999px;
   border: 1.5px solid var(--accent-border);
   background: var(--accent-bg);
-  color: var(--accent-hover);
+  color: var(--accent);
   font-size: 14px;
   font-weight: 600;
 }
@@ -1009,9 +985,9 @@ button.danger:hover:not(:disabled) {
 }
 
 .kc-player-chip.selected {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  border-color: var(--accent-fill);
+  color: var(--accent-fill-ink);
 }
 
 .kc-court-grid {
@@ -1153,7 +1129,7 @@ button.danger:hover:not(:disabled) {
 }
 
 .kc-court-slot-empty:hover:not(:disabled) {
-  color: var(--accent-hover);
+  color: var(--accent);
 }
 
 .kc-court-status {

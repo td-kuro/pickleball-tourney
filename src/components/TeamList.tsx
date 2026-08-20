@@ -1,33 +1,37 @@
 import { useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import type { Player, Team } from '../types';
 
-interface TeamListProps {
+interface TeamPlayersListProps {
   teams: Team[];
   teamPlayers: Player[];
-  onUpdate: (id: string, player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
+  onUpdatePlayer: (teamId: string, playerId: string, name: string, rating?: number) => void;
   onRemove: (id: string) => void;
 }
 
-// Every fixed team is directly editable, same philosophy as PlayerList:
-// team name, both player names, and rating are all inline inputs saved on
-// blur, no separate "Edit" mode.
-export function TeamList({ teams, teamPlayers, onUpdate, onRemove }: TeamListProps) {
+// A flat "Teams (N)" roster of fixed teams only (Pools & Knockout's
+// fixed-teams roster — see RosterSetup's useFixedTeams branch). No team
+// name field and no shared team-level rating input — each player's own
+// name and rating is editable in place (see TeamPlayersRow), same as the
+// mixed Participants roster (ParticipantList), which reuses TeamPlayersRow
+// directly with its onUnmakeTeam prop added — this component omits that
+// prop since there's no individual-player pool here to revert a team into.
+export function TeamPlayersList({ teams, teamPlayers, onUpdatePlayer, onRemove }: TeamPlayersListProps) {
   if (teams.length === 0) {
-    return <p className="empty-state">No teams yet. Add a team below.</p>;
+    return <p className="empty-state">No teams yet. Add a team above.</p>;
   }
 
-  const playerNameById = new Map(teamPlayers.map((player) => [player.id, player.name]));
+  const playerById = new Map(teamPlayers.map((player) => [player.id, player]));
 
   return (
     <div className="player-list">
       {teams.map((team, index) => (
-        <TeamRow
+        <TeamPlayersRow
           key={team.id}
           index={index}
           team={team}
-          player1Name={playerNameById.get(team.playerIds[0]) ?? ''}
-          player2Name={playerNameById.get(team.playerIds[1]) ?? ''}
-          onUpdate={onUpdate}
+          player1={playerById.get(team.playerIds[0])}
+          player2={playerById.get(team.playerIds[1])}
+          onUpdatePlayer={onUpdatePlayer}
           onRemove={onRemove}
         />
       ))}
@@ -35,41 +39,46 @@ export function TeamList({ teams, teamPlayers, onUpdate, onRemove }: TeamListPro
   );
 }
 
-interface TeamRowProps {
+interface TeamPlayersRowProps {
   index: number;
   team: Team;
-  player1Name: string;
-  player2Name: string;
-  onUpdate: (id: string, player1Name: string, player2Name: string, teamName: string, rating?: number) => void;
+  player1: Player | undefined;
+  player2: Player | undefined;
+  onUpdatePlayer: (teamId: string, playerId: string, name: string, rating?: number) => void;
   onRemove: (id: string) => void;
-  // See PlayerRow's `badge` — same purpose, for ParticipantList's merged
-  // Player/Team list.
+  // Only ParticipantList passes this — "Split Team", reverting the team
+  // back into two individual players (see useTeams.removeTeamKeepPlayers).
+  // Omitted here, so the button doesn't render.
+  onUnmakeTeam?: (id: string) => void;
   badge?: string;
 }
 
-export function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRemove, badge }: TeamRowProps) {
-  const [teamName, setTeamName] = useState(team.name);
-  const [player1, setPlayer1] = useState(player1Name);
-  const [player2, setPlayer2] = useState(player2Name);
-  const [rating, setRating] = useState(team.rating != null ? String(team.rating) : '');
+// One fixed team's row: each player's own name and rating, editable in
+// place (team.name/team.rating are derived from these — see
+// useTeams.updateTeamPlayer), plus "Split Team" (when onUnmakeTeam is
+// given) and "Remove" (delete the team and both players entirely).
+export function TeamPlayersRow({ index, team, player1, player2, onUpdatePlayer, onRemove, onUnmakeTeam, badge }: TeamPlayersRowProps) {
+  const [name1, setName1] = useState(player1?.name ?? '');
+  const [rating1, setRating1] = useState(player1?.rating != null ? String(player1.rating) : '');
+  const [name2, setName2] = useState(player2?.name ?? '');
+  const [rating2, setRating2] = useState(player2?.rating != null ? String(player2.rating) : '');
 
-  function commit(nextTeamName: string, nextPlayer1: string, nextPlayer2: string, nextRating: string) {
-    const trimmedRating = nextRating.trim();
-    let parsedRating: number | undefined = team.rating;
-    if (trimmedRating === '') {
-      parsedRating = undefined;
-    } else {
-      const parsed = parseFloat(trimmedRating);
-      if (!Number.isNaN(parsed) && parsed >= 0) parsedRating = parsed;
+  function commit(playerId: string | undefined, name: string, ratingText: string) {
+    if (!playerId) return;
+    const trimmed = ratingText.trim();
+    let rating: number | undefined;
+    if (trimmed !== '') {
+      const parsed = parseFloat(trimmed);
+      if (!Number.isNaN(parsed) && parsed >= 0) rating = parsed;
     }
-    onUpdate(team.id, nextPlayer1, nextPlayer2, nextTeamName, parsedRating);
+    onUpdatePlayer(team.id, playerId, name, rating);
   }
 
   function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key === 'Enter') event.currentTarget.blur();
   }
 
-  const missingName = player1.trim() === '' || player2.trim() === '';
+  const missingName = name1.trim() === '' || name2.trim() === '';
 
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
@@ -78,29 +87,31 @@ export function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRem
       <input
         type="text"
         className="player-row-name"
-        value={teamName}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setTeamName(event.target.value)}
-        onBlur={() => commit(teamName, player1, player2, rating)}
-        onKeyDown={blurOnEnter}
-        placeholder={player1 && player2 ? `${player1} / ${player2}` : `Team ${index + 1}`}
-        aria-label={`Team ${index + 1} name`}
-      />
-      <input
-        type="text"
-        className="player-row-name"
-        value={player1}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setPlayer1(event.target.value)}
-        onBlur={() => commit(teamName, player1, player2, rating)}
+        value={name1}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => setName1(event.target.value)}
+        onBlur={() => commit(player1?.id, name1, rating1)}
         onKeyDown={blurOnEnter}
         placeholder="Player 1"
         aria-label={`Team ${index + 1} player 1 name`}
       />
       <input
+        type="number"
+        className="player-row-rating"
+        step="0.1"
+        min="0"
+        value={rating1}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => setRating1(event.target.value)}
+        onBlur={() => commit(player1?.id, name1, rating1)}
+        onKeyDown={blurOnEnter}
+        placeholder="Unrated"
+        aria-label={`Team ${index + 1} player 1 rating`}
+      />
+      <input
         type="text"
         className="player-row-name"
-        value={player2}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setPlayer2(event.target.value)}
-        onBlur={() => commit(teamName, player1, player2, rating)}
+        value={name2}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => setName2(event.target.value)}
+        onBlur={() => commit(player2?.id, name2, rating2)}
         onKeyDown={blurOnEnter}
         placeholder="Player 2"
         aria-label={`Team ${index + 1} player 2 name`}
@@ -110,13 +121,18 @@ export function TeamRow({ index, team, player1Name, player2Name, onUpdate, onRem
         className="player-row-rating"
         step="0.1"
         min="0"
-        value={rating}
-        onChange={(event: ChangeEvent<HTMLInputElement>) => setRating(event.target.value)}
-        onBlur={() => commit(teamName, player1, player2, rating)}
+        value={rating2}
+        onChange={(event: ChangeEvent<HTMLInputElement>) => setRating2(event.target.value)}
+        onBlur={() => commit(player2?.id, name2, rating2)}
         onKeyDown={blurOnEnter}
         placeholder="Unrated"
-        aria-label={`Team ${index + 1} rating`}
+        aria-label={`Team ${index + 1} player 2 rating`}
       />
+      {onUnmakeTeam && (
+        <button type="button" className="secondary" onClick={() => onUnmakeTeam(team.id)}>
+          Split Team
+        </button>
+      )}
       <button type="button" className="danger" onClick={() => onRemove(team.id)}>
         Remove
       </button>

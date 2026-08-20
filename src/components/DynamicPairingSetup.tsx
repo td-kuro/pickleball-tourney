@@ -1,4 +1,4 @@
-import { useId, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from 'react';
+import { useState, type ChangeEvent, type KeyboardEvent } from 'react';
 import type { CourtMovementLimit, DynamicGameFormat, DynamicPairingSettings, Player, PlayerAvailabilityStatus } from '../types';
 import {
   canGenerateDynamicPairingRound,
@@ -18,7 +18,6 @@ interface DynamicPairingSetupProps {
   settings: DynamicPairingSettings;
   onChangeSettings: (settings: DynamicPairingSettings) => void;
   players: Player[];
-  onAddPlayer: (name: string, rating?: number, startingSeed?: number) => void;
   onAddPlayersBulk: (count: number) => void;
   onUpdatePlayer: (
     id: string,
@@ -47,7 +46,6 @@ export function DynamicPairingSetup({
   settings,
   onChangeSettings,
   players,
-  onAddPlayer,
   onAddPlayersBulk,
   onUpdatePlayer,
   onUpdatePlayerSkillLevel,
@@ -204,37 +202,44 @@ export function DynamicPairingSetup({
         </div>
       </section>
 
-      <div className="setup-grid">
-        <DynamicPairingPlayerForm onAddPlayer={onAddPlayer} onAddPlayersBulk={onAddPlayersBulk} disabled={started} />
-
-        <section className="card">
-          <div className="section-heading-row">
-            <h2>Players ({players.length})</h2>
+      <section className="card">
+        <div className="section-heading-row">
+          <h2>Players ({players.length})</h2>
+          <div className="participant-header-actions">
+            {!started && (
+              <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
+                + Add Player
+              </button>
+            )}
             {players.length > 0 && !started && (
               <button type="button" className="danger" onClick={handleRemoveAll}>
                 Remove All Players
               </button>
             )}
           </div>
-          <DynamicPairingPlayerList
-            players={players}
-            onUpdate={onUpdatePlayer}
-            onUpdateSkillLevel={onUpdatePlayerSkillLevel}
-            onRemove={onRemovePlayer}
-            disabled={started}
-            skillLevelEditable={started && gradingPhaseComplete}
-          />
-          <p className="hint">
-            {players.filter((p) => (p.availabilityStatus ?? 'available') === 'available').length} available of{' '}
-            {players.length} added.
-          </p>
-          <p className="hint">
-            {gradingPhaseComplete
-              ? 'Skill level (1 = strongest) can be set per player below — it helps break ranking ties while match data is still thin. You can also set it from the Admin Skill Review screen shown right after grading finishes.'
-              : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored — you'll also get a dedicated Admin Skill Review screen at that point.`}
-          </p>
-        </section>
-      </div>
+        </div>
+        <p className="hint">
+          Starting seed (optional) is used only as a ranking tiebreaker — grading rounds are randomized regardless of
+          seed.
+        </p>
+        <DynamicPairingPlayerList
+          players={players}
+          onUpdate={onUpdatePlayer}
+          onUpdateSkillLevel={onUpdatePlayerSkillLevel}
+          onRemove={onRemovePlayer}
+          disabled={started}
+          skillLevelEditable={started && gradingPhaseComplete}
+        />
+        <p className="hint">
+          {players.filter((p) => (p.availabilityStatus ?? 'available') === 'available').length} available of{' '}
+          {players.length} added.
+        </p>
+        <p className="hint">
+          {gradingPhaseComplete
+            ? 'Skill level (1 = strongest) can be set per player below — it helps break ranking ties while match data is still thin. You can also set it from the Admin Skill Review screen shown right after grading finishes.'
+            : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored — you'll also get a dedicated Admin Skill Review screen at that point.`}
+        </p>
+      </section>
 
       <section className="card start-matches-card">
         {!started ? (
@@ -251,133 +256,6 @@ export function DynamicPairingSetup({
         )}
       </section>
     </>
-  );
-}
-
-interface DynamicPairingPlayerFormProps {
-  onAddPlayer: (name: string, rating?: number, startingSeed?: number) => void;
-  onAddPlayersBulk: (count: number) => void;
-  disabled: boolean;
-}
-
-function DynamicPairingPlayerForm({ onAddPlayer, onAddPlayersBulk, disabled }: DynamicPairingPlayerFormProps) {
-  const [name, setName] = useState('');
-  const [rating, setRating] = useState('');
-  const [seed, setSeed] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [bulkCount, setBulkCount] = useState('');
-  const id = useId();
-  const bulkCountValue = parseInt(bulkCount, 10);
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const trimmedName = name.trim();
-    if (!trimmedName) {
-      setError('Enter a player name.');
-      return;
-    }
-    const parsedRating = rating.trim() === '' ? undefined : parseFloat(rating);
-    if (parsedRating != null && (Number.isNaN(parsedRating) || parsedRating < 0)) {
-      setError('Rating must be a valid, non-negative number, or left blank.');
-      return;
-    }
-    const parsedSeed = seed.trim() === '' ? undefined : parseInt(seed, 10);
-    if (parsedSeed != null && (Number.isNaN(parsedSeed) || parsedSeed < 1)) {
-      setError('Starting seed must be a whole number of at least 1, or left blank.');
-      return;
-    }
-    setError(null);
-    onAddPlayer(trimmedName, parsedRating, parsedSeed);
-    setName('');
-    setRating('');
-    setSeed('');
-  }
-
-  function handleGenerateSlots(event: FormEvent) {
-    event.preventDefault();
-    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
-    onAddPlayersBulk(bulkCountValue);
-    setBulkCount('');
-  }
-
-  return (
-    <section className="card">
-      <h2>Add Player</h2>
-      <p className="hint">
-        Starting seed (optional) is used only as a ranking tiebreaker — grading rounds are randomized regardless of
-        seed.
-      </p>
-      <form className="player-form" onSubmit={handleSubmit}>
-        <div className="form-row">
-          <label htmlFor={`${id}-name`}>Name</label>
-          <input
-            id={`${id}-name`}
-            type="text"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            placeholder="Player name"
-            disabled={disabled}
-            required
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor={`${id}-rating`}>Rating (optional)</label>
-          <input
-            id={`${id}-rating`}
-            type="number"
-            step="0.1"
-            min="0"
-            value={rating}
-            onChange={(event) => setRating(event.target.value)}
-            placeholder="Unrated"
-            disabled={disabled}
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor={`${id}-seed`}>Starting seed (optional)</label>
-          <input
-            id={`${id}-seed`}
-            type="number"
-            min={1}
-            step={1}
-            value={seed}
-            onChange={(event) => setSeed(event.target.value)}
-            placeholder="e.g. 1 = strongest"
-            disabled={disabled}
-          />
-        </div>
-        {error && <p className="hint error">{error}</p>}
-        <div className="form-actions">
-          <button type="submit" disabled={disabled}>
-            Add Player
-          </button>
-        </div>
-      </form>
-
-      <div className="bulk-add">
-        <p className="bulk-add-label">Or generate multiple player slots</p>
-        <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
-          <input
-            type="number"
-            min={1}
-            value={bulkCount}
-            onChange={(event) => setBulkCount(event.target.value)}
-            placeholder="e.g. 15"
-            aria-label="Number of players to generate"
-            disabled={disabled}
-          />
-          <button
-            type="submit"
-            className="secondary"
-            disabled={disabled || Number.isNaN(bulkCountValue) || bulkCountValue < 1}
-          >
-            Generate Player Slots
-          </button>
-        </form>
-      </div>
-
-      {disabled && <p className="hint">The roster is locked while a session is active — use Reset to start over.</p>}
-    </section>
   );
 }
 
