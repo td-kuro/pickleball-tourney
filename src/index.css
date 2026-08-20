@@ -1,42 +1,56 @@
 :root {
-  /* Pickleball-inspired theme: court blue is the primary/interactive
-     colour (buttons, tabs, focus rings); court green is reserved for
-     "go"/positive states (Start Matches, Generate Next Round, winners,
-     top of the leaderboard, Social Play accents). Keep using these
-     variables rather than new hardcoded colours so the palette stays in
-     one place. */
-  --brand-blue: #1e88e5;
-  --brand-blue-dark: #1565c0;
-  --brand-blue-tint: #e8f3fd;
-  --brand-blue-border: rgba(30, 136, 229, 0.35);
+  /* Combined direction: Minimal Dashboard's hairline/no-shadow structure,
+     recoloured with Playful & Sporty's palette — court-navy as the ink,
+     pickleball-yellow as the one interactive accent. Court green stays
+     exactly where it was, now purely semantic ("go"/positive/current —
+     Start Matches, Generate Next Round, winners, top of the leaderboard)
+     rather than a second interactive colour, so it never competes with
+     the yellow accent. See src/components/PickleballLogo.tsx for the
+     other place --brand-yellow/--brand-green are read directly. */
+  --brand-navy: #0b2545;
+
+  --brand-yellow: #c3d500;
+  --brand-yellow-dark: #a8b800;
+  --brand-yellow-text: #6e6300;
+  --brand-yellow-tint: #f5f7d6;
+  --brand-yellow-border: rgba(163, 181, 0, 0.4);
 
   --brand-green: #16a34a;
   --brand-green-dark: #15803d;
   --brand-green-tint: #e7f8ee;
   --brand-green-border: rgba(22, 163, 74, 0.35);
 
-  --text: #5b6472;
-  --text-h: #10151b;
+  --text: #55688a;
+  --text-h: var(--brand-navy);
+  --page-bg: #f5f7f8;
   --bg: #fff;
-  --border: #dfe4ea;
-  --code-bg: #f2f5f8;
+  --border: #dbe2ec;
+  --code-bg: #eef1f6;
 
-  --accent: var(--brand-blue);
-  --accent-hover: var(--brand-blue-dark);
-  --accent-bg: var(--brand-blue-tint);
-  --accent-border: var(--brand-blue-border);
+  /* Text/tint-badge role — legible as small text on its own pale tint. */
+  --accent: var(--brand-yellow-text);
+  --accent-hover: var(--brand-yellow-dark);
+  --accent-bg: var(--brand-yellow-tint);
+  --accent-border: var(--brand-yellow-border);
+
+  /* Solid-fill role (buttons, active tab/toggle) — always paired with
+     --accent-fill-ink, never with --accent, since raw yellow reads badly
+     as small text but reads great as a fill under dark navy text. */
+  --accent-fill: var(--brand-yellow);
+  --accent-fill-ink: var(--brand-navy);
 
   --accent-2: var(--brand-green);
   --accent-2-hover: var(--brand-green-dark);
   --accent-2-bg: var(--brand-green-tint);
   --accent-2-border: var(--brand-green-border);
 
-  --shadow: 0 1px 2px rgba(10, 20, 35, 0.05), 0 4px 14px rgba(10, 20, 35, 0.07);
+  --font-display: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
 
-  font: 16px/145% system-ui, 'Segoe UI', Roboto, sans-serif;
+  font: 16px/145% var(--font-display);
   color-scheme: light dark;
   color: var(--text);
-  background: var(--bg);
+  background: var(--page-bg);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -48,33 +62,36 @@
    prefers-color-scheme directly — see index.html for the inline script
    that applies it before first paint, and src/hooks/useTheme.ts. */
 :root[data-theme='dark'] {
-  --brand-blue: #60a5fa;
-  --brand-blue-dark: #93c5fd;
-  --brand-blue-tint: rgba(96, 165, 250, 0.16);
-  --brand-blue-border: rgba(96, 165, 250, 0.4);
+  --brand-yellow: #d7f227;
+  --brand-yellow-dark: #e8f76a;
+  --brand-yellow-text: var(--brand-yellow);
+  --brand-yellow-tint: rgba(215, 242, 39, 0.16);
+  --brand-yellow-border: rgba(215, 242, 39, 0.4);
 
   --brand-green: #4ade80;
   --brand-green-dark: #86efac;
   --brand-green-tint: rgba(74, 222, 128, 0.16);
   --brand-green-border: rgba(74, 222, 128, 0.4);
 
-  --text: #9ca7b4;
-  --text-h: #f2f5f8;
-  --bg: #0f151c;
-  --border: #29323d;
-  --code-bg: #1a222b;
+  --text: #a9c1e0;
+  --text-h: #f4f8fc;
+  --page-bg: var(--brand-navy);
+  --bg: #123561;
+  --border: #20477a;
+  --code-bg: #0e2c52;
 
-  --accent: var(--brand-blue);
-  --accent-hover: var(--brand-blue-dark);
-  --accent-bg: var(--brand-blue-tint);
-  --accent-border: var(--brand-blue-border);
+  --accent: var(--brand-yellow-text);
+  --accent-hover: var(--brand-yellow-dark);
+  --accent-bg: var(--brand-yellow-tint);
+  --accent-border: var(--brand-yellow-border);
+
+  --accent-fill: var(--brand-yellow);
+  --accent-fill-ink: var(--brand-navy);
 
   --accent-2: var(--brand-green);
   --accent-2-hover: var(--brand-green-dark);
   --accent-2-bg: var(--brand-green-tint);
   --accent-2-border: var(--brand-green-border);
-
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
 body {
@@ -84,6 +101,7 @@ body {
 
 h1,
 h2 {
+  font-family: var(--font-display);
   font-weight: 600;
   color: var(--text-h);
   margin: 0 0 8px;
@@ -93,10 +111,11 @@ button {
   padding: 10px 16px;
   border-radius: 6px;
   border: 1px solid transparent;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-fill);
+  color: var(--accent-fill-ink);
   font-size: 14px;
-  font-family: inherit;
+  font-family: var(--font-display);
+  font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s ease, opacity 0.15s ease, transform 0.05s ease;
 }
@@ -110,12 +129,12 @@ button:active:not(:disabled) {
 }
 
 button:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-fill);
   outline-offset: 2px;
 }
 
 input:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--accent-fill);
   outline-offset: 1px;
-  border-color: var(--accent);
+  border-color: var(--accent-fill);
 }

@@ -73,18 +73,11 @@ export function useDynamicPairingSocial() {
     setSettings(next);
   }
 
-  function addPlayer(name: string, rating?: number, startingSeed?: number) {
-    setPlayers([
-      ...players,
-      { id: makePlayerId(), name, rating, startingSeed, availabilityStatus: 'available' },
-    ]);
-  }
-
   // Quickly generates `count` empty player slots (named "Player N") so the
   // organiser can fill in names/ratings/seeds afterward instead of adding
   // one by one — mirrors usePlayers' addPlayersBulk, adapted for this
-  // roster's own shape (availabilityStatus defaults to 'available', same
-  // as addPlayer above).
+  // roster's own shape (availabilityStatus defaults to 'available') — also
+  // how a single "+ Add Player" click adds one slot (count=1).
   function addPlayersBulk(count: number) {
     const startNumber = players.length + 1;
     const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
@@ -252,7 +245,6 @@ export function useDynamicPairingSocial() {
     settings,
     updateSettings,
     players,
-    addPlayer,
     addPlayersBulk,
     updatePlayer,
     updatePlayerSkillLevel,

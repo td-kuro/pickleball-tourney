@@ -81,28 +81,12 @@ export function useDynamicTeamQualifier() {
   const closedRound = rounds.find((r) => r.status === 'completed');
   const allMatches = rounds.flatMap((r) => r.matches);
 
-  function addTeam(playerAName: string, playerBName: string, teamName = '', rating?: number, seed?: number) {
-    const teamCode = generateTeamCodes(teams.length + 1)[teams.length];
-    const newTeam: DynamicTeam = {
-      id: makeTeamId(),
-      teamCode,
-      displayName: teamDisplayName(teamName, playerAName, playerBName),
-      playerAName,
-      playerBName,
-      rating,
-      seed,
-      checkedIn: false,
-      withdrawn: false,
-      partnerLocked: false,
-    };
-    setTeams([...teams, newTeam]);
-  }
-
   // Quickly generates `count` empty team slots (named "T01 Player 1"/
   // "T01 Player 2" using each slot's own team code, mirroring
   // useDynamicPairingSocial.addPlayersBulk's "Player N") so the organiser
   // can fill in real names/ratings/seeds afterward instead of adding one
-  // team at a time.
+  // team at a time — also how a single "+ Add Team" click adds one slot
+  // (count=1).
   function addTeamsBulk(count: number) {
     const codes = generateTeamCodes(teams.length + count).slice(teams.length);
     const newTeams: DynamicTeam[] = codes.map((teamCode, i) => {
@@ -270,7 +254,6 @@ export function useDynamicTeamQualifier() {
     updateSettings,
     regenerateRandomSeed,
     teams: teamsWithLockState,
-    addTeam,
     addTeamsBulk,
     updateTeam,
     setCheckedIn,

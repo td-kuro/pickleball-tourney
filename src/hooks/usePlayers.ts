@@ -11,12 +11,11 @@ function makePlayerId(salt = 0): string {
 export function usePlayers() {
   const [players, setPlayers] = useLocalStorage<Player[]>(STORAGE_KEY, []);
 
-  function addPlayer(name: string, rating?: number) {
-    setPlayers([...players, { id: makePlayerId(), name, rating }]);
-  }
-
   // Quickly generates `count` empty player slots (named "Player N") so the
-  // user can fill in names/ratings afterward instead of adding one by one.
+  // user can fill in names/ratings afterward instead of adding one by one —
+  // also how a single "+ Add Player" click adds one slot (count=1); every
+  // roster screen edits name/rating in place afterward, so there's no
+  // separate single-player add form anywhere any more.
   function addPlayersBulk(count: number) {
     const startNumber = players.length + 1;
     const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
@@ -24,6 +23,14 @@ export function usePlayers() {
       name: `Player ${startNumber + i}`,
       rating: undefined,
     }));
+    setPlayers([...players, ...newPlayers]);
+  }
+
+  // Adds one or more already-built Player records in a single update — used
+  // when reverting a fixed team back to individual players (see App.tsx's
+  // handleUnmakeTeam), where the players already have real ids/names/
+  // ratings to preserve rather than minting new ones via addPlayer.
+  function addExistingPlayers(newPlayers: Player[]) {
     setPlayers([...players, ...newPlayers]);
   }
 
@@ -45,11 +52,29 @@ export function usePlayers() {
     setPlayers(players.filter((player) => player.id !== id));
   }
 
+  // Removes several players in one update — needed anywhere more than one
+  // id is removed in the same handler (e.g. App.tsx's handleMakeTeam,
+  // dropping both players it just promoted into a team). Two sequential
+  // removePlayer calls would each filter the same stale `players` snapshot
+  // and the second call's setPlayers would clobber the first's removal.
+  function removePlayers(ids: string[]) {
+    setPlayers(players.filter((player) => !ids.includes(player.id)));
+  }
+
   // Clears the entire roster — names, ratings, IDs, and any unfilled
   // generated slots — without touching tournament settings.
   function removeAllPlayers() {
     setPlayers([]);
   }
 
-  return { players, addPlayer, addPlayersBulk, updatePlayer, setAvailabilityStatus, removePlayer, removeAllPlayers };
+  return {
+    players,
+    addPlayersBulk,
+    addExistingPlayers,
+    updatePlayer,
+    setAvailabilityStatus,
+    removePlayer,
+    removePlayers,
+    removeAllPlayers,
+  };
 }

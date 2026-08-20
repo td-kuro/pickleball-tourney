@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useState } from 'react';
 import type { DynamicTeam, DynamicTeamQualifierSettings } from '../types';
 import { validateCheckedInTeams } from '../utils/dynamicTeamQualifier';
 import { DynamicTeamRestSchedulePreview } from './DynamicTeamRestSchedulePreview';
@@ -6,7 +6,6 @@ import { DynamicTeamRestSchedulePreview } from './DynamicTeamRestSchedulePreview
 interface DynamicTeamRosterProps {
   teams: DynamicTeam[];
   settings: DynamicTeamQualifierSettings;
-  onAddTeam: (playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onSetCheckedIn: (id: string, checkedIn: boolean) => void;
@@ -32,7 +31,6 @@ interface DynamicTeamRosterProps {
 export function DynamicTeamRoster({
   teams,
   settings,
-  onAddTeam,
   onAddTeamsBulk,
   onUpdateTeam,
   onSetCheckedIn,
@@ -57,14 +55,17 @@ export function DynamicTeamRoster({
 
   return (
     <>
-      <div className="setup-grid">
-        <DynamicTeamForm onAddTeam={onAddTeam} onAddTeamsBulk={onAddTeamsBulk} disabled={started} />
-
-        <section className="card">
-          <div className="section-heading-row">
-            <h2>Teams ({teams.length})</h2>
+      <section className="card">
+        <div className="section-heading-row">
+          <h2>Teams ({teams.length})</h2>
+          <div className="dtq-team-header-actions">
+            {!started && (
+              <button type="button" className="secondary" onClick={() => onAddTeamsBulk(1)}>
+                + Add Team
+              </button>
+            )}
             {teams.length > 0 && !started && (
-              <div className="dtq-team-header-actions">
+              <>
                 {uncheckedCount > 0 && (
                   <button type="button" className="secondary" onClick={onCheckInAllTeams}>
                     Check In All Teams
@@ -73,32 +74,36 @@ export function DynamicTeamRoster({
                 <button type="button" className="danger" onClick={handleRemoveAll}>
                   Remove All Teams
                 </button>
-              </div>
+              </>
             )}
           </div>
+        </div>
+        <p className="hint">
+          Dynamic Team Qualifier uses fixed doubles teams — the team, not the individual player, is the ranking and
+          pairing unit. Seed (optional) is used only as a ranking tiebreaker.
+        </p>
 
-          {teams.length === 0 ? (
-            <p className="empty-state">No teams yet. Add a team on the left.</p>
-          ) : (
-            <div className="player-list">
-              {teams.map((team) => (
-                <DynamicTeamRow
-                  key={team.id}
-                  team={team}
-                  onUpdate={onUpdateTeam}
-                  onSetCheckedIn={onSetCheckedIn}
-                  onRemove={onRemoveTeam}
-                  disabled={started}
-                />
-              ))}
-            </div>
-          )}
+        {teams.length === 0 ? (
+          <p className="empty-state">No teams yet. Click "+ Add Team" above.</p>
+        ) : (
+          <div className="player-list">
+            {teams.map((team) => (
+              <DynamicTeamRow
+                key={team.id}
+                team={team}
+                onUpdate={onUpdateTeam}
+                onSetCheckedIn={onSetCheckedIn}
+                onRemove={onRemoveTeam}
+                disabled={started}
+              />
+            ))}
+          </div>
+        )}
 
-          <p className="hint">
-            {checkedInCount} checked in of {teams.length} team{teams.length === 1 ? '' : 's'} registered.
-          </p>
-        </section>
-      </div>
+        <p className="hint">
+          {checkedInCount} checked in of {teams.length} team{teams.length === 1 ? '' : 's'} registered.
+        </p>
+      </section>
 
       {!started && <DynamicTeamRestSchedulePreview teams={teams} settings={settings} onRegenerate={onRegenerateSeed} />}
 
@@ -135,141 +140,6 @@ export function DynamicTeamRoster({
   );
 }
 
-interface DynamicTeamFormProps {
-  onAddTeam: (playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
-  onAddTeamsBulk: (count: number) => void;
-  disabled: boolean;
-}
-
-function DynamicTeamForm({ onAddTeam, onAddTeamsBulk, disabled }: DynamicTeamFormProps) {
-  const [playerAName, setPlayerAName] = useState('');
-  const [playerBName, setPlayerBName] = useState('');
-  const [rating, setRating] = useState('');
-  const [seed, setSeed] = useState('');
-  const [error, setError] = useState<string | null>(null);
-  const [bulkCount, setBulkCount] = useState('');
-  const bulkCountValue = parseInt(bulkCount, 10);
-  const id = useId();
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const trimmedA = playerAName.trim();
-    const trimmedB = playerBName.trim();
-    if (!trimmedA || !trimmedB) {
-      setError('Enter both player names.');
-      return;
-    }
-    const parsedRating = rating.trim() === '' ? undefined : parseFloat(rating);
-    if (parsedRating != null && (Number.isNaN(parsedRating) || parsedRating < 0)) {
-      setError('Rating must be a valid, non-negative number, or left blank.');
-      return;
-    }
-    const parsedSeed = seed.trim() === '' ? undefined : parseInt(seed, 10);
-    if (parsedSeed != null && (Number.isNaN(parsedSeed) || parsedSeed < 1)) {
-      setError('Seed must be a whole number of at least 1, or left blank.');
-      return;
-    }
-    setError(null);
-    onAddTeam(trimmedA, trimmedB, '', parsedRating, parsedSeed);
-    setPlayerAName('');
-    setPlayerBName('');
-    setRating('');
-    setSeed('');
-  }
-
-  function handleGenerateSlots(event: FormEvent) {
-    event.preventDefault();
-    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
-    onAddTeamsBulk(bulkCountValue);
-    setBulkCount('');
-  }
-
-  return (
-    <section className="card">
-      <h2>Add Team</h2>
-      <p className="hint">Dynamic Team Qualifier uses fixed doubles teams — the team, not the individual player, is the ranking and pairing unit. Each team's display name is derived from its two player names.</p>
-      <form className="player-form" onSubmit={handleSubmit}>
-        <div className="form-row">
-          <label htmlFor={`${id}-player-a`}>Player 1 name</label>
-          <input
-            id={`${id}-player-a`}
-            type="text"
-            value={playerAName}
-            onChange={(event) => setPlayerAName(event.target.value)}
-            placeholder="Player 1 name"
-            disabled={disabled}
-            required
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor={`${id}-player-b`}>Player 2 name</label>
-          <input
-            id={`${id}-player-b`}
-            type="text"
-            value={playerBName}
-            onChange={(event) => setPlayerBName(event.target.value)}
-            placeholder="Player 2 name"
-            disabled={disabled}
-            required
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor={`${id}-rating`}>Rating / DUPR (optional)</label>
-          <input
-            id={`${id}-rating`}
-            type="number"
-            step="0.1"
-            min="0"
-            value={rating}
-            onChange={(event) => setRating(event.target.value)}
-            placeholder="Unrated"
-            disabled={disabled}
-          />
-        </div>
-        <div className="form-row">
-          <label htmlFor={`${id}-seed`}>Seed (optional)</label>
-          <input
-            id={`${id}-seed`}
-            type="number"
-            min={1}
-            step={1}
-            value={seed}
-            onChange={(event) => setSeed(event.target.value)}
-            placeholder="e.g. 1 = strongest"
-            disabled={disabled}
-          />
-        </div>
-        {error && <p className="hint error">{error}</p>}
-        <div className="form-actions">
-          <button type="submit" disabled={disabled}>
-            Add Team
-          </button>
-        </div>
-      </form>
-
-      <div className="bulk-add">
-        <p className="bulk-add-label">Or generate multiple team slots</p>
-        <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
-          <input
-            type="number"
-            min={1}
-            value={bulkCount}
-            onChange={(event) => setBulkCount(event.target.value)}
-            placeholder="e.g. 8"
-            aria-label="Number of teams to generate"
-            disabled={disabled}
-          />
-          <button type="submit" className="secondary" disabled={disabled || Number.isNaN(bulkCountValue) || bulkCountValue < 1}>
-            Generate Team Slots
-          </button>
-        </form>
-      </div>
-
-      {disabled && <p className="hint">The roster is locked while qualifying is in progress — use Reset to start over.</p>}
-    </section>
-  );
-}
-
 interface DynamicTeamRowProps {
   team: DynamicTeam;
   onUpdate: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
@@ -281,10 +151,23 @@ interface DynamicTeamRowProps {
 function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onRemove, disabled }: DynamicTeamRowProps) {
   const [playerAName, setPlayerAName] = useState(team.playerAName);
   const [playerBName, setPlayerBName] = useState(team.playerBName);
+  const [rating, setRating] = useState(team.rating != null ? String(team.rating) : '');
+  const [seed, setSeed] = useState(team.seed != null ? String(team.seed) : '');
   const nameEditable = !team.partnerLocked && !disabled;
 
-  function commit() {
-    onUpdate(team.id, playerAName, playerBName, team.displayName === `${team.playerAName} / ${team.playerBName}` ? '' : team.displayName, team.rating, team.seed);
+  function commit(nextRating: string, nextSeed: string) {
+    const trimmedRating = nextRating.trim();
+    const parsedRating = trimmedRating === '' ? undefined : parseFloat(trimmedRating);
+    const trimmedSeed = nextSeed.trim();
+    const parsedSeed = trimmedSeed === '' ? undefined : parseInt(trimmedSeed, 10);
+    onUpdate(
+      team.id,
+      playerAName,
+      playerBName,
+      team.displayName === `${team.playerAName} / ${team.playerBName}` ? '' : team.displayName,
+      parsedRating != null && !Number.isNaN(parsedRating) ? parsedRating : undefined,
+      parsedSeed != null && !Number.isNaN(parsedSeed) ? parsedSeed : undefined,
+    );
   }
 
   return (
@@ -295,7 +178,7 @@ function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onRemove, disabled }: 
         className="player-row-name"
         value={playerAName}
         onChange={(event) => setPlayerAName(event.target.value)}
-        onBlur={commit}
+        onBlur={() => commit(rating, seed)}
         placeholder="Player 1"
         aria-label={`${team.teamCode} player 1 name`}
         disabled={!nameEditable}
@@ -305,10 +188,34 @@ function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onRemove, disabled }: 
         className="player-row-name"
         value={playerBName}
         onChange={(event) => setPlayerBName(event.target.value)}
-        onBlur={commit}
+        onBlur={() => commit(rating, seed)}
         placeholder="Player 2"
         aria-label={`${team.teamCode} player 2 name`}
         disabled={!nameEditable}
+      />
+      <input
+        type="number"
+        className="player-row-rating"
+        step="0.1"
+        min="0"
+        value={rating}
+        onChange={(event) => setRating(event.target.value)}
+        onBlur={() => commit(rating, seed)}
+        placeholder="Unrated"
+        aria-label={`${team.teamCode} rating`}
+        disabled={disabled}
+      />
+      <input
+        type="number"
+        className="player-row-rating"
+        min={1}
+        step={1}
+        value={seed}
+        onChange={(event) => setSeed(event.target.value)}
+        onBlur={() => commit(rating, seed)}
+        placeholder="Seed"
+        aria-label={`${team.teamCode} seed`}
+        disabled={disabled}
       />
       <label className="dtq-checkin-toggle" title={team.withdrawn ? 'Withdrawn teams cannot check in' : undefined}>
         <input

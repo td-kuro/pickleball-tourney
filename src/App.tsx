@@ -60,9 +60,46 @@ const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-
 const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standings', 'dtq-bracket', 'dtq-results'];
 
 function App() {
-  const { players, addPlayer, addPlayersBulk, updatePlayer, setAvailabilityStatus, removePlayer, removeAllPlayers } =
-    usePlayers();
-  const { teams, teamPlayers, addTeam, addTeamsBulk, updateTeam, removeTeam, removeAllTeams } = useTeams();
+  const {
+    players,
+    addPlayersBulk,
+    addExistingPlayers,
+    updatePlayer,
+    setAvailabilityStatus,
+    removePlayer,
+    removePlayers,
+    removeAllPlayers,
+  } = usePlayers();
+  const {
+    teams,
+    teamPlayers,
+    addTeamsBulk,
+    addTeamFromPlayers,
+    updateTeamPlayer,
+    removeTeam,
+    removeTeamKeepPlayers,
+    removeAllTeams,
+  } = useTeams();
+
+  // Promotes two already-added individual players into a fixed team — see
+  // ParticipantList's checkbox-select-two-players flow and
+  // useTeams.addTeamFromPlayers. A no-op if either id can't be found (e.g.
+  // a stale selection after one of the two was removed elsewhere).
+  function handleMakeTeam(player1Id: string, player2Id: string) {
+    const player1 = players.find((p) => p.id === player1Id);
+    const player2 = players.find((p) => p.id === player2Id);
+    if (!player1 || !player2) return;
+    addTeamFromPlayers(player1, player2);
+    removePlayers([player1Id, player2Id]);
+  }
+
+  // Undoes handleMakeTeam — see ParticipantList's "Split Team" button and
+  // useTeams.removeTeamKeepPlayers.
+  function handleUnmakeTeam(teamId: string) {
+    const result = removeTeamKeepPlayers(teamId);
+    if (!result) return;
+    addExistingPlayers(result);
+  }
   const {
     settings,
     updateSettings,
@@ -417,7 +454,6 @@ function App() {
             <>
               <KingCourtSetup
                 players={players}
-                onAddPlayer={addPlayer}
                 onAddPlayersBulk={addPlayersBulk}
                 onUpdatePlayer={updatePlayer}
                 onRemovePlayer={removePlayer}
@@ -457,7 +493,6 @@ function App() {
               settings={dynamicPairing.settings}
               onChangeSettings={dynamicPairing.updateSettings}
               players={dynamicPairing.players}
-              onAddPlayer={dynamicPairing.addPlayer}
               onAddPlayersBulk={dynamicPairing.addPlayersBulk}
               onUpdatePlayer={dynamicPairing.updatePlayer}
               onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
@@ -481,7 +516,6 @@ function App() {
               <DynamicTeamRoster
                 teams={dynamicTeamQualifier.teams}
                 settings={dynamicTeamQualifier.settings}
-                onAddTeam={dynamicTeamQualifier.addTeam}
                 onAddTeamsBulk={dynamicTeamQualifier.addTeamsBulk}
                 onUpdateTeam={dynamicTeamQualifier.updateTeam}
                 onSetCheckedIn={dynamicTeamQualifier.setCheckedIn}
@@ -503,17 +537,17 @@ function App() {
               <RosterSetup
                 settings={settings}
                 players={players}
-                onAddPlayer={addPlayer}
                 onAddPlayersBulk={addPlayersBulk}
                 onUpdatePlayer={updatePlayer}
                 onRemovePlayer={removePlayer}
                 onRemoveAllPlayers={removeAllPlayers}
                 teams={teams}
                 teamPlayers={teamPlayers}
-                onAddTeam={addTeam}
                 onAddTeamsBulk={addTeamsBulk}
-                onUpdateTeam={updateTeam}
+                onMakeTeam={handleMakeTeam}
+                onUpdateTeamPlayer={updateTeamPlayer}
                 onRemoveTeam={removeTeam}
+                onUnmakeTeam={handleUnmakeTeam}
                 onRemoveAllTeams={removeAllTeams}
               />
 

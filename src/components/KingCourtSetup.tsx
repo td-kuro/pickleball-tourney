@@ -1,13 +1,10 @@
-import { useState, type FormEvent } from 'react';
 import type { Player } from '../types';
 import { validateKingCourtSetup } from '../utils/kingCourt';
 import { CourtSelector } from './CourtSelector';
-import { PlayerForm } from './PlayerForm';
 import { PlayerList } from './PlayerList';
 
 interface KingCourtSetupProps {
   players: Player[];
-  onAddPlayer: (name: string, rating?: number) => void;
   onAddPlayersBulk: (count: number) => void;
   onUpdatePlayer: (id: string, name: string, rating?: number) => void;
   onRemovePlayer: (id: string) => void;
@@ -27,7 +24,6 @@ interface KingCourtSetupProps {
 // with Tournament/Social Play, see App.tsx.
 export function KingCourtSetup({
   players,
-  onAddPlayer,
   onAddPlayersBulk,
   onUpdatePlayer,
   onRemovePlayer,
@@ -36,16 +32,7 @@ export function KingCourtSetup({
   onNumberOfCourtsChange,
   locked,
 }: KingCourtSetupProps) {
-  const [bulkCount, setBulkCount] = useState('');
-  const bulkCountValue = parseInt(bulkCount, 10);
   const setupCheck = validateKingCourtSetup(players, numberOfCourts);
-
-  function handleGenerateSlots(event: FormEvent) {
-    event.preventDefault();
-    if (Number.isNaN(bulkCountValue) || bulkCountValue < 1) return;
-    onAddPlayersBulk(bulkCountValue);
-    setBulkCount('');
-  }
 
   function handleRemoveAllPlayers() {
     if (window.confirm('Are you sure you want to remove all players?')) {
@@ -73,42 +60,23 @@ export function KingCourtSetup({
       </section>
 
       {!locked && (
-        <div className="setup-grid">
-          <section className="card">
-            <h2>Add Player</h2>
-            <p className="hint">Total players should equal courts × 5 (e.g. 6 courts needs 30 players).</p>
-            <PlayerForm onSubmit={onAddPlayer} />
-
-            <div className="bulk-add">
-              <p className="bulk-add-label">Or generate multiple player slots</p>
-              <form className="bulk-add-form" onSubmit={handleGenerateSlots}>
-                <input
-                  type="number"
-                  min={1}
-                  value={bulkCount}
-                  onChange={(event) => setBulkCount(event.target.value)}
-                  placeholder="e.g. 15"
-                  aria-label="Number of players to generate"
-                />
-                <button type="submit" className="secondary" disabled={Number.isNaN(bulkCountValue) || bulkCountValue < 1}>
-                  Generate Player Slots
-                </button>
-              </form>
-            </div>
-          </section>
-
-          <section className="card">
-            <div className="section-heading-row">
-              <h2>Players ({players.length})</h2>
+        <section className="card">
+          <div className="section-heading-row">
+            <h2>Players ({players.length})</h2>
+            <div className="participant-header-actions">
+              <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
+                + Add Player
+              </button>
               {players.length > 0 && (
                 <button type="button" className="danger" onClick={handleRemoveAllPlayers}>
                   Remove All Players
                 </button>
               )}
             </div>
-            <PlayerList players={players} onUpdate={onUpdatePlayer} onRemove={onRemovePlayer} />
-          </section>
-        </div>
+          </div>
+          <p className="hint">Total players should equal courts × 5 (e.g. 6 courts needs 30 players).</p>
+          <PlayerList players={players} onUpdate={onUpdatePlayer} onRemove={onRemovePlayer} />
+        </section>
       )}
 
       {locked && (
