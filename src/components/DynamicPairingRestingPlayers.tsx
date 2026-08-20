@@ -3,11 +3,20 @@ import type { DynamicPairingRound, Player, PlayerAvailabilityStatus, SessionAdju
 import {
   calculateDynamicPairingStats,
   dynamicPairingAvailabilityLabel,
+  isPlayerAvailable,
   playedDynamicPairingRounds,
 } from '../utils/dynamicPairingSocial';
+// canIncreaseCourts is pure arithmetic (newCourts/currentCourts/perCourt/
+// availableCount in, ok/reason out) with no Player/Round coupling, so
+// reusing it here doesn't pull Standard Social Play state into this mode —
+// see utils/tournament.ts's file comment on why this one function is
+// shared rather than duplicated.
+import { canIncreaseCourts } from '../utils/tournament';
 import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
+
+const PLAYERS_PER_COURT = 4; // Dynamic Pairing Social is doubles-only.
 
 interface DynamicPairingRestingPlayersProps {
   players: Player[];
@@ -61,8 +70,14 @@ export function DynamicPairingRestingPlayers({
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
 
+  // See SessionControls' identical check — 12 players / 2 courts with 4
+  // resting can go to 3 (needs 12, has 12); 10 players / 2 courts with 2
+  // resting can't (needs 12, has 10).
+  const availableCount = players.filter(isPlayerAvailable).length;
+  const courtsCheck = canIncreaseCourts(pendingCourts, numberOfCourts, PLAYERS_PER_COURT, availableCount);
+
   function handleApplyCourts() {
-    if (pendingCourts === numberOfCourts) return;
+    if (pendingCourts === numberOfCourts || !courtsCheck.ok) return;
     const message =
       pendingCourts > numberOfCourts
         ? `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} courts? This will apply from the next round.`
@@ -101,7 +116,12 @@ export function DynamicPairingRestingPlayers({
         <div className="form-row">
           <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
           <div className="session-controls-actions">
-            <button type="button" className="secondary" onClick={handleApplyCourts} disabled={pendingCourts === numberOfCourts}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleApplyCourts}
+              disabled={pendingCourts === numberOfCourts || !courtsCheck.ok}
+            >
               Change Courts
             </button>
             <p className="hint">
@@ -109,6 +129,7 @@ export function DynamicPairingRestingPlayers({
               Locked/completed rounds are never changed.
             </p>
           </div>
+          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
         </div>
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>

@@ -20,6 +20,7 @@ interface KingCourtRoundsPageProps {
   onConfirmMovement: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
+  onChangeCourts: (newCourts: number) => void;
 }
 
 // Parent for King Court's "Rounds" tab: a Current Round / All Rounds
@@ -43,6 +44,7 @@ export function KingCourtRoundsPage({
   onConfirmMovement,
   onSetAvailability,
   onSubstitute,
+  onChangeCourts,
 }: KingCourtRoundsPageProps) {
   const [subView, setSubView] = useState<KingCourtRoundsSubView>('current');
 
@@ -82,9 +84,11 @@ export function KingCourtRoundsPage({
           <KingCourtManageCourts
             players={players}
             currentCycle={currentCycle}
+            numberOfCourts={numberOfCourts}
             sessionAdjustments={sessionAdjustments}
             onSetAvailability={onSetAvailability}
             onSubstitute={onSubstitute}
+            onChangeCourts={onChangeCourts}
             confirmError={confirmError}
           />
         </>

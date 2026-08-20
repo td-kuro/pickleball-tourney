@@ -139,6 +139,52 @@ export function availabilityStatusLabel(status: PlayerAvailabilityStatus): strin
   }
 }
 
+// Filters a roster down to who's actually schedulable right now — a fixed
+// team needs *both* players available, since there's no automatic 1-player
+// split (same reason canSwapPlayerInRound/isFixedTeamSide refuse to split
+// one for a swap). The one place useTournament's round generation and
+// SessionControls' court-capacity check both funnel through, so "how many
+// people can actually take a court right now" can never disagree between
+// what generates a round and what the UI warns about beforehand.
+export function filterSchedulableRoster(players: Player[], teams: Team[], teamPlayers: Player[]) {
+  const availablePlayers = players.filter(isPlayerAvailableForScheduling);
+  const availableTeamPlayers = teamPlayers.filter(isPlayerAvailableForScheduling);
+  const availableTeamPlayerIds = new Set(availableTeamPlayers.map((p) => p.id));
+  const availableTeams = teams.filter((team) => team.playerIds.every((id) => availableTeamPlayerIds.has(id)));
+  return { availablePlayers, availableTeams, availableTeamPlayers };
+}
+
+// Total individual humans who could actually take a court right now — a
+// fixed team counts as 2 (both members), matching canGenerateRound's
+// "players" convention (see App.tsx's effectivePlayers).
+export function countAvailableForScheduling(players: Player[], teams: Team[], teamPlayers: Player[]): number {
+  const { availablePlayers, availableTeams } = filterSchedulableRoster(players, teams, teamPlayers);
+  return availablePlayers.length + availableTeams.length * 2;
+}
+
+// "Can the organiser raise the court count to `newCourts` right now?" — see
+// README's "Mid-session player and court changes": increasing courts needs
+// enough *available* players to fill every one of them (`newCourts *
+// playersPerCourt`), not just enough registered in the roster. Only ever
+// blocks an *increase* — reducing courts (or leaving it the same) never has
+// a capacity problem, it just changes who's on bye.
+export function canIncreaseCourts(
+  newCourts: number,
+  currentCourts: number,
+  playersPerCourt: number,
+  availableCount: number,
+): { ok: true } | { ok: false; reason: string } {
+  if (newCourts <= currentCourts) return { ok: true };
+  const needed = newCourts * playersPerCourt;
+  if (needed > availableCount) {
+    return {
+      ok: false,
+      reason: `Not enough available players to add a court — ${newCourts} courts need ${needed} players, but only ${availableCount} are available.`,
+    };
+  }
+  return { ok: true };
+}
+
 // --- Swapping an active player with a bye player, mid-round --------------
 // A live edit to the current round's already-generated data (never a
 // regeneration) — see README's "Mid-session player and court changes".

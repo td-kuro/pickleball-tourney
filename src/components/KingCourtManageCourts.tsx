@@ -1,15 +1,23 @@
 import { useState } from 'react';
 import type { KingCourtCycle, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
-import { availabilityStatusLabel } from '../utils/tournament';
+// canIncreaseCourts is pure arithmetic, no Player/Round coupling — see
+// DynamicPairingRestingPlayers' identical import for why sharing just this
+// one function doesn't pull Standard Social Play state into King Court.
+import { availabilityStatusLabel, canIncreaseCourts, isPlayerAvailableForScheduling } from '../utils/tournament';
 import { availableSubstitutes, playerHasRemainingGamesOnCourt } from '../utils/kingCourt';
+import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
+
+const PLAYERS_PER_COURT = 5; // King Court's fixed court size.
 
 interface KingCourtManageCourtsProps {
   players: Player[];
   currentCycle: KingCourtCycle;
+  numberOfCourts: number;
   sessionAdjustments: SessionAdjustment[];
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
+  onChangeCourts: (newCourts: number) => void;
   confirmError: string | null;
 }
 
@@ -28,14 +36,39 @@ interface KingCourtManageCourtsProps {
 export function KingCourtManageCourts({
   players,
   currentCycle,
+  numberOfCourts,
   sessionAdjustments,
   onSetAvailability,
   onSubstitute,
+  onChangeCourts,
   confirmError,
 }: KingCourtManageCourtsProps) {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
+  const [pendingCourts, setPendingCourts] = useState(numberOfCourts);
   const nameById = new Map(players.map((p) => [p.id, p.name]));
   const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
+
+  // "Add a court" needs 5 available players to seed it — see
+  // canIncreaseCourts's file comment. Raising numberOfCourts here just
+  // updates the target; the organiser still has to place 5 players on the
+  // new court number via the Movement Preview's per-player "move to court"
+  // override before the next cycle can start (validateNextCycleAssignments
+  // — surfaced as confirmError below — blocks it otherwise).
+  const availableCount = players.filter(isPlayerAvailableForScheduling).length;
+  const courtsCheck = canIncreaseCourts(pendingCourts, numberOfCourts, PLAYERS_PER_COURT, availableCount);
+
+  function handleApplyCourts() {
+    if (pendingCourts === numberOfCourts || !courtsCheck.ok) return;
+    const message =
+      pendingCourts > numberOfCourts
+        ? `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} courts? Seed the new court with 5 players via the Movement Preview's court override before the next cycle starts.`
+        : `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} court${pendingCourts === 1 ? '' : 's'}? Players on the removed court will need to be manually redistributed before the next cycle starts.`;
+    if (!window.confirm(message)) {
+      setPendingCourts(numberOfCourts);
+      return;
+    }
+    onChangeCourts(pendingCourts);
+  }
 
   const warnings = players
     .filter((p) => {
@@ -54,9 +87,13 @@ export function KingCourtManageCourts({
     <>
       {confirmError && <p className="hint error">{confirmError}</p>}
 
-      {lastNotice?.type === 'player-swapped' && !noticeDismissed && (
+      {lastNotice && (lastNotice.type === 'player-swapped' || lastNotice.type === 'court-count-changed') && !noticeDismissed && (
         <div className="session-adjustment-notice">
-          <span className="hint">A player substitution was made this cycle.</span>
+          <span className="hint">
+            {lastNotice.type === 'player-swapped'
+              ? 'A player substitution was made this cycle.'
+              : `Court count changed to ${lastNotice.newValue} — takes effect at the next cycle boundary.`}
+          </span>
           <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
             Dismiss
           </button>
@@ -65,6 +102,23 @@ export function KingCourtManageCourts({
 
       <section className="card">
         <h2>Manage Courts / Players</h2>
+
+        <div className="form-row">
+          <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
+          <div className="session-controls-actions">
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleApplyCourts}
+              disabled={pendingCourts === numberOfCourts || !courtsCheck.ok}
+            >
+              Change Courts
+            </button>
+            <p className="hint">Takes effect at the next cycle boundary — the current cycle's games are never reshuffled.</p>
+          </div>
+          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
+        </div>
+
         {warnings.length > 0 && (
           <div className="hint error">
             {warnings.map(({ player, courtNumber }) => (

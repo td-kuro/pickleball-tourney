@@ -37,7 +37,7 @@ import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
-import { canGenerateRound, isFixedTeamsMode } from './utils/tournament';
+import { canGenerateRound, isFixedTeamsMode, playersNeededPerMatch } from './utils/tournament';
 
 type View =
   | 'setup'
@@ -561,6 +561,7 @@ function App() {
           }}
           onSetAvailability={setAvailabilityStatus}
           onSubstitute={kingCourt.substitutePlayer}
+          onChangeCourts={kingCourt.changeCourtsSession}
         />
       )}
 
@@ -670,6 +671,8 @@ function App() {
               <SessionControls
                 players={players}
                 teams={teams}
+                teamPlayers={teamPlayers}
+                playersPerCourt={playersNeededPerMatch(settings.matchType)}
                 currentRound={rounds.find((round) => round.status === 'current')}
                 courts={settings.courts}
                 sessionAdjustments={sessionAdjustments}

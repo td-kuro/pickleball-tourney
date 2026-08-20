@@ -5,7 +5,7 @@ import {
   calculateSessionPlan,
   canSwapPlayerInRound,
   DEFAULT_SESSION_TIMING,
-  isPlayerAvailableForScheduling,
+  filterSchedulableRoster,
   swapPlayerInRound,
 } from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
@@ -85,21 +85,6 @@ export function useTournament() {
     ]);
   }
 
-  // Filters a roster down to who's actually schedulable right now — a
-  // fixed team needs *both* players available, since there's no automatic
-  // 1-player split (same reason canSwapPlayerInRound/isFixedTeamSide
-  // refuse to split one for a swap). Shared by every round-generation path
-  // below, so a player marked left-early/injured/unavailable/resting-this-
-  // round is never dealt into a new round no matter which entry point
-  // generated it.
-  function filterAvailable(players: Player[], teams: Team[], teamPlayers: Player[]) {
-    const availablePlayers = players.filter(isPlayerAvailableForScheduling);
-    const availableTeamPlayers = teamPlayers.filter(isPlayerAvailableForScheduling);
-    const availableTeamPlayerIds = new Set(availableTeamPlayers.map((p) => p.id));
-    const availableTeams = teams.filter((team) => team.playerIds.every((id) => availableTeamPlayerIds.has(id)));
-    return { availablePlayers, availableTeams, availableTeamPlayers };
-  }
-
   // The one place every round of Leaderboard/Social Play actually gets
   // built, regardless of match type or roster shape (see
   // generateLeaderboardRound in utils/pairing.ts, which picks the right
@@ -118,7 +103,7 @@ export function useTournament() {
   ): Round {
     const pairingStyle =
       withSettings.playMode === 'tournament' && withSettings.tournamentFormat === 'leaderboard' ? withSettings.pairingStyle : 'balanced';
-    const { availablePlayers, availableTeams, availableTeamPlayers } = filterAvailable(players, teams, teamPlayers);
+    const { availablePlayers, availableTeams, availableTeamPlayers } = filterSchedulableRoster(players, teams, teamPlayers);
     return generateLeaderboardRound(
       availablePlayers,
       availableTeams,

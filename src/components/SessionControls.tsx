@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Player, PlayerAvailabilityStatus, Round, SessionAdjustment, Team } from '../types';
-import { availabilityStatusLabel, isFixedTeamSide } from '../utils/tournament';
+import { availabilityStatusLabel, canIncreaseCourts, countAvailableForScheduling, isFixedTeamSide } from '../utils/tournament';
 import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
@@ -11,6 +11,11 @@ interface SessionControlsProps {
   // players, see isFixedTeamSide below.
   players: Player[];
   teams: Team[];
+  // The players embedded in `teams` (see App.tsx's teamPlayers) — needed
+  // alongside `players`/`teams` only for the court-capacity check below
+  // (countAvailableForScheduling), which counts a fixed team as 2.
+  teamPlayers: Player[];
+  playersPerCourt: number;
   currentRound: Round | undefined;
   courts: number;
   sessionAdjustments: SessionAdjustment[];
@@ -29,6 +34,8 @@ interface SessionControlsProps {
 export function SessionControls({
   players,
   teams,
+  teamPlayers,
+  playersPerCourt,
   currentRound,
   courts,
   sessionAdjustments,
@@ -43,8 +50,15 @@ export function SessionControls({
   const currentRoundHasScores = currentRound?.matches.some((m) => m.scoreA != null || m.scoreB != null) ?? false;
   const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
 
+  // "Add a court" needs enough *available* players to actually fill it —
+  // e.g. 12 players / 2 courts with 4 on bye can go to 3 courts (needs 12,
+  // has 12); 10 players / 2 courts with 2 on bye can't (needs 12, has 10).
+  // See README's "Mid-session player and court changes".
+  const availableCount = countAvailableForScheduling(players, teams, teamPlayers);
+  const courtsCheck = canIncreaseCourts(pendingCourts, courts, playersPerCourt, availableCount);
+
   function handleApplyCourts() {
-    if (pendingCourts === courts) return;
+    if (pendingCourts === courts || !courtsCheck.ok) return;
     const message =
       pendingCourts > courts
         ? `Change from ${courts} court${courts === 1 ? '' : 's'} to ${pendingCourts} courts? This will apply from the next round.`
@@ -96,11 +110,17 @@ export function SessionControls({
         <div className="form-row">
           <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
           <div className="session-controls-actions">
-            <button type="button" className="secondary" onClick={handleApplyCourts} disabled={pendingCourts === courts}>
+            <button
+              type="button"
+              className="secondary"
+              onClick={handleApplyCourts}
+              disabled={pendingCourts === courts || !courtsCheck.ok}
+            >
               Change Courts
             </button>
             <p className="hint">Applies from the next round by default; completed and locked rounds are never changed.</p>
           </div>
+          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
         </div>
 
         <div className="form-row">

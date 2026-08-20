@@ -45,6 +45,20 @@ export function useKingCourt() {
     ]);
   }
 
+  // Mid-session "Change Courts" — a thin wrapper over the plain
+  // setNumberOfCourts setter (still used as-is by pre-session Setup, which
+  // shouldn't log a session adjustment) that also records the change. Takes
+  // effect at the next cycle boundary: confirmMovementAndAdvance's
+  // validateNextCycleAssignments check is what actually enforces "every
+  // court still has exactly 5" once the organiser gets there — this just
+  // updates the target and the court-option range the Movement Preview's
+  // per-player override offers.
+  function changeCourtsSession(newCourts: number) {
+    if (newCourts === numberOfCourts) return;
+    logAdjustment('court-count-changed', { oldValue: String(numberOfCourts), newValue: String(newCourts) });
+    setNumberOfCourts(newCourts);
+  }
+
   // --- Seeding (pre-Cycle-1) ----------------------------------------------
 
   // Backstop against a full court even if a caller skips CourtSeeding's own
@@ -239,6 +253,7 @@ export function useKingCourt() {
   return {
     numberOfCourts,
     setNumberOfCourts,
+    changeCourtsSession,
     assignments,
     assignPlayerToCourt,
     reorderPlayerInCourt,
