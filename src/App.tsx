@@ -37,7 +37,7 @@ import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
-import { canGenerateRound, isFixedTeamsMode, playersNeededPerMatch } from './utils/tournament';
+import { canGenerateRound, playersNeededPerMatch } from './utils/tournament';
 
 type View =
   | 'setup'
@@ -70,16 +70,8 @@ function App() {
     removePlayers,
     removeAllPlayers,
   } = usePlayers();
-  const {
-    teams,
-    teamPlayers,
-    addTeamsBulk,
-    addTeamFromPlayers,
-    updateTeamPlayer,
-    removeTeam,
-    removeTeamKeepPlayers,
-    removeAllTeams,
-  } = useTeams();
+  const { teams, teamPlayers, addTeamFromPlayers, updateTeamPlayer, removeTeam, removeTeamKeepPlayers, removeAllTeams } =
+    useTeams();
 
   // Promotes two already-added individual players into a fixed team — see
   // ParticipantList's checkbox-select-two-players flow and
@@ -128,38 +120,26 @@ function App() {
   // rather than reusing usePlayers/useTeams/useTournament, so it can't affect
   // any other mode's data.
   const isDynamicPairingSocial = settings.playMode === 'social' && settings.socialFormat === 'dynamic-pairing-social';
-  // Pools & Knockout still needs an exclusive choice between auto-paired
-  // players and declared teams (see formTeams/usePoolsKnockout) — that's
-  // still settings.doublesPairingMode, unaffected by the rest of this.
-  const isPoolsKnockoutFixedTeams = isFixedTeamsMode(settings);
-  // Leaderboard/Social Play Doubles, by contrast, let Add Player and Add
-  // Team be used together (see ParticipantSetup) — so "fixed teams only"
-  // and "mixed" are just two of the three shapes the roster can take
-  // there, not an exclusive mode switch. `isDoublesFixedOnly` keeps the
-  // original Fixed Teams-only behaviour (Team Leaderboard/Dedicated
-  // Pairing Stats — see FixedTeamResults) for the common case where no
-  // individual players were added at all.
+  // Doubles roster shape: "fixed teams only" and "mixed" are two of the
+  // three shapes the Participants roster can take (see ParticipantSetup),
+  // not an exclusive mode switch. `isDoublesFixedOnly` keeps the original
+  // Fixed Teams-only behaviour (Team Leaderboard/Dedicated Pairing Stats —
+  // see FixedTeamResults) for the common case where no individual players
+  // were added at all. Pools & Knockout also uses the mixed Participants
+  // roster now (see RosterSetup), but keeps its own separate labelling —
+  // it's never "Team Leaderboard"/"Pairing Stats", so isDoublesFixedOnly
+  // stays scoped to Leaderboard/Social Play only.
   const isDoublesFixedOnly = !isPoolsKnockout && settings.matchType === 'doubles' && teams.length > 0 && players.length === 0;
-  const isMixedDoubles = !isPoolsKnockout && settings.matchType === 'doubles' && teams.length > 0 && players.length > 0;
   const isFixedTeams = isDoublesFixedOnly;
   // Whichever roster the current mode actually plays with: individual
-  // players for Singles/Rotating Doubles, the players embedded in each
-  // fixed team for Doubles + Fixed Teams-only, or the union of both for
-  // mixed Doubles (every human who can take the court, regardless of
-  // whether they came from the player list or a declared team — see
-  // canGenerateRound/generateMixedDoublesRound) — see useTeams and
-  // utils/pairing.ts. Pools & Knockout keeps its own separate exclusive
-  // logic. King Court always uses the plain player list (see
-  // KingCourtSetup).
-  const effectivePlayers = isPoolsKnockout
-    ? isPoolsKnockoutFixedTeams
-      ? teamPlayers
-      : players
-    : isDoublesFixedOnly
-      ? teamPlayers
-      : isMixedDoubles
-        ? [...players, ...teamPlayers]
-        : players;
+  // players for Singles, the players embedded in each fixed team for
+  // Doubles + Fixed Teams-only, or the union of both otherwise — every
+  // human who can take the court, regardless of whether they came from the
+  // player list or a declared team (see canGenerateRound/
+  // generateMixedDoublesRound and validatePoolsKnockoutSetup/formTeams,
+  // which combine the same way) — see useTeams and utils/pairing.ts. King
+  // Court always uses the plain player list (see KingCourtSetup).
+  const effectivePlayers = isDoublesFixedOnly ? teamPlayers : [...players, ...teamPlayers];
   // Surfaces confirmMovementAndAdvance's validation failure (e.g. a court
   // left short by an availability change) — see KingCourtManageCourts.
   const [kcConfirmError, setKcConfirmError] = useState<string | null>(null);
@@ -192,7 +172,7 @@ function App() {
           : rounds.length > 0;
   const reachedRounds = rounds.filter((round) => round.status !== 'upcoming');
   const startCheck = isPoolsKnockout
-    ? validatePoolsKnockoutSetup(effectivePlayers, settings, teams)
+    ? validatePoolsKnockoutSetup(players, settings, teams, teamPlayers)
     : canGenerateRound(effectivePlayers, settings, undefined, teams);
   const resultsLabel = isPoolsKnockout
     ? 'Final Results'
@@ -446,7 +426,8 @@ function App() {
           <TournamentSetup
             settings={settings}
             onChange={updateSettings}
-            rosterCount={isFixedTeams ? teams.length : players.length}
+            playerCount={players.length}
+            fixedTeamCount={teams.length}
             tournamentInProgress={started}
           />
 
@@ -543,7 +524,6 @@ function App() {
                 onRemoveAllPlayers={removeAllPlayers}
                 teams={teams}
                 teamPlayers={teamPlayers}
-                onAddTeamsBulk={addTeamsBulk}
                 onMakeTeam={handleMakeTeam}
                 onUpdateTeamPlayer={updateTeamPlayer}
                 onRemoveTeam={removeTeam}

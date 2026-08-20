@@ -17,18 +17,20 @@ interface ParticipantSetupProps {
   onRemoveAllParticipants: () => void;
 }
 
-// Doubles + Leaderboard/Social Play roster setup: individual players and
-// fixed teams live together in one Participants list (rather than
-// RosterSetup's older Pools & Knockout-only exclusive toggle), since a
-// mixed roster is a first-class setup here. There's no separate Add
+// Doubles roster setup for every tournament/social format (Leaderboard,
+// Social Play, and Pools & Knockout alike — see RosterSetup): individual
+// players and fixed teams live together in one Participants list, since a
+// mixed roster is a first-class setup everywhere. There's no separate Add
 // Player/Add Team form — "+ Add Player" below adds one "Player N" slot
 // immediately (via onAddPlayersBulk(1), same auto-naming as the old bulk
 // generator), since every row is already editable in place (see
 // ParticipantList/PlayerRow) — typing a name into a modal first would just
 // be a redundant extra step. A team is made by checking two player rows in
 // ParticipantList and confirming (see onMakeTeam / useTeams.
-// addTeamFromPlayers). See utils/pairing.ts's generateMixedDoublesRound,
-// and ParticipantList for how both kinds show up together below.
+// addTeamFromPlayers). See utils/pairing.ts's generateMixedDoublesRound and
+// utils/poolsKnockout.ts's formTeams (which combines fixed teams with
+// auto-paired individuals the same way Leaderboard/Social does), and
+// ParticipantList for how both kinds show up together below.
 export function ParticipantSetup({
   settings,
   players,
@@ -43,6 +45,7 @@ export function ParticipantSetup({
   onUnmakeTeam,
   onRemoveAllParticipants,
 }: ParticipantSetupProps) {
+  const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const perCourt = playersNeededPerMatch(settings.matchType);
   const maxPlayers = maxPlayersForRound(settings);
   const totalParticipants = players.length + teams.length * 2;
@@ -57,20 +60,15 @@ export function ParticipantSetup({
     <section className="card">
       <div className="section-heading-row">
         <h2>Participants ({players.length + teams.length})</h2>
-        <div className="participant-header-actions">
-          <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
-            + Add Player
-          </button>
-          {(players.length > 0 || teams.length > 0) && (
-            <button type="button" className="danger" onClick={handleRemoveAll}>
-              Remove All Participants
-            </button>
-          )}
-        </div>
+        <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
+          + Add Player
+        </button>
       </div>
       <p className="hint">
-        Individual players get grouped into temporary teams each round. Check any two players below to lock them
-        together as a fixed team.
+        {isPoolsKnockout
+          ? 'Individual players are automatically paired into teams when the tournament starts.'
+          : 'Individual players get grouped into temporary teams each round.'}{' '}
+        Check any two players below to lock them together as a fixed team.
       </p>
 
       <ParticipantList
@@ -89,6 +87,13 @@ export function ParticipantSetup({
         players per round ({totalParticipants} player{totalParticipants === 1 ? '' : 's'} total — {players.length}{' '}
         individual, {teams.length} team{teams.length === 1 ? '' : 's'}).
       </p>
+      {(players.length > 0 || teams.length > 0) && (
+        <div className="section-footer-actions">
+          <button type="button" className="danger" onClick={handleRemoveAll}>
+            Remove All Participants
+          </button>
+        </div>
+      )}
     </section>
   );
 }

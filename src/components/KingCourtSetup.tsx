@@ -63,19 +63,19 @@ export function KingCourtSetup({
         <section className="card">
           <div className="section-heading-row">
             <h2>Players ({players.length})</h2>
-            <div className="participant-header-actions">
-              <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
-                + Add Player
-              </button>
-              {players.length > 0 && (
-                <button type="button" className="danger" onClick={handleRemoveAllPlayers}>
-                  Remove All Players
-                </button>
-              )}
-            </div>
+            <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
+              + Add Player
+            </button>
           </div>
           <p className="hint">Total players should equal courts × 5 (e.g. 6 courts needs 30 players).</p>
           <PlayerList players={players} onUpdate={onUpdatePlayer} onRemove={onRemovePlayer} />
+          {players.length > 0 && (
+            <div className="section-footer-actions">
+              <button type="button" className="danger" onClick={handleRemoveAllPlayers}>
+                Remove All Players
+              </button>
+            </div>
+          )}
         </section>
       )}
 

@@ -73,14 +73,6 @@ export interface SessionAdjustment {
 
 export type MatchType = 'singles' | 'doubles';
 
-// Only meaningful when MatchType is 'doubles':
-// - 'rotating-players': the original behaviour — partners and opponents
-//   are re-formed every round for fair variety (see createRound).
-// - 'fixed-teams': pre-declared 2-player Teams (see Team below) stay
-//   together for the whole tournament/session — only the opponent
-//   rotates. See createFixedTeamRound in utils/tournament.ts.
-export type DoublesPairingMode = 'rotating-players' | 'fixed-teams';
-
 // Tournament Mode is competitive (points/wins/losses, ranked leaderboard).
 // Social Play Mode is casual — same fair rotation/pairing engine, but
 // ranking is de-emphasised and scoring is configurable (see
@@ -231,13 +223,6 @@ export interface TournamentSettings {
   // Knockout, where they're ignored), same rationale as socialScoringMode.
   tournamentFormat: TournamentFormat;
   poolKnockoutSettings: PoolKnockoutSettings;
-  // Only meaningful for Doubles + Pools & Knockout now — Leaderboard and
-  // Social Play let Add Player and Add Team be used together (see
-  // ParticipantSetup) instead of picking one exclusively, so this field no
-  // longer gates their roster UI. Kept for Pools & Knockout, which still
-  // needs an exclusive choice between auto-paired players and declared
-  // teams — see isFixedTeamsMode/formTeams.
-  doublesPairingMode: DoublesPairingMode;
   // Tournament Mode + Leaderboard format only — ignored elsewhere, same
   // rationale as socialScoringMode above. See PairingStyle.
   pairingStyle: PairingStyle;

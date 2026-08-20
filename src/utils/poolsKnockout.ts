@@ -47,17 +47,18 @@ export function teamsNeededFor(settings: PoolKnockoutSettings): number {
 // exactly enough players, not "at least". Keeping it exact avoids having
 // to decide which extra players silently sit out.
 //
-// `players` should be the roster relevant to the current mode (see
-// canGenerateRound in utils/tournament.ts for the same convention): the
-// regular player list normally, or useTeams's `teamPlayers` when Doubles +
-// Fixed Teams is active — in which case `fixedTeams` (useTeams's `teams`)
-// is what actually gets checked against the pool configuration, since
-// those teams are used directly rather than auto-paired from `players`
-// (see formTeams / usePoolsKnockout.startPoolStage).
+// `players` is the individual-player roster (usePlayers) — for Doubles,
+// these are auto-paired two at a time into teams when the tournament
+// starts (see formTeams / usePoolsKnockout.startPoolStage), same as any
+// other Doubles mode's mixed Participants roster. `fixedTeams` (useTeams's
+// `teams`) are used directly instead, alongside those auto-paired teams;
+// `teamPlayers` is their backing player list, checked here for blank
+// names the same way `players` is.
 export function validatePoolsKnockoutSetup(
   players: Player[],
   settings: TournamentSettings,
   fixedTeams: Team[] = [],
+  teamPlayers: Player[] = [],
 ): { ok: true } | { ok: false; reason: string } {
   const pk = settings.poolKnockoutSettings;
 
@@ -76,39 +77,45 @@ export function validatePoolsKnockoutSetup(
     return { ok: false, reason: 'At least 2 teams total must advance to the knockout bracket.' };
   }
 
-  const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
   const teamsNeeded = teamsNeededFor(pk);
 
-  if (useFixedTeams) {
+  if (settings.matchType === 'singles') {
     if (players.some((player) => player.name.trim() === '')) {
-      return { ok: false, reason: 'Every team needs both player names before starting matches.' };
+      return { ok: false, reason: 'Every player needs a name before starting matches.' };
     }
-    if (fixedTeams.length !== teamsNeeded) {
+    if (players.length !== teamsNeeded) {
       return {
         ok: false,
         reason:
-          `Pools & Knockout needs exactly ${teamsNeeded} team${teamsNeeded === 1 ? '' : 's'} for ` +
+          `Pools & Knockout needs exactly ${teamsNeeded} player${teamsNeeded === 1 ? '' : 's'} for ` +
           `${pk.numberOfPools} pool${pk.numberOfPools === 1 ? '' : 's'} × ${pk.teamsPerPool} teams. ` +
-          `You have ${fixedTeams.length}.`,
+          `You have ${players.length}.`,
       };
     }
     return { ok: true };
   }
 
-  if (players.some((player) => player.name.trim() === '')) {
+  if (players.some((player) => player.name.trim() === '') || teamPlayers.some((player) => player.name.trim() === '')) {
     return { ok: false, reason: 'Every player needs a name before starting matches.' };
   }
+  if (players.length % 2 !== 0) {
+    return {
+      ok: false,
+      reason: `${players.length} individual players can't be paired up evenly — add one more, or check two players to make a team.`,
+    };
+  }
 
-  const perTeam = playersPerTeam(settings.matchType);
-  const playersNeeded = teamsNeeded * perTeam;
+  const teamsFromPlayers = players.length / 2;
+  const totalTeams = fixedTeams.length + teamsFromPlayers;
 
-  if (players.length !== playersNeeded) {
+  if (totalTeams !== teamsNeeded) {
     return {
       ok: false,
       reason:
-        `Pools & Knockout needs exactly ${playersNeeded} player${playersNeeded === 1 ? '' : 's'} ` +
-        `(${teamsNeeded} team${teamsNeeded === 1 ? '' : 's'} of ${perTeam}) for ${pk.numberOfPools} ` +
-        `pool${pk.numberOfPools === 1 ? '' : 's'} × ${pk.teamsPerPool} teams. You have ${players.length}.`,
+        `Pools & Knockout needs exactly ${teamsNeeded} team${teamsNeeded === 1 ? '' : 's'} for ` +
+        `${pk.numberOfPools} pool${pk.numberOfPools === 1 ? '' : 's'} × ${pk.teamsPerPool} teams. ` +
+        `You have ${totalTeams} (${fixedTeams.length} fixed team${fixedTeams.length === 1 ? '' : 's'} + ` +
+        `${players.length} individual player${players.length === 1 ? '' : 's'} → ${teamsFromPlayers} more team${teamsFromPlayers === 1 ? '' : 's'}).`,
     };
   }
 

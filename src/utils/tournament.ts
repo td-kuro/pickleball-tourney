@@ -248,13 +248,6 @@ export function swapPlayerInRound(round: Round, activePlayerId: string, byePlaye
   };
 }
 
-// True for Doubles + Fixed Teams — the one combination where the roster is
-// a list of pre-declared Teams (see useTeams) rather than a list of
-// Players re-paired every round.
-export function isFixedTeamsMode(settings: TournamentSettings): boolean {
-  return settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
-}
-
 // `players` should be every human who can actually take the court this
 // round — for Doubles in Leaderboard/Social Play that's the union of the
 // individual player roster and every fixed team's embedded players (see

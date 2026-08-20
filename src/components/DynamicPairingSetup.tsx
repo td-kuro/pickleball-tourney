@@ -205,18 +205,11 @@ export function DynamicPairingSetup({
       <section className="card">
         <div className="section-heading-row">
           <h2>Players ({players.length})</h2>
-          <div className="participant-header-actions">
-            {!started && (
-              <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
-                + Add Player
-              </button>
-            )}
-            {players.length > 0 && !started && (
-              <button type="button" className="danger" onClick={handleRemoveAll}>
-                Remove All Players
-              </button>
-            )}
-          </div>
+          {!started && (
+            <button type="button" className="secondary" onClick={() => onAddPlayersBulk(1)}>
+              + Add Player
+            </button>
+          )}
         </div>
         <p className="hint">
           Starting seed (optional) is used only as a ranking tiebreaker — grading rounds are randomized regardless of
@@ -239,6 +232,13 @@ export function DynamicPairingSetup({
             ? 'Skill level (1 = strongest) can be set per player below — it helps break ranking ties while match data is still thin. You can also set it from the Admin Skill Review screen shown right after grading finishes.'
             : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored — you'll also get a dedicated Admin Skill Review screen at that point.`}
         </p>
+        {players.length > 0 && !started && (
+          <div className="section-footer-actions">
+            <button type="button" className="danger" onClick={handleRemoveAll}>
+              Remove All Players
+            </button>
+          </div>
+        )}
       </section>
 
       <section className="card start-matches-card">

@@ -64,17 +64,10 @@ export function DynamicTeamRoster({
                 + Add Team
               </button>
             )}
-            {teams.length > 0 && !started && (
-              <>
-                {uncheckedCount > 0 && (
-                  <button type="button" className="secondary" onClick={onCheckInAllTeams}>
-                    Check In All Teams
-                  </button>
-                )}
-                <button type="button" className="danger" onClick={handleRemoveAll}>
-                  Remove All Teams
-                </button>
-              </>
+            {teams.length > 0 && !started && uncheckedCount > 0 && (
+              <button type="button" className="secondary" onClick={onCheckInAllTeams}>
+                Check In All Teams
+              </button>
             )}
           </div>
         </div>
@@ -103,6 +96,13 @@ export function DynamicTeamRoster({
         <p className="hint">
           {checkedInCount} checked in of {teams.length} team{teams.length === 1 ? '' : 's'} registered.
         </p>
+        {teams.length > 0 && !started && (
+          <div className="section-footer-actions">
+            <button type="button" className="danger" onClick={handleRemoveAll}>
+              Remove All Teams
+            </button>
+          </div>
+        )}
       </section>
 
       {!started && <DynamicTeamRestSchedulePreview teams={teams} settings={settings} onRegenerate={onRegenerateSeed} />}

@@ -24,15 +24,17 @@ export function usePoolsKnockout() {
   const [stage, setStage] = useLocalStorage<TournamentStage>(STAGE_KEY, 'setup');
 
   // Called by "Start Matches" when Pools & Knockout is selected: sources
-  // teams (Doubles + Fixed Teams uses the user's own useTeams roster
-  // directly, so declared pairings/team names carry through to pools and
-  // the bracket; everything else auto-pairs from the player list — see
-  // formTeams), assigns them evenly to pools, and generates every pool's
-  // full round-robin match list up front.
+  // teams from both the declared fixed-teams roster (used directly, so
+  // declared pairings/team names carry through to pools and the bracket)
+  // and the individual-player roster (auto-paired two at a time — see
+  // formTeams) — the same mixed roster every other Doubles mode uses (see
+  // ParticipantSetup). Singles has no fixed-teams concept, so it's just
+  // formTeams over the full player list, unchanged. Assigns the combined
+  // teams evenly to pools, and generates every pool's full round-robin
+  // match list up front.
   function startPoolStage(players: Player[], settings: TournamentSettings, fixedTeams: Team[] = []) {
     const pk = settings.poolKnockoutSettings;
-    const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
-    const newTeams = useFixedTeams ? fixedTeams : formTeams(players, settings.matchType);
+    const newTeams = settings.matchType === 'doubles' ? [...fixedTeams, ...formTeams(players, 'doubles')] : formTeams(players, 'singles');
     const newPools = assignPools(newTeams, pk.numberOfPools, pk.teamsPerPool).map((pool) => ({
       ...pool,
       matches: generatePoolMatches(pool.teamIds, pk.timesEachTeamPlays, settings.courts),

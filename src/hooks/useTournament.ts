@@ -29,7 +29,6 @@ const defaultSettings: TournamentSettings = {
   sessionTiming: DEFAULT_SESSION_TIMING,
   tournamentFormat: 'leaderboard',
   poolKnockoutSettings: DEFAULT_POOL_KNOCKOUT_SETTINGS,
-  doublesPairingMode: 'rotating-players',
   pairingStyle: 'balanced',
   socialFormat: 'standard-social',
 };
@@ -60,7 +59,6 @@ export function useTournament() {
     sessionTiming: storedSettings.sessionTiming ?? DEFAULT_SESSION_TIMING,
     tournamentFormat: storedSettings.tournamentFormat ?? 'leaderboard',
     poolKnockoutSettings: storedSettings.poolKnockoutSettings ?? DEFAULT_POOL_KNOCKOUT_SETTINGS,
-    doublesPairingMode: storedSettings.doublesPairingMode ?? 'rotating-players',
     pairingStyle: storedSettings.pairingStyle ?? 'balanced',
     socialFormat: storedSettings.socialFormat ?? 'standard-social',
   };

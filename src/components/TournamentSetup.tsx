@@ -1,6 +1,5 @@
 import type { ChangeEvent } from 'react';
 import type {
-  DoublesPairingMode,
   MatchType,
   PairingStyle,
   PoolKnockoutSettings,
@@ -23,10 +22,11 @@ import { CourtSelector } from './CourtSelector';
 interface TournamentSetupProps {
   settings: TournamentSettings;
   onChange: (settings: TournamentSettings) => void;
-  // Player count (Singles/Rotating Doubles) or team count (Fixed Teams) —
-  // whichever the current mode actually needs, for the Pools & Knockout
-  // live summary. See App.tsx.
-  rosterCount: number;
+  // Individual (not-yet-teamed) player count and declared fixed-team
+  // count — for the Pools & Knockout live summary, which needs both to
+  // show how many teams the current mixed roster adds up to. See App.tsx.
+  playerCount: number;
+  fixedTeamCount: number;
   // True once Start Matches has been clicked. Only the Tournament Format
   // toggle locks in this state — everything else keeps its existing
   // "editable any time, applies going forward" behaviour.
@@ -40,7 +40,7 @@ const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scores
 // Number of Courts. Player/Team setup (6) and Social Play timing (7) sit
 // between/after this in App.tsx — see RosterSetup and SocialSessionSetup
 // below.
-export function TournamentSetup({ settings, onChange, rosterCount, tournamentInProgress }: TournamentSetupProps) {
+export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isDynamicTeamQualifier = settings.playMode === 'tournament' && settings.tournamentFormat === 'dynamic-team-qualifier';
   const isKingCourt = settings.playMode === 'king-court-5';
@@ -84,10 +84,6 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
 
   function handleFormatChange(tournamentFormat: TournamentFormat) {
     onChange({ ...settings, tournamentFormat });
-  }
-
-  function handleDoublesPairingModeChange(doublesPairingMode: DoublesPairingMode) {
-    onChange({ ...settings, doublesPairingMode });
   }
 
   function handlePairingStyleChange(pairingStyle: PairingStyle) {
@@ -241,47 +237,15 @@ export function TournamentSetup({ settings, onChange, rosterCount, tournamentInP
         </div>
       )}
 
-      {isPoolsKnockout && <PoolKnockoutSetupSection settings={settings} onChange={onChange} rosterCount={rosterCount} />}
+      {isPoolsKnockout && (
+        <PoolKnockoutSetupSection settings={settings} onChange={onChange} playerCount={playerCount} fixedTeamCount={fixedTeamCount} />
+      )}
 
       {isDynamicTeamQualifier && (
         <p className="hint">
           Division name, courts, qualifying rounds, bracket scoring, team registration, and check-in are all on the
           cards below.
         </p>
-      )}
-
-      {/* Pools & Knockout still needs an exclusive choice between
-          auto-paired players and declared teams (see formTeams), so it
-          keeps this toggle. Leaderboard/Social Play Doubles let Add Player
-          and Add Team be used together instead — see ParticipantSetup —
-          so this toggle isn't relevant there any more. */}
-      {!isKingCourt && isPoolsKnockout && settings.matchType === 'doubles' && (
-        <div className="form-row">
-          <span>Doubles Setup</span>
-          <div className="toggle-group" role="group" aria-label="Doubles pairing mode">
-            <button
-              type="button"
-              className={settings.doublesPairingMode === 'rotating-players' ? 'toggle-option active' : 'toggle-option'}
-              onClick={() => handleDoublesPairingModeChange('rotating-players')}
-            >
-              Add Player
-            </button>
-            <button
-              type="button"
-              className={
-                settings.doublesPairingMode === 'fixed-teams' ? 'toggle-option active toggle-option-green' : 'toggle-option'
-              }
-              onClick={() => handleDoublesPairingModeChange('fixed-teams')}
-            >
-              Add Team
-            </button>
-          </div>
-          <p className="hint">
-            {settings.doublesPairingMode === 'rotating-players'
-              ? 'Add Player: teams are auto-formed from the player list for this tournament.'
-              : 'Add Team: your declared teams are used directly.'}
-          </p>
-        </div>
       )}
 
       {!isKingCourt && settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && (
@@ -463,22 +427,31 @@ function SessionTimingSection({ settings, onChange }: SessionTimingSectionProps)
 interface PoolKnockoutSetupSectionProps {
   settings: TournamentSettings;
   onChange: (settings: TournamentSettings) => void;
-  rosterCount: number;
+  // Individual (not-yet-teamed) player count and declared fixed-team
+  // count — see App.tsx/RosterSetup. For Singles, fixedTeamCount is always
+  // 0 (no fixed-teams concept there).
+  playerCount: number;
+  fixedTeamCount: number;
 }
 
 // Pools & Knockout only: number of pools, teams per pool, how many times
 // each pair of teams in a pool plays each other, and how many teams
-// advance from each pool — plus a live summary of how many teams/players
-// that adds up to needing. Purely a planning aid, same spirit as
-// SessionTimingSection above. `rosterCount` is players for Singles/Rotating
-// Doubles, or teams for Fixed Teams — see App.tsx.
-function PoolKnockoutSetupSection({ settings, onChange, rosterCount }: PoolKnockoutSetupSectionProps) {
+// advance from each pool — plus a live summary of how many teams that adds
+// up to needing. Purely a planning aid, same spirit as SessionTimingSection
+// above. Doubles teams come from both the declared fixed-teams roster
+// (used directly) and individual players (auto-paired two at a time when
+// the tournament starts) — same mixed roster as every other Doubles mode,
+// see ParticipantSetup/formTeams.
+function PoolKnockoutSetupSection({ settings, onChange, playerCount, fixedTeamCount }: PoolKnockoutSetupSectionProps) {
   const pk = settings.poolKnockoutSettings;
   const teamsNeeded = teamsNeededFor(pk);
-  const useFixedTeams = settings.matchType === 'doubles' && settings.doublesPairingMode === 'fixed-teams';
+  const isDoubles = settings.matchType === 'doubles';
   const perTeam = playersPerTeam(settings.matchType);
   const playersNeeded = teamsNeeded * perTeam;
   const knockoutSize = pk.numberOfPools * pk.teamsAdvancingPerPool;
+  const teamsFromPlayers = isDoubles ? Math.floor(playerCount / 2) : playerCount;
+  const currentTeams = isDoubles ? fixedTeamCount + teamsFromPlayers : playerCount;
+  const oddPlayerOut = isDoubles && playerCount % 2 !== 0;
 
   function handleChange(field: keyof PoolKnockoutSettings, event: ChangeEvent<HTMLInputElement>) {
     const parsed = parseInt(event.target.value, 10);
@@ -540,11 +513,9 @@ function PoolKnockoutSetupSection({ settings, onChange, rosterCount }: PoolKnock
         <strong>
           {teamsNeeded} team{teamsNeeded === 1 ? '' : 's'}
         </strong>{' '}
-        {useFixedTeams
-          ? `(you have ${rosterCount})`
-          : `— ${playersNeeded} player${playersNeeded === 1 ? '' : 's'} in ${
-              settings.matchType === 'singles' ? 'Singles' : 'Doubles'
-            } (you have ${rosterCount})`}
+        {isDoubles
+          ? `— you have ${currentTeams} (${fixedTeamCount} fixed team${fixedTeamCount === 1 ? '' : 's'} + ${playerCount} individual player${playerCount === 1 ? '' : 's'} → ${teamsFromPlayers} more team${teamsFromPlayers === 1 ? '' : 's'})`
+          : `— ${playersNeeded} player${playersNeeded === 1 ? '' : 's'} in Singles (you have ${playerCount})`}
         . Top {pk.teamsAdvancingPerPool} from each pool advances to a {knockoutSize}-team knockout bracket.
       </p>
 
@@ -552,15 +523,22 @@ function PoolKnockoutSetupSection({ settings, onChange, rosterCount }: PoolKnock
         <p className="hint error">Teams advancing per pool cannot be more than teams per pool.</p>
       )}
       {knockoutSize < 2 && <p className="hint error">At least 2 teams total must advance to the knockout bracket.</p>}
-      {useFixedTeams
-        ? rosterCount !== teamsNeeded && (
+      {oddPlayerOut && (
+        <p className="hint error">
+          {playerCount} individual players can't be paired up evenly — add one more, or check two players to make a
+          team.
+        </p>
+      )}
+      {isDoubles
+        ? !oddPlayerOut &&
+          currentTeams !== teamsNeeded && (
             <p className="hint error">
-              You have {rosterCount} team{rosterCount === 1 ? '' : 's'}, but this setup needs exactly {teamsNeeded}.
+              You have {currentTeams} team{currentTeams === 1 ? '' : 's'}, but this setup needs exactly {teamsNeeded}.
             </p>
           )
-        : rosterCount !== playersNeeded && (
+        : playerCount !== playersNeeded && (
             <p className="hint error">
-              You have {rosterCount} player{rosterCount === 1 ? '' : 's'}, but this setup needs exactly {playersNeeded}.
+              You have {playerCount} player{playerCount === 1 ? '' : 's'}, but this setup needs exactly {playersNeeded}.
             </p>
           )}
     </div>

@@ -8,55 +8,23 @@ function makeTeamId(): string {
   return `team-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
-function makeTeamPlayerId(salt = 0): string {
-  return `teamplayer-${Date.now()}-${salt}-${Math.floor(Math.random() * 10000)}`;
-}
-
 function displayName(teamName: string, player1Name: string, player2Name: string): string {
   const trimmed = teamName.trim();
   return trimmed !== '' ? trimmed : `${player1Name} / ${player2Name}`;
 }
 
-// Manages Doubles "Add Team" (Fixed Teams) rosters, kept saved to
-// localStorage — a Team-based parallel to usePlayers. `teamPlayers` is the
-// backing Player[] for the two players embedded in each team (so all the
-// existing name-lookup code in Leaderboard/AllRoundsView/computePlayerStats/
-// etc. keeps working unchanged — see App.tsx, which passes this instead of
-// usePlayers's list whenever Fixed Teams mode is active); it's a completely
-// separate roster from usePlayers's, since "Add Team" doesn't build on top
-// of a previously-added player list, it creates both players and the team
-// together in one step.
+// Manages Doubles fixed-team rosters, kept saved to localStorage — a
+// Team-based parallel to usePlayers. `teamPlayers` is the backing
+// Player[] for the two players embedded in each team (so all the existing
+// name-lookup code in Leaderboard/AllRoundsView/computePlayerStats/ etc.
+// keeps working unchanged — see App.tsx); it's a completely separate
+// roster from usePlayers's. Every team here starts life as two entries in
+// usePlayers's individual roster, promoted together via addTeamFromPlayers
+// (see ParticipantList's "select 2 players to make a team" checkbox flow)
+// — there's no standalone "declare a team directly" path any more.
 export function useTeams() {
   const [teams, setTeams] = useLocalStorage<Team[]>(TEAMS_KEY, []);
   const [teamPlayers, setTeamPlayers] = useLocalStorage<Player[]>(TEAM_PLAYERS_KEY, []);
-
-  // Quickly generates `count` empty team slots (named "Team N Player 1"/
-  // "Team N Player 2", mirroring usePlayers.addPlayersBulk's "Player N") so
-  // the organiser can fill in real names/ratings afterward instead of
-  // adding one team at a time — also how a single "+ Add Team" click adds
-  // one slot (count=1); every roster screen edits name/rating in place
-  // afterward (see updateTeamPlayer), so there's no separate Add Team form
-  // anywhere any more, and team names are always derived from the two
-  // player names.
-  function addTeamsBulk(count: number) {
-    const startNumber = teams.length + 1;
-    const newPlayers: Player[] = [];
-    const newTeams: Team[] = [];
-    for (let i = 0; i < count; i++) {
-      const teamNumber = startNumber + i;
-      const player1: Player = { id: makeTeamPlayerId(i * 2), name: `Team ${teamNumber} Player 1` };
-      const player2: Player = { id: makeTeamPlayerId(i * 2 + 1), name: `Team ${teamNumber} Player 2` };
-      newPlayers.push(player1, player2);
-      newTeams.push({
-        id: `${makeTeamId()}-${i}`,
-        name: displayName('', player1.name, player2.name),
-        playerIds: [player1.id, player2.id],
-        isFixedTeam: true,
-      });
-    }
-    setTeamPlayers([...teamPlayers, ...newPlayers]);
-    setTeams([...teams, ...newTeams]);
-  }
 
   // Promotes two already-added individual players (see usePlayers) into a
   // fixed team — see ParticipantList's "select 2 players to make a team"
@@ -142,7 +110,6 @@ export function useTeams() {
   return {
     teams,
     teamPlayers,
-    addTeamsBulk,
     addTeamFromPlayers,
     updateTeamPlayer,
     removeTeam,
