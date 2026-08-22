@@ -80,6 +80,8 @@ export function KingCourtRoundsPage({
             onSetManualTiebreakOrder={onSetManualTiebreakOrder}
             onSetManualMovementOverride={onSetManualMovementOverride}
             onConfirmMovement={onConfirmMovement}
+            onSetAvailability={onSetAvailability}
+            onSubstitute={onSubstitute}
           />
           <KingCourtManageCourts
             players={players}

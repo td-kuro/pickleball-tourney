@@ -37,7 +37,7 @@ import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
-import { canGenerateRound, playersNeededPerMatch } from './utils/tournament';
+import { canGenerateRound, playersNeededPerMatch, revertRestingPlayers } from './utils/tournament';
 
 type View =
   | 'setup'
@@ -63,6 +63,7 @@ function App() {
   const {
     players,
     addPlayersBulk,
+    setPlayersBulk,
     addExistingPlayers,
     updatePlayer,
     setAvailabilityStatus,
@@ -103,6 +104,7 @@ function App() {
     resetTournament,
     sessionAdjustments,
     regenerateFutureRounds,
+    regenerateCurrentRound,
     changeCourtCount,
     swapPlayerInCurrentRound,
   } = useTournament();
@@ -234,12 +236,31 @@ function App() {
   // 'upcoming' rounds against the updated roster — computed here rather
   // than read back from `players` state (which won't reflect the change
   // until the next render) so the two stay in sync within one click. Only
-  // ever wired up for Standard Social Play (see SessionControls, only
-  // rendered there) — Tournament Mode never calls this.
+  // ever wired up for Standard Social Play (see SessionControls,
+  // CurrentRoundView's PlayerActionMenu) — Tournament Mode never calls
+  // this. If the player is actively assigned to the *current* round's
+  // still-unscored match, additionally offers to regenerate that round
+  // right now too (see README's "Mid-session player and court changes") —
+  // 'resting-this-round' is excluded here since that case is handled by
+  // the swap flow instead (pulling in a specific replacement, not a full
+  // regeneration).
   function handleSetPlayerAvailability(playerId: string, status: PlayerAvailabilityStatus) {
     setAvailabilityStatus(playerId, status);
     const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
     regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
+
+    if (status === 'available' || status === 'resting-this-round') return;
+    const currentRound = rounds.find((round) => round.status === 'current');
+    if (!currentRound) return;
+    const inCurrentMatch = currentRound.matches.some(
+      (match) => match.teamA.playerIds.includes(playerId) || match.teamB.playerIds.includes(playerId),
+    );
+    if (!inCurrentMatch) return;
+    const hasScores = currentRound.matches.some((match) => match.scoreA != null || match.scoreB != null);
+    if (hasScores) return;
+    if (window.confirm('Regenerate the current round with updated player availability? Existing match assignments for this round will change.')) {
+      regenerateCurrentRound(updatedPlayers, teams, teamPlayers);
+    }
   }
 
   function handleChangeCourts(newCourts: number, regenerateCurrent: boolean) {
@@ -596,6 +617,8 @@ function App() {
           onGenerateNextRound={dynamicPairing.generateNextRound}
           onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
           onConfirmSkillReview={dynamicPairing.confirmSkillReviewAndStartRankingRounds}
+          onSetAvailability={dynamicPairing.setAvailabilityStatus}
+          onSwap={dynamicPairing.swapPlayerInCurrentRound}
         />
       )}
 
@@ -676,10 +699,22 @@ function App() {
               settings={settings}
               rounds={rounds}
               plannedRounds={plannedRounds}
-              onNextRound={() => nextRound(players, teams, teamPlayers)}
+              onNextRound={() => {
+                // "This round" is ending — resting-this-round players are
+                // available again starting now (see revertRestingPlayers'
+                // file comment). Computed and applied before generating so
+                // the new round's scheduling sees it immediately, not one
+                // round late. A no-op in Tournament Mode, which never sets
+                // this status.
+                const revertedPlayers = revertRestingPlayers(players);
+                if (revertedPlayers !== players) setPlayersBulk(revertedPlayers);
+                nextRound(revertedPlayers, teams, teamPlayers);
+              }}
               onFinishSession={handleFinishSession}
               onSetScore={setMatchScore}
               teams={teams}
+              onSetAvailability={settings.playMode === 'social' ? handleSetPlayerAvailability : undefined}
+              onSwap={settings.playMode === 'social' ? handleSwapPlayer : undefined}
             />
             {settings.playMode === 'social' && (
               <SessionControls

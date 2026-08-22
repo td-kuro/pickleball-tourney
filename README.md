@@ -486,15 +486,16 @@ rotation, since every team's schedule is fixed for the whole pool stage.
 ### Team
 
 - **Singles**: one team per player.
-- **Doubles + Rotating Players** (Add Player): teams are auto-formed for
-  this tournament only, by taking players two at a time in the order they
-  appear in the player list (Player 1 & Player 2 are Team 1, Player 3 &
-  Player 4 are Team 2, and so on). Reorder the player list on Setup first
-  if you want specific pairings this way.
-- **Doubles + Fixed Teams** (Add Team): your declared teams — names,
-  pairings, and ratings — are used directly instead, no auto-pairing
-  involved. See "Pools & Knockout keeps its own Doubles Setup toggle"
-  below for how to set this up.
+- **Doubles, individual players**: teams are auto-formed for this
+  tournament only, by taking players two at a time in the order they
+  appear on the Participants roster (Player 1 & Player 2 are Team 1,
+  Player 3 & Player 4 are Team 2, and so on). Reorder the roster on Setup
+  first if you want specific pairings this way, or check two players and
+  confirm **Make Team** instead.
+- **Doubles, fixed teams**: your declared teams — names, pairings, and
+  ratings — are used directly instead, no auto-pairing involved. See
+  "Pools & Knockout uses the same mixed Participants roster" below for how
+  this combines with individual players.
 
 ### Setup
 
@@ -646,12 +647,11 @@ divided across the roster) for any other team count too.
 
 The **Teams** card (combined registration + check-in, since there's
 nothing to structurally distinguish "still registering" from "checking
-teams in" before Round 1 starts) lets you add teams — two player names,
-optional rating/DUPR, optional seed — and mark each as **Checked in**. A
-team's display name is always derived from its two player names (e.g.
-"Thai / Alex") rather than collected separately. **Or generate multiple
-team slots** quickly creates several blank teams (e.g. "T05 Player 1"/"T05
-Player 2") to fill in afterward, instead of adding one at a time. Team
+teams in" before Round 1 starts) lets you add teams and mark each as
+**Checked in**. **+ Add Team** adds one blank team immediately — both
+player names, rating/DUPR, and seed are all editable in place on its row,
+no separate form. A team's display name is always derived from its two
+player names (e.g. "Thai / Alex") rather than collected separately. Team
 codes (T01, T02, ...) are assigned automatically in registration order.
 Only checked-in, non-withdrawn teams are counted and scheduled; **Start
 Qualifying** stays disabled until at least 4 are checked in with both
@@ -1133,25 +1133,43 @@ time (gated on scores being entered), same as before.
 
 ## Mid-session player and court changes
 
-Real-world sessions change mid-stream — someone goes home early, gets
-injured, or wants to sit out a round; a court frees up or becomes
-unavailable. All three Social Play modes (**Standard Social Play**,
-**Dynamic Pairing Social**, **5-Player King Court**) let the organiser
-handle this live, without losing a player's completed stats or history.
-Tournament Mode doesn't have this — it's Social Play only.
+Real-world sessions change mid-stream — someone arrives late, goes home
+early, gets injured, or wants to sit out a round; a court frees up or
+becomes unavailable. All three Social Play modes (**Standard Social
+Play**, **Dynamic Pairing Social**, **5-Player King Court**) let the
+organiser handle this live, without losing a player's completed stats or
+history. Tournament Mode doesn't have this — it's Social Play only.
+
+### Clicking a player's name in Current Round
+
+Every player's name in the **Current Round** screen — on a match/court
+card, or in the bye/resting list — is clickable. It opens a small action
+menu showing that player's current status, court, and teammate/partner
+(if any), with only the actions that actually make sense right now: a
+player already playing gets **Swap with bye player** (if anyone's free to
+swap in) instead of **Rest this round**'s full prompt; a player already
+injured gets **Make available** instead of **Mark injured**; a player
+whose match already has a score gets neither a swap nor a status change
+that would touch it, with a note explaining why. This is the same
+underlying status/swap machinery described below — it's just reachable
+directly from the name instead of only from the Session
+Controls/availability list further down the page (which still work too).
 
 ### Player availability
 
-Every player has a status: **Available**, **Resting This Round**, **Left
-Early**, **Injured**, or **Unavailable**. Setting anything other than
-Available excludes that player from every future round/cycle generated
-from that point on — but never deletes them, never touches their
-already-completed stats, and never rewrites a round that's already been
-played. **Resting This Round** doesn't auto-expire back to Available after
-one round; you switch them back explicitly with **Make available** when
-they're ready — deliberately simpler and more predictable than a timed
-auto-revert, which gets ambiguous fast if no new round happens to get
-generated right away.
+Every player has a status: **Available**, **Resting This Round**,
+**Late**, **Left Early**, **Injured**, or **Unavailable**. Setting
+anything other than Available or Resting This Round excludes that player
+from every future round/cycle generated from that point on — but never
+deletes them, never touches their already-completed stats, and never
+rewrites a round that's already been played. **Late** behaves the same
+way (excluded until you switch them back) — it exists as its own label
+just so the organiser can tell "hasn't shown up yet" apart from "unavailable
+for some other reason" at a glance. **Resting This Round** is the one
+status that auto-expires: it reverts to Available the moment a new
+round/cycle becomes current, since "this round" has by then ended — every
+other status stays until you explicitly change it, since the app has no
+way to know when e.g. a late player has actually arrived.
 
 Standard Social Play and King Court share one status field on the
 player roster (**Session Controls** → **Manage Player Availability**, or
@@ -1163,11 +1181,25 @@ roster.
 
 If someone currently assigned to a match needs to step out — but hasn't
 been marked unavailable — you can swap them directly with a player who's
-on bye/resting **this round**: pick **Swap Active Player with Bye Player**
-(Standard Social Play) or **Swap Active Player with Resting Player**
-(Dynamic Pairing Social), choose the two players, and confirm. This only
-ever edits the *current* round in place — never a completed or locked one
-— and only before that specific match's score has been submitted.
+on bye/resting **this round**: click their name and choose **Swap with bye
+player** (or open **Swap Active Player with Bye Player** / **Swap Active
+Player with Resting Player** from Session Controls/Resting Players
+directly), choose the replacement, and confirm — you'll see *"&lt;name&gt;
+has been swapped with &lt;name&gt; for this round."* This only ever edits
+the *current* round in place — never a completed or locked one — and only
+before that specific match's score has been submitted. If nobody's free to
+swap in, the menu says so instead of offering the option.
+
+### Marking a status change on someone playing right now
+
+Marking an *actively playing* player Late, Unavailable, Left Early, or
+Injured (Standard Social Play only) also asks — separately from that
+status's own confirmation — *"Regenerate the current round with updated
+player availability? Existing match assignments for this round will
+change."* Confirm to have the current round reshuffle around the change
+immediately (only offered while it still has no scores); decline and it
+takes effect from the next round instead, same as everywhere else. Future
+**Upcoming** rounds update either way, with the usual notice.
 
 ### Changing the number of courts mid-session
 
@@ -1215,10 +1247,9 @@ Movement Preview's per-player override once the cycle finishes.
   Style, or Social Scoring, whichever applies), the number of courts (a
   row of clickable **1–6** buttons plus **Other** for anything larger —
   see "Number of Courts" below), and add participants — individual
-  players and/or fixed teams together for Doubles in Leaderboard/Social
-  Play (see "Doubles: individual players, fixed teams, and mixed rosters"
-  below), or the single exclusive Add Player/Add Team choice for Pools &
-  Knockout.
+  players and/or fixed teams together for every Doubles format, including
+  Pools & Knockout (see "Doubles: individual players, fixed teams, and
+  mixed rosters" below).
 - **Start Matches** — once setup is valid, generates the schedule (Round 1
   only for Tournament Mode's Leaderboard format; the full planned schedule
   in Social Play — see "Round count and pre-generated rounds" above; the
@@ -1258,15 +1289,16 @@ Setup if it's ever showing a gated screen without one.
 Setup is valid — and **Start Matches** becomes clickable — once:
 
 - A Play Mode is selected (Tournament or Social Play).
-- Match type is Singles or Doubles (and, for Doubles + Pools & Knockout, a
-  Doubles Setup mode is selected).
+- Match type is Singles or Doubles.
 - Number of courts is at least 1.
 - There are enough participants for the match type: 2+ individual players
-  for Singles; for Doubles in Leaderboard/Social Play, at least 4 people
-  total across individual players and fixed teams combined (a fixed team
-  counts as 2, two individual players can combine into one temporary
-  team) — or, for Pools & Knockout, *exactly* enough for the chosen roster
-  type (see "Pools & Knockout" above).
+  for Singles; for Doubles, at least 4 people total across individual
+  players and fixed teams combined (a fixed team counts as 2, two
+  individual players can combine into one temporary team — or, for Pools
+  & Knockout, get auto-paired into a team of their own) — or, for Pools &
+  Knockout specifically, *exactly* enough teams for the pool configuration
+  once fixed teams and auto-paired individuals are combined (see "Pools &
+  Knockout" above).
 - Every player has a name (rating is always optional), including both
   players on every fixed team.
 
@@ -1307,73 +1339,72 @@ depend on earlier ones:
    Knockout" above. Leaderboard format also shows **Pairing Style**
    (Balanced / Leaderboard-based / Random) here — see "Pairing Styles"
    above.
-4. **Doubles Setup** (Doubles + Pools & Knockout only) — **Add Player**
-   (Rotating Players) or **Add Team** (Fixed Teams). Not shown for
-   Leaderboard/Social Play, which use the unified Participants setup
-   instead (step 6) — see "Doubles: individual players, fixed teams, and
-   mixed rosters" above.
-5. **Number of Courts** — see "Number of Courts" above.
-6. **Participant/roster setup**:
-   - **Singles, or Doubles + Pools & Knockout** — the original **Add
-     Player** / **Players** (or **Add Team** / **Teams**) layout: two
-     columns on desktop, stacked on mobile, directly editable in place
-     (click into any field, saved on blur), each row with its own
-     **Remove** button. **Generate player slots** creates several unnamed
-     rows at once (e.g. `12`) to fill in afterward. **Remove All
-     Players**/**Remove All Teams** asks for confirmation, then clears
-     that roster in one action.
-   - **Doubles + Leaderboard/Social Play** — the unified **Participants**
-     setup: **Add Player** and **Add Team** forms together, one merged,
-     badged list below, and a single **Remove All Participants** that
-     clears both rosters at once. See "Doubles: individual players, fixed
+4. **Number of Courts** — see "Number of Courts" above.
+5. **Participant/roster setup**:
+   - **Singles** — a **Players** list: a single **+ Add Player** button
+     adds one blank, immediately-editable row (name/rating, click into any
+     field, saved on blur — no separate add form), each row with its own
+     **Remove**. **Remove All Players** sits at the bottom, asks for
+     confirmation, then clears the roster in one action.
+   - **Doubles** (every Tournament Format, including Pools & Knockout) —
+     the unified **Participants** roster: **+ Add Player** adds a blank
+     individual player the same way; check any two player rows and confirm
+     **Make Team** to lock them into a fixed team in place (no separate Add
+     Team form) — **Split Team** undoes it, returning both to individual
+     rows. **Remove All Participants** sits at the bottom and clears both
+     players and teams together. See "Doubles: individual players, fixed
      teams, and mixed rosters" above.
    - Either way, this only touches the roster itself: Play Mode,
-     Tournament Format, Doubles Setup, Pairing Style, Social Scoring,
-     Session Timing, courts, and match type are left exactly as they
-     were. If a session is already in progress, existing rounds keep
-     referring to removed players/teams (shown as "Unknown player"/
-     "Unknown team" — see "Current limitations" below).
-7. **Scoring** and **Session Timing** (Social Play only — see "Social Play
+     Tournament Format, Pairing Style, Social Scoring, Session Timing,
+     courts, and match type are left exactly as they were. If a session is
+     already in progress, existing rounds keep referring to removed
+     players/teams (shown as "Unknown player"/"Unknown team" — see
+     "Current limitations" below).
+6. **Scoring** and **Session Timing** (Social Play only — see "Social Play
    session timing" above).
-8. **Start Matches** — disabled with an explanatory message until setup is
+7. **Start Matches** — disabled with an explanatory message until setup is
    valid; generates the schedule and switches you to the middle tab. Once
    a session has started, this becomes a **Go to Rounds**/**Go to
    Tournament** shortcut instead, and you can still come back to Setup at
    any time (via the tab bar) to add a player/team or tweak settings —
    except **Tournament Format**, which locks once started (Reset unlocks
-   it again; **Doubles Setup**, courts, and match type stay editable, same
-   as before, though switching Doubles Setup mid-session doesn't rebuild
-   an already-generated schedule). In Tournament Mode's Leaderboard
-   format, changes there only affect rounds generated *after* the change,
-   same as before. In Social Play, the full schedule is already
-   generated, so settings changes don't retroactively rewrite it — they
-   only apply if you later generate an extra round beyond the plan. Pools
-   & Knockout's pool schedule is likewise fixed once generated.
+   it again; courts and match type stay editable, same as before). In
+   Tournament Mode's Leaderboard format, changes there only affect rounds
+   generated *after* the change, same as before. In Social Play, the full
+   schedule is already generated, so settings changes don't retroactively
+   rewrite it — they only apply if you later generate an extra round
+   beyond the plan (or use the mid-session controls above). Pools &
+   Knockout's pool schedule is likewise fixed once generated.
 
 ## Doubles: individual players, fixed teams, and mixed rosters (Leaderboard/Social Play)
 
-When Match Type is Doubles and the Play Mode is Tournament + Leaderboard
-format or Social Play, Setup shows a single unified **Participants**
-section instead of a mode toggle — **Add Player** and **Add Team** are
-both always available, and the organiser can use either, or both, at the
-same time. This is the biggest difference from Pools & Knockout, which
-still has an exclusive "Doubles Setup" choice — see "Pools & Knockout"
-below.
+Whenever Match Type is Doubles — Leaderboard, Social Play, or Pools &
+Knockout alike — Setup shows a single unified **Participants** section
+rather than a mode toggle: individual players and fixed teams live
+together, and the organiser can add either, or both, at the same time. See
+"Pools & Knockout uses the same mixed Participants roster" below for the
+one thing that differs there (individual players get auto-paired into a
+team at Start Matches, rather than re-paired every round).
 
-- **Add Player** — an individual player: a name and an optional rating.
-  Individual players don't have a fixed partner; each round, whichever
-  individual players are playing get grouped into **temporary teams**
+- **+ Add Player** — adds one individual player: a blank, immediately-
+  editable name and optional rating. Individual players don't have a
+  fixed partner; each round, whichever individual players are playing get
+  grouped into **temporary teams**
   fresh for that round (see "How mixed rounds are generated" below).
-- **Add Team** — a **fixed team**: a name (optional — auto-generated from
-  the two player names if left blank, e.g. **"Thai / Alex"**), Player 1,
-  Player 2 (both required), and an optional rating. A fixed team stays
-  together as a pair for the whole tournament/session — only its
-  *opponent* rotates round to round.
+- **Making a fixed team** — no separate form: check any two individual
+  player rows, then confirm **Make Team** in the bar that appears. Its
+  display name is always derived from the two player names (e.g. **"Thai /
+  Alex"**) — there's no separate name field. A fixed team stays together
+  as a pair for the whole tournament/session — only its *opponent*
+  rotates round to round. **Split Team** on a team row undoes this,
+  returning both players to the individual list with their names/ratings
+  intact.
 
-Both kinds show up together in one **Participants** list below the forms,
-each row badged **Player** or **Team**, directly editable in place (same
-philosophy as the rest of the app — click into a field, it saves on
-blur). **Remove All Participants** clears both individual players and
+Both kinds show up together in one **Participants** list, each row badged
+**Player** or **Team**, directly editable in place (same philosophy as
+the rest of the app — click into a field, it saves on blur; a team row
+edits each player's own name and rating separately, not a shared team
+rating). **Remove All Participants** clears both individual players and
 fixed teams in one action. Example:
 
 ```
@@ -1390,8 +1421,8 @@ the Participants view just presents them together, sorted by the order
 they were actually added (see `idTimestamp` in
 [`src/components/ParticipantList.tsx`](src/components/ParticipantList.tsx)).
 
-In **Singles**, only individual players are used — Add Team isn't shown
-at all, since a fixed 2-player team doesn't apply to Singles.
+In **Singles**, only individual players are used — there's no way to make
+a team at all, since a fixed 2-player team doesn't apply to Singles.
 
 ### How mixed rounds are generated
 
@@ -1430,14 +1461,19 @@ individually on the Leaderboard/Player Stats (their side's score counts
 as their own points either way), so a mixed roster reads as one list of
 people rather than two disconnected rankings.
 
-### Pools & Knockout keeps its own Doubles Setup toggle
+### Pools & Knockout uses the same mixed Participants roster
 
-For Pools & Knockout specifically, the roster is still one exclusive
-choice — **Add Player** (Rotating Players, auto-paired) or **Add Team**
-(Fixed Teams, declared directly) — see "Pools & Knockout" below.
-Internally this is the `doublesPairingMode` setting
-(`rotating-players`/`fixed-teams`), picked via the **Doubles Setup**
-toggle that only appears when Tournament Format is Pools & Knockout.
+Pools & Knockout's Doubles roster is the same Participants screen as
+every other Doubles format — individual players and declared fixed teams
+together, with checkboxes to lock any two players into a team. There's no
+separate exclusive toggle any more: whichever fixed teams you've declared
+are used as-is, and every remaining individual player is auto-paired two
+at a time (in roster order) into a team of their own when **Start
+Matches** runs — see `formTeams`/`usePoolsKnockout.startPoolStage` in
+[`src/utils/poolsKnockout.ts`](src/utils/poolsKnockout.ts). The setup
+card's live summary shows the running total — fixed teams plus
+however-many-more from pairing up individuals — against how many the pool
+configuration needs.
 
 ### How Fixed-Teams-only round generation works
 
@@ -1485,13 +1521,15 @@ below).
 
 ### Pools & Knockout
 
-Selecting Add Team before switching Tournament Format to Pools & Knockout
-uses your declared teams **directly** — team names, pairings, and
-ratings all carry through to the pools and the bracket — instead of
-Pools & Knockout's usual behaviour of auto-pairing consecutive players
-into teams for the tournament (which is what still happens for Singles,
-or Doubles + Rotating Players). Team count (not player count) is what
-gets validated against the pool configuration in this case.
+Any fixed teams you've made on the Participants roster are used
+**directly** — team names, pairings, and ratings all carry through to the
+pools and the bracket. Any individual players left on the roster are
+auto-paired two at a time (in roster order) into a team of their own when
+**Start Matches** runs — the same behaviour Singles uses for players
+generally, just producing 2-player teams instead of 1-player ones. The
+running team count (declared teams + auto-paired individuals) is what
+gets validated against the pool configuration — see "Pools & Knockout uses
+the same mixed Participants roster" above.
 
 ## Player ratings are optional
 
@@ -1589,9 +1627,9 @@ you to a blank Setup screen:
 - The fixed-team list and its embedded players — same as **Remove All
   Teams** above. Together, this is the same result as **Remove All
   Participants** on the unified Participants setup.
-- Every setting — Play Mode, Tournament Format, Doubles Setup (Pairing
-  Mode), Pairing Style, Social Scoring, Pools & Knockout Setup, courts,
-  and match type — back to its default, not just left as-is.
+- Every setting — Play Mode, Tournament Format, Pairing Style, Social
+  Scoring, Pools & Knockout Setup, courts, and match type — back to its
+  default, not just left as-is.
 - All rounds (planned, current, and completed), the estimated/planned
   round count, and every match result.
 - Leaderboard / Player Stats / Team Leaderboard / Dedicated Pairing
@@ -1625,13 +1663,13 @@ of it back.
 
 - **Singles** — each court needs 2 players, Player A vs Player B.
 - **Doubles** — each court needs 4 players, grouped into two 2-player
-  teams, Team A vs Team B. In Leaderboard/Social Play, each team is either
-  a fresh **temporary team** re-formed every round from individual
-  players, or a **fixed team** that stays together for the whole
-  tournament/session — both can be mixed on the same roster, see "Doubles:
-  individual players, fixed teams, and mixed rosters" above. Pools &
-  Knockout instead picks one exclusively (Rotating Players or Fixed Teams)
-  — see "Pools & Knockout keeps its own Doubles Setup toggle" above.
+  teams, Team A vs Team B. Every team is either a fresh **temporary team**
+  re-formed every round from individual players, or a **fixed team** that
+  stays together for the whole tournament/session — both can be mixed on
+  the same roster, in every Tournament Format including Pools & Knockout
+  (which auto-pairs individuals into a team once, at Start Matches, rather
+  than every round) — see "Doubles: individual players, fixed teams, and
+  mixed rosters" above.
 
 The number of courts times the players-per-court determines how many
 players can play each round — e.g. 3 courts in Singles fits 6 players per
@@ -1799,10 +1837,11 @@ handed out fairly:
   - Pool assignment is automatic and even only (consecutive chunks into
     Pool A, Pool B, ...) — no manual assignment and no support for uneven
     pool sizes yet. Team count must exactly match `pools × teams per pool`.
-  - For Singles or Doubles + Rotating Players, teams are just consecutive
-    pairs from the player list, auto-formed for that tournament only — use
-    Doubles + Fixed Teams (Add Team) if you want to declare pairings
-    yourself; those carry through to pools and the bracket directly.
+  - For Singles, or any individual (non-team) Doubles players, teams are
+    just consecutive pairs from the player list, auto-formed for that
+    tournament only — check two players and confirm **Make Team** on the
+    Participants roster if you want to declare a pairing yourself; that
+    carries through to pools and the bracket directly.
   - Pool matches are assigned a court number by cycling 1..courts, but
     aren't scheduled into synchronised "rounds" across courts the way
     Leaderboard/Social rounds are — every pool match is just independently
@@ -1965,41 +2004,53 @@ src/
                              processBracketResult), and a small seeded PRNG
                              (makeSeededRandom) used for every randomised decision
                              in this mode (Dynamic Team Qualifier)
-  hooks/                    useLocalStorage, usePlayers, useTeams (Add Team roster —
-                             see RosterSetup/ParticipantSetup), useTournament
-                             (Leaderboard/Social Play state, dispatches into
-                             utils/pairing.ts), usePoolsKnockout (Pools & Knockout
-                             state), useKingCourt (King Court state),
-                             useDynamicPairingSocial (its own roster/settings/rounds,
-                             entirely separate from every other hook here),
-                             useDynamicTeamQualifier (its own team roster/settings/
-                             rest schedule/rounds/medal bracket, also entirely
-                             separate) — all persisted to localStorage
+  hooks/                    useLocalStorage, usePlayers, useTeams (fixed-team roster —
+                             every team starts as two players promoted via
+                             addTeamFromPlayers, see ParticipantList's checkbox flow),
+                             useTournament (Leaderboard/Social Play state, dispatches
+                             into utils/pairing.ts), usePoolsKnockout (Pools &
+                             Knockout state — combines useTeams' fixed teams with
+                             auto-paired individuals, see formTeams), useKingCourt
+                             (King Court state), useDynamicPairingSocial (its own
+                             roster/settings/rounds, entirely separate from every
+                             other hook here), useDynamicTeamQualifier (its own team
+                             roster/settings/rest schedule/rounds/medal bracket, also
+                             entirely separate) — all persisted to localStorage
   components/                CourtSelector (clickable court-count picker, used
-                             everywhere courts are configured); PlayerForm, PlayerList,
-                             TeamForm, TeamList (PlayerRow/TeamRow also take an optional
-                             `badge` prop, reused by ParticipantList); ParticipantSetup +
-                             ParticipantList (unified Add Player/Add Team roster for
-                             Doubles + Leaderboard/Social Play); RosterSetup (picks
-                             between ParticipantSetup and the original exclusive
-                             Add Player/Add Team layout, depending on Tournament
-                             Format); TournamentSetup (Pairing Style selector included),
+                             everywhere courts are configured); PlayerList, TeamList
+                             (PlayerRow/TeamPlayersRow also take an optional `badge`
+                             prop, reused by ParticipantList — TeamPlayersRow edits
+                             each player's own name/rating, no team-name field);
+                             ParticipantSetup + ParticipantList (the mixed Doubles
+                             roster used by every Tournament Format, including Pools
+                             & Knockout — "+ Add Player" adds a slot instantly, no
+                             separate form; check two players and confirm to make a
+                             team); RosterSetup (picks between ParticipantSetup and a
+                             plain Players list, depending on Match Type);
+                             TournamentSetup (Pairing Style selector included),
                              SocialSessionSetup, RoundsPage, CurrentRoundView,
                              AllRoundsView, ByeList (Fixed Team-aware — see
-                             fixedTeamNameFor), Leaderboard, PlayerStats,
-                             FixedTeamResults, PickleballLogo (Leaderboard/Social
+                             fixedTeamNameFor — and, in Social Play, lets you click a
+                             resting player's name), PlayerActionMenu (the click-a-
+                             name-in-Current-Round menu — status actions plus an
+                             optional swap/substitute section, shared by all three
+                             Social Play modes), playerStatusPresentation (badge
+                             classes + destructive-status confirmation copy, shared
+                             by PlayerActionMenu and PlayerAvailabilityControls),
+                             Leaderboard, PlayerStats, FixedTeamResults,
+                             PickleballLogo (Leaderboard/Social
                              Play); PoolsKnockoutPage, PoolStageView, PoolLeaderboard,
                              KnockoutBracketView, FinalResults (Pools & Knockout);
                              KingCourtSetup (uses CourtSelector), CourtSeeding,
                              KingCourtRoundsPage, KingCourtView, KingCourtAllRoundsView,
                              KingCourtGameCard, KingCourtStandings,
                              KingCourtMovementPreview, KingCourtCycleHistory (King
-                             Court — reuses PlayerForm/PlayerList directly for its
-                             roster rather than duplicating them; KingCourtRoundsPage
+                             Court — reuses PlayerList directly for its roster rather
+                             than duplicating it; KingCourtRoundsPage
                              is the Current Round/All Rounds toggle parent, mirroring
                              RoundsPage); DynamicPairingSetup (own player roster UI —
-                             not a reuse of PlayerForm/PlayerList, since it needs
-                             starting seed + availability fields those don't have),
+                             not a reuse of PlayerList, since it needs starting seed +
+                             availability fields it doesn't have),
                              DynamicPairingRoundsPage (Current Round/All Rounds toggle
                              parent, mirroring RoundsPage; also swaps in
                              DynamicPairingAdminSkillReview in place of Current Round

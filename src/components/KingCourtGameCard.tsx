@@ -7,6 +7,9 @@ interface KingCourtGameCardProps {
   gameNumber: number;
   nameById: Map<string, string>;
   onSetScore: (team1Score: number, team2Score: number) => void;
+  // Clicking any player's name (including the resting player) opens
+  // PlayerActionMenu — see KingCourtView.
+  onSelectPlayer: (playerId: string) => void;
 }
 
 // One court's score-entry card for the cycle's current game — the King
@@ -14,7 +17,7 @@ interface KingCourtGameCardProps {
 // component a `key` that changes with the game/cycle number where it's
 // rendered (see KingCourtView) so its local score-input state doesn't
 // leak between games.
-export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore }: KingCourtGameCardProps) {
+export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore, onSelectPlayer }: KingCourtGameCardProps) {
   const game = court.games.find((g) => g.gameNumber === gameNumber);
   const [team1Score, setTeam1Score] = useState(game?.team1Score != null ? String(game.team1Score) : '');
   const [team2Score, setTeam2Score] = useState(game?.team2Score != null ? String(game.team2Score) : '');
@@ -26,6 +29,21 @@ export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore }: K
 
   function teamLabel(ids: string[]): string {
     return ids.map((id) => nameById.get(id) ?? 'Unknown player').join(' & ');
+  }
+
+  function renderPlayerNames(ids: string[]) {
+    return (
+      <span className="match-team-name">
+        {ids.map((id, index) => (
+          <span key={id}>
+            {index > 0 && ' & '}
+            <button type="button" className="player-name-link" onClick={() => onSelectPlayer(id)}>
+              {nameById.get(id) ?? 'Unknown player'}
+            </button>
+          </span>
+        ))}
+      </span>
+    );
   }
 
   function handleSubmit(event: FormEvent) {
@@ -51,11 +69,16 @@ export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore }: K
       <div className="match-header">
         Court {court.courtNumber} — Game {gameNumber} of 5
       </div>
-      <p className="hint kc-resting-hint">Resting: {nameById.get(game.restingPlayerId) ?? 'Unknown player'}</p>
+      <p className="hint kc-resting-hint">
+        Resting:{' '}
+        <button type="button" className="player-name-link" onClick={() => onSelectPlayer(game.restingPlayerId)}>
+          {nameById.get(game.restingPlayerId) ?? 'Unknown player'}
+        </button>
+      </p>
 
       <div className="match-teams">
         <div className={winner === 1 ? 'match-team winner' : 'match-team'}>
-          <span className="match-team-name">{teamLabel(game.team1PlayerIds)}</span>
+          {renderPlayerNames(game.team1PlayerIds)}
           <input
             type="number"
             min={0}
@@ -66,7 +89,7 @@ export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore }: K
         </div>
         <div className="match-vs">vs</div>
         <div className={winner === 2 ? 'match-team winner' : 'match-team'}>
-          <span className="match-team-name">{teamLabel(game.team2PlayerIds)}</span>
+          {renderPlayerNames(game.team2PlayerIds)}
           <input
             type="number"
             min={0}

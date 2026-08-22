@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Player, Round, Team, TournamentSettings } from '../types';
+import type { Player, PlayerAvailabilityStatus, Round, Team, TournamentSettings } from '../types';
 import { AllRoundsView } from './AllRoundsView';
 import { CurrentRoundView } from './CurrentRoundView';
 
@@ -18,6 +18,12 @@ interface RoundsPageProps {
   // CurrentRoundView. Defaults to empty so callers outside Fixed Teams
   // mode don't need to pass it.
   teams?: Team[];
+  // Social Play only — see CurrentRoundView's file comment. Safe to always
+  // pass through: CurrentRoundView only acts on these when
+  // settings.playMode is 'social', so Tournament Mode call sites can just
+  // omit them.
+  onSetAvailability?: (playerId: string, status: PlayerAvailabilityStatus) => void;
+  onSwap?: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
 }
 
 // Parent for the "Rounds" tab: a Current Round / All Rounds toggle above
@@ -35,6 +41,8 @@ export function RoundsPage({
   onFinishSession,
   onSetScore,
   teams = [],
+  onSetAvailability,
+  onSwap,
 }: RoundsPageProps) {
   const [subView, setSubView] = useState<RoundsSubView>('current');
 
@@ -69,6 +77,8 @@ export function RoundsPage({
           onFinishSession={onFinishSession}
           onSetScore={onSetScore}
           teams={teams}
+          onSetAvailability={onSetAvailability}
+          onSwap={onSwap}
         />
       ) : (
         <AllRoundsView rounds={rounds} players={players} settings={settings} teams={teams} />

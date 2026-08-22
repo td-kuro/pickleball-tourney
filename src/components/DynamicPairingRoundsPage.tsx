@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DynamicPairingRound, Player } from '../types';
+import type { DynamicPairingRound, Player, PlayerAvailabilityStatus } from '../types';
 import { DynamicPairingAdminSkillReview } from './DynamicPairingAdminSkillReview';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
@@ -15,6 +15,8 @@ interface DynamicPairingRoundsPageProps {
   onGenerateNextRound: () => void;
   onUpdatePlayerSkillLevel: (id: string, skillLevel?: number) => void;
   onConfirmSkillReview: () => void;
+  onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
+  onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
 }
 
 // Parent for Dynamic Pairing Social's "Rounds" tab — a Current Round / All
@@ -34,6 +36,8 @@ export function DynamicPairingRoundsPage({
   onGenerateNextRound,
   onUpdatePlayerSkillLevel,
   onConfirmSkillReview,
+  onSetAvailability,
+  onSwap,
 }: DynamicPairingRoundsPageProps) {
   const [subView, setSubView] = useState<RoundsSubView>('current');
 
@@ -73,6 +77,8 @@ export function DynamicPairingRoundsPage({
             players={players}
             onSetScore={onSetScore}
             onGenerateNextRound={onGenerateNextRound}
+            onSetAvailability={onSetAvailability}
+            onSwap={onSwap}
           />
         )
       ) : (

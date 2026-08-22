@@ -11,6 +11,10 @@ import {
   regenerateUpcomingGradingRounds,
   swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
+// Pure array transform with no round/state coupling, so importing it here
+// doesn't pull Standard Social Play state into this mode — same reasoning
+// DynamicPairingRestingPlayers already applies to canIncreaseCourts.
+import { revertRestingPlayers } from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:dp:settings';
@@ -194,7 +198,14 @@ export function useDynamicPairingSocial() {
   //    ranking round, same as this app always has.
   function generateNextRound() {
     if (!currentRound) return;
-    const check = canGenerateDynamicPairingRound(players, settings, currentRound);
+    // "This round" is ending — resting-this-round players are available
+    // again starting now, same as Standard Social Play's nextRound. Every
+    // other non-'available' status (late/unavailable/injured/left-early)
+    // is untouched.
+    const revertedPlayers = revertRestingPlayers(players);
+    if (revertedPlayers !== players) setPlayers(revertedPlayers);
+
+    const check = canGenerateDynamicPairingRound(revertedPlayers, settings, currentRound);
     if (!check.ok) return;
 
     const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
@@ -210,7 +221,7 @@ export function useDynamicPairingSocial() {
       return;
     }
 
-    const nextRound = generateDynamicPairingRound(players, settings, locked);
+    const nextRound = generateDynamicPairingRound(revertedPlayers, settings, locked);
     setRounds([...locked, nextRound]);
   }
 

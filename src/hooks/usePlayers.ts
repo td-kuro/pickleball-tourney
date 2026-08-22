@@ -26,6 +26,16 @@ export function usePlayers() {
     setPlayers([...players, ...newPlayers]);
   }
 
+  // Replaces the whole roster in one update — used by App.tsx's
+  // handleNextRound to apply utils/tournament.ts's revertRestingPlayers
+  // (clearing 'resting-this-round' back to 'available' for the round
+  // that's about to start) right before generating/activating it, so the
+  // new round's scheduling sees the reverted statuses immediately rather
+  // than one round late.
+  function setPlayersBulk(nextPlayers: Player[]) {
+    setPlayers(nextPlayers);
+  }
+
   // Adds one or more already-built Player records in a single update — used
   // when reverting a fixed team back to individual players (see App.tsx's
   // handleUnmakeTeam), where the players already have real ids/names/
@@ -70,6 +80,7 @@ export function usePlayers() {
   return {
     players,
     addPlayersBulk,
+    setPlayersBulk,
     addExistingPlayers,
     updatePlayer,
     setAvailabilityStatus,

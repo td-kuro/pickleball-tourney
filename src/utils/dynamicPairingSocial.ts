@@ -52,6 +52,8 @@ export function dynamicPairingAvailabilityLabel(status: PlayerAvailabilityStatus
       return 'Available';
     case 'resting-this-round':
       return 'Resting This Round';
+    case 'late':
+      return 'Late';
     case 'left-early':
       return 'Left Early';
     case 'injured':

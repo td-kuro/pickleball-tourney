@@ -11,16 +11,27 @@
 // - 'available': normal — eligible for future rounds/cycles, and eligible
 //   to be swapped into the current one (see the various swapPlayerInRound
 //   functions).
-// - 'resting-this-round': sitting out by choice. Deliberately does NOT
-//   auto-revert to 'available' after one round — see README's "Mid-session
-//   player and court changes" for why an explicit "Make Available" is
-//   preferred over a timed auto-expiry (ambiguous if no new round/cycle is
-//   generated for a while).
+// - 'resting-this-round': sitting out by choice, for the current round
+//   only — auto-reverts to 'available' the moment a new round/cycle
+//   becomes current (see revertRestingPlayers in utils/tournament.ts),
+//   unless the organiser has since set something else explicitly.
+// - 'late': hasn't arrived yet — excluded from round generation the same
+//   way as 'unavailable', but a distinct label so the organiser can tell
+//   "not here yet" apart from "here, but can't play" at a glance. Does NOT
+//   auto-revert (unlike 'resting-this-round') — the app has no way to know
+//   when a late player actually shows up, so "Make available" is always
+//   explicit.
 // - 'left-early' / 'injured' / 'unavailable': excluded from future round/
 //   cycle generation until explicitly set back to 'available'. Distinct
 //   labels for the organiser's benefit (why they're out); behaviourally
-//   identical — all three are simply "not available".
-export type PlayerAvailabilityStatus = 'available' | 'resting-this-round' | 'left-early' | 'injured' | 'unavailable';
+//   identical — all three are simply "not available", same as 'late'.
+export type PlayerAvailabilityStatus =
+  | 'available'
+  | 'resting-this-round'
+  | 'late'
+  | 'left-early'
+  | 'injured'
+  | 'unavailable';
 
 export interface Player {
   id: string;

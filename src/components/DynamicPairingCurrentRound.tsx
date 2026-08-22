@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
-import type { DynamicPairingCourtAssignment, DynamicPairingRound, Player } from '../types';
-import { isDynamicPairingRoundComplete, nextRoundButtonLabel, roundPhaseLabel } from '../utils/dynamicPairingSocial';
+import type { DynamicPairingCourtAssignment, DynamicPairingRound, Player, PlayerAvailabilityStatus } from '../types';
+import { dynamicPairingAvailabilityLabel, isDynamicPairingRoundComplete, nextRoundButtonLabel, roundPhaseLabel } from '../utils/dynamicPairingSocial';
+import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActionMenu';
 
 interface DynamicPairingCurrentRoundProps {
   round: DynamicPairingRound | undefined;
@@ -8,6 +9,8 @@ interface DynamicPairingCurrentRoundProps {
   players: Player[];
   onSetScore: (courtNumber: number, score1: number, score2: number) => void;
   onGenerateNextRound: () => void;
+  onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
+  onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
 }
 
 // The live/active Dynamic Pairing Social round — mirrors CurrentRoundView's
@@ -17,13 +20,69 @@ interface DynamicPairingCurrentRoundProps {
 // apply to a court (2 fixed teams for the round) rather than an arbitrary
 // MatchSide. `rounds` (the full history, including any pre-generated
 // 'upcoming' rounds) is only needed to compute nextRoundButtonLabel — see
-// that function for why the button's label/behaviour varies.
-export function DynamicPairingCurrentRound({ round, rounds, players, onSetScore, onGenerateNextRound }: DynamicPairingCurrentRoundProps) {
+// that function for why the button's label/behaviour varies. Every player
+// name is clickable — see PlayerActionMenu — opening the same status/swap
+// actions Session Controls' standalone controls already offer.
+export function DynamicPairingCurrentRound({
+  round,
+  rounds,
+  players,
+  onSetScore,
+  onGenerateNextRound,
+  onSetAvailability,
+  onSwap,
+}: DynamicPairingCurrentRoundProps) {
+  const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
+  const playerById = new Map(players.map((p) => [p.id, p]));
   const allScored = round ? isDynamicPairingRoundComplete(round) : false;
+  const selectedPlayer = selectedPlayerId ? playerById.get(selectedPlayerId) : undefined;
+
+  const restingSwapOptions = round
+    ? round.restingPlayerIds.map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
+    : [];
+
+  function menuContextFor(playerId: string): { contextLines: string[]; replacement: PlayerActionMenuReplacement | undefined } {
+    if (!round) return { contextLines: [], replacement: undefined };
+    const court = round.courts.find((c) => c.playerIds.includes(playerId));
+    if (!court) {
+      return { contextLines: ['Resting this round'], replacement: undefined };
+    }
+    const teammateIds = court.playerIds.filter((id) => id !== playerId);
+    const teammateNames = teammateIds.map((id) => playerNameById.get(id) ?? 'Unknown player');
+    const scored = court.score1 != null || court.score2 != null;
+    const lines = [`Court ${court.courtNumber}`, `Playing with/against ${teammateNames.join(', ')}`];
+    if (scored) {
+      lines.push("This court's score is already submitted — edit or reset it before changing players.");
+      return { contextLines: lines, replacement: undefined };
+    }
+    return {
+      contextLines: lines,
+      replacement: {
+        label: 'Swap with resting player',
+        options: restingSwapOptions,
+        onReplace: (restingId: string) => onSwap(playerId, restingId),
+      },
+    };
+  }
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
+  }
+
+  function renderPlayerNames(playerIds: string[]) {
+    return (
+      <span className="match-team-name">
+        {playerIds.map((id, index) => (
+          <span key={id}>
+            {index > 0 && ' & '}
+            <button type="button" className="player-name-link" onClick={() => setSelectedPlayerId(id)}>
+              {playerNameById.get(id) ?? 'Unknown player'}
+            </button>
+          </span>
+        ))}
+      </span>
+    );
   }
 
   return (
@@ -65,6 +124,8 @@ export function DynamicPairingCurrentRound({ round, rounds, players, onSetScore,
                 court={court}
                 team1Label={teamLabel(court.team1PlayerIds)}
                 team2Label={teamLabel(court.team2PlayerIds)}
+                renderTeam1={() => renderPlayerNames(court.team1PlayerIds)}
+                renderTeam2={() => renderPlayerNames(court.team2PlayerIds)}
                 onSetScore={(score1, score2) => onSetScore(court.courtNumber, score1, score2)}
               />
             ))}
@@ -80,13 +141,26 @@ export function DynamicPairingCurrentRound({ round, rounds, players, onSetScore,
           ) : (
             <ul className="bye-list">
               {round.restingPlayerIds.map((id) => (
-                <li key={id} className="bye-chip">
-                  {playerNameById.get(id) ?? 'Unknown player'}
+                <li key={id}>
+                  <button type="button" className="bye-chip bye-chip-clickable" onClick={() => setSelectedPlayerId(id)}>
+                    {playerNameById.get(id) ?? 'Unknown player'}
+                  </button>
                 </li>
               ))}
             </ul>
           )}
         </section>
+      )}
+
+      {selectedPlayer && (
+        <PlayerActionMenu
+          player={selectedPlayer}
+          statusLabel={dynamicPairingAvailabilityLabel}
+          contextLines={menuContextFor(selectedPlayer.id).contextLines}
+          replacement={menuContextFor(selectedPlayer.id).replacement}
+          onSetStatus={(status) => onSetAvailability(selectedPlayer.id, status)}
+          onClose={() => setSelectedPlayerId(null)}
+        />
       )}
     </>
   );
@@ -96,10 +170,12 @@ interface DynamicPairingCourtCardProps {
   court: DynamicPairingCourtAssignment;
   team1Label: string;
   team2Label: string;
+  renderTeam1: () => React.ReactNode;
+  renderTeam2: () => React.ReactNode;
   onSetScore: (score1: number, score2: number) => void;
 }
 
-function DynamicPairingCourtCard({ court, team1Label, team2Label, onSetScore }: DynamicPairingCourtCardProps) {
+function DynamicPairingCourtCard({ court, team1Label, team2Label, renderTeam1, renderTeam2, onSetScore }: DynamicPairingCourtCardProps) {
   const [score1, setScore1] = useState(court.score1 != null ? String(court.score1) : '');
   const [score2, setScore2] = useState(court.score2 != null ? String(court.score2) : '');
   const [error, setError] = useState<string | null>(null);
@@ -130,7 +206,7 @@ function DynamicPairingCourtCard({ court, team1Label, team2Label, onSetScore }: 
       <div className="match-header">Court {court.courtNumber}</div>
       <div className="match-teams">
         <div className={court.winnerTeam === 1 ? 'match-team winner' : 'match-team'}>
-          <span className="match-team-name">{team1Label}</span>
+          {renderTeam1()}
           <input
             type="number"
             min={0}
@@ -142,7 +218,7 @@ function DynamicPairingCourtCard({ court, team1Label, team2Label, onSetScore }: 
         </div>
         <div className="match-vs">vs</div>
         <div className={court.winnerTeam === 2 ? 'match-team winner' : 'match-team'}>
-          <span className="match-team-name">{team2Label}</span>
+          {renderTeam2()}
           <input
             type="number"
             min={0}

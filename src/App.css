@@ -860,6 +860,19 @@ button.danger:hover:not(:disabled) {
   color: var(--accent);
 }
 
+/* Player availability: amber for "needs attention soon" (resting/late/
+   needs-replacement), red for "danger" (injured/left early/removed from
+   future rounds) — see PlayerAvailabilityControls, PlayerActionMenu. */
+.status-badge-warning {
+  background: rgba(201, 130, 10, 0.15);
+  color: #c9820a;
+}
+
+.status-badge-danger {
+  background: rgba(192, 57, 43, 0.12);
+  color: #c0392b;
+}
+
 .all-rounds-entry-heading {
   display: flex;
   align-items: center;
@@ -1428,4 +1441,50 @@ button.danger:hover:not(:disabled) {
 
 .court-count-warning {
   color: #c0392b;
+}
+
+/* Clickable player name (Social Play modes' Current Round only — see
+   CurrentRoundView/DynamicPairingCurrentRound/KingCourtGameCard) — opens
+   PlayerActionMenu. Styled as a link, not a button, so it reads as part of
+   the match-team-name row rather than a competing action. */
+.player-name-link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-border);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.player-name-link:hover {
+  color: var(--accent);
+}
+
+.player-name-link:focus-visible {
+  outline: 2px solid var(--accent-fill);
+  outline-offset: 2px;
+}
+
+.player-action-context {
+  margin: 4px 0;
+}
+
+.player-action-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 16px 0;
+}
+
+.bye-chip-clickable {
+  cursor: pointer;
+}
+
+.bye-chip-clickable:hover {
+  background: var(--accent-border);
 }

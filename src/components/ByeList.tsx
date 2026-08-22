@@ -10,12 +10,17 @@ interface ByeListProps {
   // (round.splitTeamIds) is intentionally left as an individual chip,
   // since only one of the two actually sat out.
   teams?: Team[];
+  // Social Play only (see CurrentRoundView) — makes each individual bye
+  // chip clickable, opening PlayerActionMenu for that player. Omitted in
+  // Tournament Mode, and never offered for a whole fixed-team bye chip
+  // (same "individual players only" scope as everywhere else).
+  onSelectPlayer?: (playerId: string) => void;
 }
 
 // Shown below the current round's matches: whoever isn't playing this
 // round because they were selected for a bye (see the rotation logic in
 // src/utils/tournament.ts and utils/pairing.ts).
-export function ByeList({ round, players, teams = [] }: ByeListProps) {
+export function ByeList({ round, players, teams = [], onSelectPlayer }: ByeListProps) {
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const byeTeamIds = round.byeTeamIds ?? [];
   const byeTeamPlayerIds = new Set(byeTeamIds.flatMap((teamId) => teams.find((t) => t.id === teamId)?.playerIds ?? []));
@@ -38,11 +43,19 @@ export function ByeList({ round, players, teams = [] }: ByeListProps) {
               </li>
             );
           })}
-          {individualByeIds.map((id) => (
-            <li key={id} className="bye-chip">
-              {playerNameById.get(id) ?? 'Unknown player'}
-            </li>
-          ))}
+          {individualByeIds.map((id) =>
+            onSelectPlayer ? (
+              <li key={id}>
+                <button type="button" className="bye-chip bye-chip-clickable" onClick={() => onSelectPlayer(id)}>
+                  {playerNameById.get(id) ?? 'Unknown player'}
+                </button>
+              </li>
+            ) : (
+              <li key={id} className="bye-chip">
+                {playerNameById.get(id) ?? 'Unknown player'}
+              </li>
+            ),
+          )}
         </ul>
       )}
     </section>

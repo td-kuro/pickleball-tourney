@@ -130,6 +130,8 @@ export function availabilityStatusLabel(status: PlayerAvailabilityStatus): strin
       return 'Available';
     case 'resting-this-round':
       return 'Resting This Round';
+    case 'late':
+      return 'Late';
     case 'left-early':
       return 'Left Early';
     case 'injured':
@@ -137,6 +139,20 @@ export function availabilityStatusLabel(status: PlayerAvailabilityStatus): strin
     case 'unavailable':
       return 'Unavailable';
   }
+}
+
+// Clears 'resting-this-round' back to 'available' for every player who has
+// it — called when a new round/cycle becomes current (see useTournament's
+// nextRound, useDynamicPairingSocial's generateNextRound), since "this
+// round" has now ended. Every other non-'available' status (late,
+// unavailable, injured, left-early) is untouched — those stay until the
+// organiser explicitly reverts them, since the app has no way to know when
+// e.g. a late player has actually arrived.
+export function revertRestingPlayers(players: Player[]): Player[] {
+  if (!players.some((player) => player.availabilityStatus === 'resting-this-round')) return players;
+  return players.map((player) =>
+    player.availabilityStatus === 'resting-this-round' ? { ...player, availabilityStatus: 'available' } : player,
+  );
 }
 
 // Filters a roster down to who's actually schedulable right now — a fixed

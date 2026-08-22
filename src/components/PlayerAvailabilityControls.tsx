@@ -1,24 +1,11 @@
 import type { Player, PlayerAvailabilityStatus } from '../types';
+import { DESTRUCTIVE_CONFIRMATIONS, STATUS_BADGE_CLASS } from './playerStatusPresentation';
 
 interface PlayerAvailabilityControlsProps {
   players: Player[];
   onSetStatus: (playerId: string, status: PlayerAvailabilityStatus) => void;
   statusLabel: (status: PlayerAvailabilityStatus) => string;
 }
-
-const STATUS_BADGE_CLASS: Record<PlayerAvailabilityStatus, string> = {
-  available: 'status-badge status-badge-completed',
-  'resting-this-round': 'status-badge',
-  'left-early': 'status-badge status-badge-current',
-  injured: 'status-badge status-badge-current',
-  unavailable: 'status-badge',
-};
-
-const DESTRUCTIVE_CONFIRMATIONS: Partial<Record<PlayerAvailabilityStatus, (name: string) => string>> = {
-  'left-early': (name) => `Mark ${name} as left early? They'll be removed from future rounds, but completed results stay unchanged.`,
-  injured: (name) => `Mark ${name} as injured? They'll be removed from future rounds, but completed results stay unchanged.`,
-  unavailable: (name) => `Mark ${name} as unavailable? They'll be removed from future rounds until you set them back to available.`,
-};
 
 // Mid-session availability actions for one player — reused by Standard
 // Social Play's SessionControls and Dynamic Pairing Social's Resting
@@ -68,6 +55,11 @@ export function PlayerAvailabilityControls({ players, onSetStatus, statusLabel }
                 {status !== 'resting-this-round' && (
                   <button type="button" className="secondary" onClick={() => handleSetStatus(player, 'resting-this-round')}>
                     Rest this round
+                  </button>
+                )}
+                {status !== 'late' && (
+                  <button type="button" className="secondary" onClick={() => handleSetStatus(player, 'late')}>
+                    Mark late
                   </button>
                 )}
                 {status !== 'unavailable' && (
