@@ -87,22 +87,22 @@ export function useDynamicTeamQualifier() {
   // can fill in real names/ratings/seeds afterward instead of adding one
   // team at a time — also how a single "+ Add Team" click adds one slot
   // (count=1).
+  // Name starts blank (not "T01 Player 1") so typing a real name doesn't
+  // require clearing a placeholder first — DynamicTeamRow's `placeholder`
+  // attribute still shows "Player 1"/"Player 2" as greyed-out ghost text
+  // until then; the row itself is labelled by teamCode either way.
   function addTeamsBulk(count: number) {
     const codes = generateTeamCodes(teams.length + count).slice(teams.length);
-    const newTeams: DynamicTeam[] = codes.map((teamCode, i) => {
-      const playerAName = `${teamCode} Player 1`;
-      const playerBName = `${teamCode} Player 2`;
-      return {
-        id: `${makeTeamId()}-${i}`,
-        teamCode,
-        displayName: teamDisplayName('', playerAName, playerBName),
-        playerAName,
-        playerBName,
-        checkedIn: false,
-        withdrawn: false,
-        partnerLocked: false,
-      };
-    });
+    const newTeams: DynamicTeam[] = codes.map((teamCode, i) => ({
+      id: `${makeTeamId()}-${i}`,
+      teamCode,
+      displayName: teamDisplayName('', '', ''),
+      playerAName: '',
+      playerBName: '',
+      checkedIn: false,
+      withdrawn: false,
+      partnerLocked: false,
+    }));
     setTeams([...teams, ...newTeams]);
   }
 

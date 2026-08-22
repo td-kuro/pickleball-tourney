@@ -11,16 +11,16 @@ function makePlayerId(salt = 0): string {
 export function usePlayers() {
   const [players, setPlayers] = useLocalStorage<Player[]>(STORAGE_KEY, []);
 
-  // Quickly generates `count` empty player slots (named "Player N") so the
-  // user can fill in names/ratings afterward instead of adding one by one —
-  // also how a single "+ Add Player" click adds one slot (count=1); every
-  // roster screen edits name/rating in place afterward, so there's no
-  // separate single-player add form anywhere any more.
+  // Quickly generates `count` blank player slots so the user can fill in
+  // names/ratings afterward instead of adding one by one — also how a
+  // single "+ Add Player" click adds one slot (count=1). Name starts empty
+  // (not "Player N") so typing a real name doesn't require clearing a
+  // placeholder first — PlayerRow's `placeholder` attribute still shows
+  // "Player N" as greyed-out ghost text until then.
   function addPlayersBulk(count: number) {
-    const startNumber = players.length + 1;
     const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
       id: makePlayerId(i),
-      name: `Player ${startNumber + i}`,
+      name: '',
       rating: undefined,
     }));
     setPlayers([...players, ...newPlayers]);

@@ -73,16 +73,18 @@ export function useDynamicPairingSocial() {
     setSettings(next);
   }
 
-  // Quickly generates `count` empty player slots (named "Player N") so the
-  // organiser can fill in names/ratings/seeds afterward instead of adding
-  // one by one — mirrors usePlayers' addPlayersBulk, adapted for this
-  // roster's own shape (availabilityStatus defaults to 'available') — also
-  // how a single "+ Add Player" click adds one slot (count=1).
+  // Quickly generates `count` blank player slots so the organiser can fill
+  // in names/ratings/seeds afterward instead of adding one by one — mirrors
+  // usePlayers' addPlayersBulk, adapted for this roster's own shape
+  // (availabilityStatus defaults to 'available') — also how a single
+  // "+ Add Player" click adds one slot (count=1). Name starts empty (not
+  // "Player N") so typing a real name doesn't require clearing a
+  // placeholder first — the row's `placeholder` attribute still shows
+  // "Player N" as greyed-out ghost text until then.
   function addPlayersBulk(count: number) {
-    const startNumber = players.length + 1;
     const newPlayers: Player[] = Array.from({ length: count }, (_, i) => ({
       id: makePlayerId(i),
-      name: `Player ${startNumber + i}`,
+      name: '',
       availabilityStatus: 'available',
     }));
     setPlayers([...players, ...newPlayers]);
