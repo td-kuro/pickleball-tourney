@@ -488,13 +488,9 @@ function App() {
             tournamentInProgress={started}
           />
 
-          <NumberOfCourtsSetup
-            settings={settings}
-            onChange={updateSettings}
-            isKingCourt={isKingCourt}
-            isDynamicPairingSocial={isDynamicPairingSocial}
-            isDynamicTeamQualifier={isDynamicTeamQualifier}
-          />
+          {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
+            <NumberOfCourtsSetup settings={settings} onChange={updateSettings} />
+          )}
 
           {isKingCourt ? (
             <>

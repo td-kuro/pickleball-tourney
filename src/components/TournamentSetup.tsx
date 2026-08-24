@@ -229,44 +229,20 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
 interface NumberOfCourtsSetupProps {
   settings: TournamentSettings;
   onChange: (settings: TournamentSettings) => void;
-  isKingCourt: boolean;
-  isDynamicPairingSocial: boolean;
-  isDynamicTeamQualifier: boolean;
 }
 
 // Its own card (previously the tail end of the Session Setup card above) —
-// King Court, Dynamic Pairing Social, and Dynamic Team Qualifier each set
-// their court count from their own dedicated setup card instead, so this
-// one just explains where to look for those three rather than rendering
-// the shared CourtSelector.
-export function NumberOfCourtsSetup({
-  settings,
-  onChange,
-  isKingCourt,
-  isDynamicPairingSocial,
-  isDynamicTeamQualifier,
-}: NumberOfCourtsSetupProps) {
+// used by Leaderboard, Pools & Knockout, and both Social Play formats that
+// don't have their own dedicated court-count control. King Court, Dynamic
+// Pairing Social, and Dynamic Team Qualifier each set their court count
+// from their own dedicated setup card instead, so App.tsx skips rendering
+// this one entirely for those three rather than showing a redundant
+// "see below" card next to their real control.
+export function NumberOfCourtsSetup({ settings, onChange }: NumberOfCourtsSetupProps) {
   return (
     <section className="card">
       <h2>Number of Courts</h2>
-
-      {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
-        <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
-      )}
-
-      {isKingCourt && (
-        <p className="hint">Number of courts and player seeding for King Court are set below, on the King Court Setup card.</p>
-      )}
-
-      {isDynamicPairingSocial && (
-        <p className="hint">
-          Session name, number of courts, players, and every other Dynamic Pairing Social setting are on the card below.
-        </p>
-      )}
-
-      {isDynamicTeamQualifier && (
-        <p className="hint">Number of courts is set below, on the Dynamic Team Qualifier setup card.</p>
-      )}
+      <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
     </section>
   );
 }
