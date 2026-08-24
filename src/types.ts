@@ -66,7 +66,8 @@ export type SessionAdjustmentType =
   | 'player-made-available'
   | 'player-swapped'
   | 'court-count-changed'
-  | 'future-rounds-regenerated';
+  | 'future-rounds-regenerated'
+  | 'team-split';
 
 export interface SessionAdjustment {
   id: string;
@@ -577,6 +578,15 @@ export interface DynamicPairingCourtAssignment {
   playerIds: string[];
   team1PlayerIds: string[];
   team2PlayerIds: string[];
+  // Which entrant(s) (see DynamicPairingEntrant) make up each side — a
+  // fixed team occupies its side alone (one id); two individuals paired
+  // into a temporary side both appear (two ids). Absent on rounds
+  // generated before fixed teams existed, or whenever no fixed team was
+  // involved — callers should fall back to treating each id in
+  // team1PlayerIds/team2PlayerIds as its own entrant in that case (see
+  // entrantIdsForSide in utils/dynamicPairingSocial.ts).
+  team1EntrantIds?: string[];
+  team2EntrantIds?: string[];
   score1?: number;
   score2?: number;
   winnerTeam?: 1 | 2;
@@ -590,9 +600,49 @@ export interface DynamicPairingRound {
   status: DynamicPairingRoundStatus;
   courts: DynamicPairingCourtAssignment[];
   // Sitting out this round — selected independently of ranking, see
-  // selectRestingPlayers.
+  // selectRestingPlayers. Always the full physical-player list (a resting
+  // fixed team contributes both of its members here), so anything reading
+  // "who's resting" at the player level keeps working unchanged.
   restingPlayerIds: string[];
+  // Entrant-level view of the same rest decision — absent on rounds
+  // generated before fixed teams existed. See restingPlayerIds above.
+  restingEntrantIds?: string[];
   createdAt: number;
+}
+
+// A fixed pair of players who play every Dynamic Pairing Social match
+// together and are ranked/graded as a single unit, rather than as two
+// independent individuals. Deliberately its own type (not the shared
+// `Team` used elsewhere) to keep this mode's isolation boundary intact —
+// see the file header of utils/dynamicPairingSocial.ts. A team doesn't own
+// a separate roster; it just references two ids already in this session's
+// `players` array.
+export interface DynamicPairingTeam {
+  id: string;
+  // Always derived as "PlayerA / PlayerB" (see dynamicPairingTeamDisplayName)
+  // rather than a separate user-entered field, matching how fixed teams are
+  // built everywhere else in this app.
+  playerIds: [string, string];
+  rating?: number;
+  seed?: number;
+  skillLevel?: number;
+}
+
+export type DynamicPairingEntrantType = 'individual-player' | 'fixed-team';
+
+// One ranked/scheduled competitor in Dynamic Pairing Social — either a lone
+// individual player or a DynamicPairingTeam. This is always a *derived*
+// view (see buildDynamicPairingEntrants in utils/dynamicPairingSocial.ts),
+// never itself persisted — `players` and `teams` remain the source of
+// truth, so there's nothing here that can drift out of sync with them.
+export interface DynamicPairingEntrant {
+  id: string; // player.id for an individual, team.id for a fixed team
+  type: DynamicPairingEntrantType;
+  displayName: string;
+  playerIds: string[]; // length 1 (individual) or 2 (fixed team)
+  seed?: number;
+  skillLevel?: number;
+  rating?: number;
 }
 
 // Conceptual shape of the whole session — documentation only, same as

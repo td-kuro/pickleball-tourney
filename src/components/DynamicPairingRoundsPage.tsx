@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DynamicPairingRound, Player, PlayerAvailabilityStatus } from '../types';
+import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
 import { DynamicPairingAdminSkillReview } from './DynamicPairingAdminSkillReview';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
@@ -10,10 +10,11 @@ interface DynamicPairingRoundsPageProps {
   rounds: DynamicPairingRound[];
   currentRound: DynamicPairingRound | undefined;
   players: Player[];
+  teams: DynamicPairingTeam[];
   awaitingSkillReview: boolean;
   onSetScore: (courtNumber: number, score1: number, score2: number) => void;
   onGenerateNextRound: () => void;
-  onUpdatePlayerSkillLevel: (id: string, skillLevel?: number) => void;
+  onUpdateEntrantSkillLevel: (entrantId: string, skillLevel?: number) => void;
   onConfirmSkillReview: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
@@ -31,10 +32,11 @@ export function DynamicPairingRoundsPage({
   rounds,
   currentRound,
   players,
+  teams,
   awaitingSkillReview,
   onSetScore,
   onGenerateNextRound,
-  onUpdatePlayerSkillLevel,
+  onUpdateEntrantSkillLevel,
   onConfirmSkillReview,
   onSetAvailability,
   onSwap,
@@ -66,8 +68,9 @@ export function DynamicPairingRoundsPage({
         awaitingSkillReview ? (
           <DynamicPairingAdminSkillReview
             players={players}
+            teams={teams}
             rounds={rounds}
-            onUpdateSkillLevel={onUpdatePlayerSkillLevel}
+            onUpdateSkillLevel={onUpdateEntrantSkillLevel}
             onConfirm={onConfirmSkillReview}
           />
         ) : (
@@ -75,6 +78,7 @@ export function DynamicPairingRoundsPage({
             round={currentRound}
             rounds={rounds}
             players={players}
+            teams={teams}
             onSetScore={onSetScore}
             onGenerateNextRound={onGenerateNextRound}
             onSetAvailability={onSetAvailability}

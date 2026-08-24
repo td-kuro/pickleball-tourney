@@ -19,11 +19,13 @@ import type {
   CourtMovementLimit,
   DynamicGameFormat,
   DynamicPairingCourtAssignment,
+  DynamicPairingEntrant,
   DynamicPairingPlayerStats,
   DynamicPairingRound,
   DynamicPairingRoundPhase,
   DynamicPairingRoundStatus,
   DynamicPairingSettings,
+  DynamicPairingTeam,
   Player,
   PlayerAvailabilityStatus,
 } from '../types';
@@ -352,6 +354,89 @@ export function calculatePlayerRankings(players: Player[], rounds: DynamicPairin
   return latest;
 }
 
+// --- Fixed teams & entrants -------------------------------------------
+// Optional layer on top of the individual-player model above, for the
+// "Fixed Team" option (see README's "Fixed teams"). A DynamicPairingTeam is
+// two existing `players` ids that always play, rest, and get scored
+// together — never a separate roster. Because a team's two members always
+// share the exact same court/result/rest every round (round generation
+// below guarantees this), their per-player DynamicPairingPlayerStats rows
+// end up identical by construction — so a team's "stats" are simply
+// either member's stats, with no separate stats-storage type needed. This
+// also means partner/opponent history (keyed by physical player id) still
+// correctly reflects which *physical players* have faced each other,
+// regardless of team structure — createBalancedPartnerships-style
+// repeat-avoidance keeps working unmodified at the entrant layer.
+//
+// An "entrant" (DynamicPairingEntrant) is the derived, display/ranking-
+// facing unit: one individual player, or one fixed team. Entrants are
+// never stored — see buildDynamicPairingEntrants below.
+
+export function dynamicPairingTeamDisplayName(team: DynamicPairingTeam, players: Player[]): string {
+  const [aId, bId] = team.playerIds;
+  const aName = players.find((p) => p.id === aId)?.name ?? 'Player 1';
+  const bName = players.find((p) => p.id === bId)?.name ?? 'Player 2';
+  return `${aName} / ${bName}`;
+}
+
+// A player can belong to at most one fixed team — enforced by construction
+// (useDynamicPairingSocial.makeDynamicPairingTeam refuses to reuse a
+// player who's already on a team), so filtering individuals down to
+// "everyone not already claimed by a team" is always unambiguous.
+export function buildDynamicPairingEntrants(players: Player[], teams: DynamicPairingTeam[]): DynamicPairingEntrant[] {
+  const teamMemberIds = new Set(teams.flatMap((t) => t.playerIds));
+  const individualEntrants: DynamicPairingEntrant[] = players
+    .filter((p) => !teamMemberIds.has(p.id))
+    .map((p) => ({
+      id: p.id,
+      type: 'individual-player',
+      displayName: p.name,
+      playerIds: [p.id],
+      seed: p.startingSeed,
+      skillLevel: p.skillLevel,
+      rating: p.rating,
+    }));
+  const teamEntrants: DynamicPairingEntrant[] = teams.map((t) => ({
+    id: t.id,
+    type: 'fixed-team',
+    displayName: dynamicPairingTeamDisplayName(t, players),
+    playerIds: [...t.playerIds],
+    seed: t.seed,
+    skillLevel: t.skillLevel,
+    rating: t.rating,
+  }));
+  return [...individualEntrants, ...teamEntrants];
+}
+
+// A fixed team is only available to play/rest as a unit when *both* of its
+// members are individually available — same rule Standard Social Play's
+// fixed teams follow (see utils/tournament.ts).
+export function isEntrantAvailable(entrant: DynamicPairingEntrant, playersById: Map<string, Player>): boolean {
+  return entrant.playerIds.every((id) => {
+    const player = playersById.get(id);
+    return player != null && isPlayerAvailable(player);
+  });
+}
+
+// Mirrors utils/tournament.ts's isFixedTeamSide — a court side counts as a
+// fixed team only when it's exactly that team's two players, so a
+// temporary pairing that happens to reuse the same two ids after a team is
+// split is never mistaken for the (now former) team.
+export function isDynamicPairingFixedTeamSide(playerIds: string[], teams: DynamicPairingTeam[]): boolean {
+  if (playerIds.length !== 2) return false;
+  const key = [...playerIds].sort().join('|');
+  return teams.some((team) => [...team.playerIds].sort().join('|') === key);
+}
+
+// Entrant id(s) for one side of a court — falls back to treating each
+// physical player as their own entrant when team1EntrantIds/
+// team2EntrantIds is absent (rounds generated before fixed teams existed,
+// or any round where no fixed team was involved).
+export function entrantIdsForSide(court: DynamicPairingCourtAssignment, side: 1 | 2): string[] {
+  const explicit = side === 1 ? court.team1EntrantIds : court.team2EntrantIds;
+  return explicit ?? (side === 1 ? court.team1PlayerIds : court.team2PlayerIds);
+}
+
 // --- Rest selection ------------------------------------------------------
 // Deliberately doesn't look at ranking at all — see the file-level comment.
 export function selectRestingPlayers(
@@ -391,6 +476,58 @@ export function selectRestingPlayers(
   const restingSet = new Set(restingIds);
   const activeIds = availablePlayers.filter((p) => !restingSet.has(p.id)).map((p) => p.id);
   return { restingIds, activeIds };
+}
+
+// Entrant-level version of selectRestingPlayers, used only once a fixed
+// team exists (see generateDynamicPairingRoundWithTeams) — same fairness
+// order (fewest total rests, then most consecutive rounds played, then
+// didn't rest last round, then a stable tiebreak), but selecting *entrants*
+// (physical footprint 1 or 2) to keep active physical players at or under
+// `courtsUsed * 4`. A fixed team rests or plays as one atomic unit.
+//
+// Because entrant size varies, a single greedy pass in fairness order can
+// occasionally leave one physical slot unfilled (e.g. exactly one slot of
+// capacity remains and every not-yet-placed entrant is a 2-player team).
+// That's accepted rather than solved with a full bin-packing search:
+// filling every last slot would sometimes require resting a *fairer*
+// entrant to make room for a worse-fitting one, which would violate rest
+// fairness — so this deliberately prioritises fairness over perfect court
+// utilisation (see the file-level comment on why rest stays independent of
+// everything else). See README's "Current limitations".
+export function selectRestingEntrants(
+  availableEntrants: DynamicPairingEntrant[],
+  representativeStatsById: Map<string, DynamicPairingPlayerStats>,
+  courtsUsed: number,
+  lastRoundRestingEntrantIds: Set<string>,
+): { restingEntrantIds: string[]; activeEntrantIds: string[] } {
+  const capacity = calculateActiveCapacity(courtsUsed);
+
+  const sorted = [...availableEntrants].sort((a, b) => {
+    const sa = representativeStatsById.get(a.id) ?? emptyStats(a.id);
+    const sb = representativeStatsById.get(b.id) ?? emptyStats(b.id);
+    if (sa.totalRests !== sb.totalRests) return sa.totalRests - sb.totalRests;
+    if (sb.consecutiveRoundsPlayed !== sa.consecutiveRoundsPlayed) {
+      return sb.consecutiveRoundsPlayed - sa.consecutiveRoundsPlayed;
+    }
+    const aRestedLastRound = lastRoundRestingEntrantIds.has(a.id) ? 1 : 0;
+    const bRestedLastRound = lastRoundRestingEntrantIds.has(b.id) ? 1 : 0;
+    if (aRestedLastRound !== bRestedLastRound) return aRestedLastRound - bRestedLastRound;
+    return stableRandomTiebreak(a.id, b.id);
+  });
+
+  const active: DynamicPairingEntrant[] = [];
+  let remaining = capacity;
+  for (const entrant of sorted) {
+    const size = entrant.playerIds.length;
+    if (size <= remaining) {
+      active.push(entrant);
+      remaining -= size;
+    }
+  }
+
+  const activeIds = new Set(active.map((e) => e.id));
+  const restingEntrantIds = availableEntrants.filter((e) => !activeIds.has(e.id)).map((e) => e.id);
+  return { restingEntrantIds, activeEntrantIds: Array.from(activeIds) };
 }
 
 // --- Court allocation ------------------------------------------------------
@@ -513,6 +650,113 @@ export function createBalancedPartnerships(
   return { team1: chosen.team1, team2: chosen.team2 };
 }
 
+// --- Entrant ranking -----------------------------------------------------
+// Entrant-level counterpart of getPlayerHeadToHead/sortPlayersByRanking/
+// calculatePlayerRankings above, used for Rankings and Admin Skill Review
+// once fixed teams exist. Falls back to entrantIdsForSide so it reads
+// correctly even for rounds that predate fixed teams (or a round where no
+// team was involved) — every player there is their own entrant 1:1, so the
+// result is identical to getPlayerHeadToHead in that case.
+export function getEntrantHeadToHead(aId: string, bId: string, rounds: DynamicPairingRound[]): number {
+  let aWins = 0;
+  let bWins = 0;
+  for (const round of rounds) {
+    for (const court of round.courts) {
+      if (court.score1 == null || court.score2 == null || court.score1 === court.score2) continue;
+      const side1 = entrantIdsForSide(court, 1);
+      const side2 = entrantIdsForSide(court, 2);
+      const aSide = side1.includes(aId) ? 1 : side2.includes(aId) ? 2 : 0;
+      const bSide = side1.includes(bId) ? 1 : side2.includes(bId) ? 2 : 0;
+      if (aSide === 0 || bSide === 0 || aSide === bSide) continue;
+      const winnerTeam = court.score1 > court.score2 ? 1 : 2;
+      if (aSide === winnerTeam) aWins += 1;
+      else bWins += 1;
+    }
+  }
+  if (aWins === bWins) return 0;
+  return aWins > bWins ? -1 : 1;
+}
+
+export interface RankedEntrant {
+  entrant: DynamicPairingEntrant;
+  stats: DynamicPairingPlayerStats;
+  rank: number;
+}
+
+// Same ranking priority/order as sortPlayersByRanking (see that function's
+// comment) — win % → avg point differential → avg points scored → head-to-
+// head → skill level → seed → previous rank → stable tiebreak — just keyed
+// by entrant id instead of player id. `statsById` supplies each entrant's
+// representative stats (see calculateEntrantRankings: either the
+// individual's own stats, or a fixed team's — either member's, since both
+// are identical by construction).
+export function sortEntrantsByRanking(
+  entrants: DynamicPairingEntrant[],
+  statsById: Map<string, DynamicPairingPlayerStats>,
+  rounds: DynamicPairingRound[],
+  previousRankById: Map<string, number>,
+): RankedEntrant[] {
+  const rows = entrants.map((entrant) => ({ entrant, stats: statsById.get(entrant.id) ?? emptyStats(entrant.id) }));
+
+  rows.sort((a, b) => {
+    if (b.stats.winPercentage !== a.stats.winPercentage) return b.stats.winPercentage - a.stats.winPercentage;
+    if (b.stats.averagePointDifferential !== a.stats.averagePointDifferential) {
+      return b.stats.averagePointDifferential - a.stats.averagePointDifferential;
+    }
+    if (b.stats.averagePointsScored !== a.stats.averagePointsScored) {
+      return b.stats.averagePointsScored - a.stats.averagePointsScored;
+    }
+    const h2h = getEntrantHeadToHead(a.entrant.id, b.entrant.id, rounds);
+    if (h2h !== 0) return h2h;
+    const skillA = a.entrant.skillLevel ?? Infinity;
+    const skillB = b.entrant.skillLevel ?? Infinity;
+    if (skillA !== skillB) return skillA - skillB;
+    const seedA = a.entrant.seed ?? Infinity;
+    const seedB = b.entrant.seed ?? Infinity;
+    if (seedA !== seedB) return seedA - seedB;
+    const prevA = previousRankById.get(a.entrant.id) ?? Infinity;
+    const prevB = previousRankById.get(b.entrant.id) ?? Infinity;
+    if (prevA !== prevB) return prevA - prevB;
+    return stableRandomTiebreak(a.entrant.id, b.entrant.id);
+  });
+
+  return rows.map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+// Entrant-level counterpart of calculatePlayerRankings. Always safe to call
+// even when `teams` is empty — buildDynamicPairingEntrants then returns one
+// entrant per player, so results match calculatePlayerRankings exactly
+// (just re-derived through the entrant layer), which is why UI components
+// can use this unconditionally instead of branching on whether teams exist.
+export function calculateEntrantRankings(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  rounds: DynamicPairingRound[],
+): RankedEntrant[] {
+  const entrants = buildDynamicPairingEntrants(players, teams);
+  const sortedRounds = [...rounds].sort((a, b) => a.roundNumber - b.roundNumber);
+
+  let previousRankById = new Map<string, number>();
+  let latest: RankedEntrant[] = [];
+
+  for (let i = 0; i <= sortedRounds.length; i++) {
+    const roundsSoFar = sortedRounds.slice(0, i);
+    const playerStats = calculateDynamicPairingStats(players, roundsSoFar);
+    const playerStatsById = new Map(playerStats.map((s) => [s.playerId, s]));
+    const entrantStatsById = new Map(
+      entrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
+    );
+    const ranked = sortEntrantsByRanking(entrants, entrantStatsById, roundsSoFar, previousRankById);
+    latest = ranked.map((row) => ({
+      ...row,
+      stats: { ...row.stats, previousRank: previousRankById.get(row.entrant.id) ?? null, currentRank: row.rank },
+    }));
+    previousRankById = new Map(ranked.map((row) => [row.entrant.id, row.rank]));
+  }
+
+  return latest;
+}
+
 // --- Round generation --------------------------------------------------
 
 let idCounter = 0;
@@ -618,6 +862,159 @@ export function generateDynamicPairingRound(
   };
 }
 
+// --- Entrant-aware round generation (fixed teams) -----------------------
+// Used only when at least one fixed team exists (see
+// generateDynamicPairingRoundForEntrants below) — generateDynamicPairingRound
+// above stays completely untouched and keeps handling every individual-only
+// session exactly as before.
+
+export interface DynamicPairingSide {
+  playerIds: string[]; // exactly 2 physical players
+  entrantIds: string[]; // 1 (fixed team) or 2 (temporary pairing of individuals)
+}
+
+// Turns a best-to-worst ranked list of active entrants into complete
+// doubles sides: a fixed team becomes its own side immediately; individual
+// entrants are paired two at a time in the order they're encountered
+// (i.e. by rank-adjacency, skipping over any fixed teams in between) —
+// deliberately no repeat-partner optimisation pass here (unlike
+// createBalancedPartnerships), since ranking order naturally reshuffles who
+// ends up adjacent round to round, and adding a second optimisation layer
+// on top of an already-ranked, already-team-aware list was judged
+// unnecessary complexity for this feature's scope (see README's "Current
+// limitations"). If the number of active individual entrants is odd (only
+// possible via the rare rest-selection under-fill described in
+// selectRestingEntrants), the single leftover entrant can't form a side and
+// is returned as `oddOneOutEntrantId` for the caller to rest instead.
+export function buildSidesFromRankedEntrants(rankedActiveEntrants: DynamicPairingEntrant[]): {
+  sides: DynamicPairingSide[];
+  oddOneOutEntrantId?: string;
+} {
+  const sides: DynamicPairingSide[] = [];
+  let pending: DynamicPairingEntrant | null = null;
+
+  for (const entrant of rankedActiveEntrants) {
+    if (entrant.type === 'fixed-team') {
+      sides.push({ playerIds: [...entrant.playerIds], entrantIds: [entrant.id] });
+    } else if (pending == null) {
+      pending = entrant;
+    } else {
+      sides.push({ playerIds: [pending.playerIds[0], entrant.playerIds[0]], entrantIds: [pending.id, entrant.id] });
+      pending = null;
+    }
+  }
+
+  return { sides, oddOneOutEntrantId: pending?.id };
+}
+
+// Groups already best-to-worst-ordered sides two per court. No court-
+// movement-limit support in this path (unlike applyCourtMovementLimit
+// above) — sides are a mix of fixed teams and ad hoc pairings, and porting
+// movement clamping to that granularity was judged unnecessary complexity
+// for this feature's scope; every round is freshly ranked best-to-worst
+// instead. See README's "Current limitations".
+export function groupSidesIntoCourts(sides: DynamicPairingSide[], courtsUsed: number): DynamicPairingCourtAssignment[] {
+  const courts: DynamicPairingCourtAssignment[] = [];
+  for (let i = 0; i < courtsUsed; i++) {
+    const sideA = sides[i * 2];
+    const sideB = sides[i * 2 + 1];
+    if (!sideA || !sideB) break;
+    courts.push({
+      courtNumber: i + 1,
+      playerIds: [...sideA.playerIds, ...sideB.playerIds],
+      team1PlayerIds: sideA.playerIds,
+      team2PlayerIds: sideB.playerIds,
+      team1EntrantIds: sideA.entrantIds,
+      team2EntrantIds: sideB.entrantIds,
+      status: 'pending',
+    });
+  }
+  return courts;
+}
+
+// Entrant-aware counterpart of generateDynamicPairingRound, used once at
+// least one fixed team exists. Grading rounds still shuffle (no ranking
+// data to use yet); ranking rounds rank entrants best-to-worst and build
+// sides via buildSidesFromRankedEntrants. Per-player stats
+// (calculateDynamicPairingStats) and partner/opponent history are read
+// completely unmodified — see the "Fixed teams & entrants" section above
+// for why that's safe.
+export function generateDynamicPairingRoundWithTeams(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  priorRounds: DynamicPairingRound[],
+): DynamicPairingRound {
+  const roundNumber = priorRounds.length + 1;
+  const phase: DynamicPairingRound['phase'] = roundNumber <= settings.gradingRounds ? 'grading' : 'ranking';
+
+  const playersById = new Map(players.map((p) => [p.id, p]));
+  const entrants = buildDynamicPairingEntrants(players, teams);
+  const availableEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById));
+  const availablePhysicalCount = availableEntrants.reduce((sum, e) => sum + e.playerIds.length, 0);
+  const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePhysicalCount);
+
+  const playerStats = calculateDynamicPairingStats(players, priorRounds);
+  const playerStatsById = new Map(playerStats.map((s) => [s.playerId, s]));
+  const entrantStatsById = new Map(
+    availableEntrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
+  );
+
+  const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : undefined;
+  const lastRoundRestingEntrantIds = new Set(lastRound?.restingEntrantIds ?? lastRound?.restingPlayerIds ?? []);
+
+  const { restingEntrantIds, activeEntrantIds } = selectRestingEntrants(
+    availableEntrants,
+    entrantStatsById,
+    courtsUsed,
+    lastRoundRestingEntrantIds,
+  );
+  const availableEntrantById = new Map(availableEntrants.map((e) => [e.id, e]));
+  const activeEntrantIdSet = new Set(activeEntrantIds);
+
+  let orderedActiveEntrants: DynamicPairingEntrant[];
+  if (phase === 'grading') {
+    orderedActiveEntrants = shuffle(activeEntrantIds.map((id) => availableEntrantById.get(id)!));
+  } else {
+    const ranking = calculateEntrantRankings(players, teams, priorRounds);
+    orderedActiveEntrants = ranking
+      .filter((row) => activeEntrantIdSet.has(row.entrant.id))
+      .map((row) => row.entrant);
+  }
+
+  const { sides, oddOneOutEntrantId } = buildSidesFromRankedEntrants(orderedActiveEntrants);
+  const courts = groupSidesIntoCourts(sides, courtsUsed);
+
+  const allRestingEntrantIds = oddOneOutEntrantId ? [...restingEntrantIds, oddOneOutEntrantId] : restingEntrantIds;
+  const restingPlayerIds = allRestingEntrantIds.flatMap((id) => availableEntrantById.get(id)?.playerIds ?? []);
+
+  return {
+    id: makeDynamicPairingId('round'),
+    roundNumber,
+    phase,
+    status: 'current',
+    courts,
+    restingPlayerIds,
+    restingEntrantIds: allRestingEntrantIds,
+    createdAt: Date.now(),
+  };
+}
+
+// The dispatcher every caller should use from here on: keeps the original,
+// well-tested individual-only path completely untouched when there are no
+// fixed teams, and only routes into the new entrant-aware generator once at
+// least one exists (per the design brief's explicit permission to branch
+// this way).
+export function generateDynamicPairingRoundForEntrants(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  priorRounds: DynamicPairingRound[],
+): DynamicPairingRound {
+  if (teams.length === 0) return generateDynamicPairingRound(players, settings, priorRounds);
+  return generateDynamicPairingRoundWithTeams(players, teams, settings, priorRounds);
+}
+
 // Applies a submitted score to one court within a round. Returns a new
 // Round object (immutable update, same pattern as the rest of the app).
 export function processDynamicPairingScore(
@@ -676,13 +1073,42 @@ export function regenerateUpcomingGradingRounds(
   return generated;
 }
 
-// Only individual players are ever in play here (Dynamic Pairing Social has
-// no fixed-team concept at all — see the file header comment), so unlike
-// Standard Social Play's swap this needs no fixed-team exclusion check.
+// Entrant-aware counterpart of regenerateUpcomingGradingRounds — same
+// behaviour, routed through generateDynamicPairingRoundForEntrants so it
+// stays a no-op-when-no-teams-exist wrapper around the original.
+export function regenerateUpcomingGradingRoundsForEntrants(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] {
+  const kept = rounds.filter((round) => round.status !== 'upcoming');
+  const upcomingCount = rounds.length - kept.length;
+  if (upcomingCount === 0) return rounds;
+
+  let generated = [...kept];
+  for (let i = 0; i < upcomingCount; i++) {
+    generated = [
+      ...generated,
+      { ...generateDynamicPairingRoundForEntrants(players, teams, settings, generated), status: 'upcoming' },
+    ];
+  }
+  return generated;
+}
+
+// `teams` defaults to none, so existing individual-only callers are
+// unaffected. Once a fixed team exists, this refuses to split one via a
+// swap — same rule Standard Social Play's canSwapPlayerInRound enforces
+// (see isFixedTeamSide there / isDynamicPairingFixedTeamSide here) — on
+// *either* side of the swap: the active side can't be a fixed team, and the
+// resting player being swapped in can't themselves be a fixed-team member
+// whose partner isn't also resting (swapping them in alone would split the
+// team just as much as swapping one out would).
 export function canSwapPlayerInDynamicPairingRound(
   round: DynamicPairingRound,
   activePlayerId: string,
   restingPlayerId: string,
+  teams: DynamicPairingTeam[] = [],
 ): { ok: true } | { ok: false; reason: string } {
   if (round.status !== 'current') {
     return { ok: false, reason: 'Swaps are only allowed in the current round.' };
@@ -700,11 +1126,24 @@ export function canSwapPlayerInDynamicPairingRound(
   if (court.score1 != null || court.score2 != null) {
     return { ok: false, reason: "That court's score is already submitted — swaps are only allowed before that." };
   }
+  const side = court.team1PlayerIds.includes(activePlayerId) ? court.team1PlayerIds : court.team2PlayerIds;
+  if (isDynamicPairingFixedTeamSide(side, teams)) {
+    return { ok: false, reason: "That player is on a fixed team, which can't be split by a swap." };
+  }
+  const restingTeam = teams.find((t) => t.playerIds.includes(restingPlayerId));
+  if (restingTeam && !round.restingPlayerIds.includes(restingTeam.playerIds.find((id) => id !== restingPlayerId)!)) {
+    return { ok: false, reason: "That player is on a fixed team and can't be swapped in without their partner." };
+  }
   return { ok: true };
 }
 
 // Pure round edit — see canSwapPlayerInDynamicPairingRound for the rules.
-// Preserves which team the swapped-in player joins (team1 vs team2).
+// Preserves which team the swapped-in player joins (team1 vs team2). Since
+// canSwapPlayerInDynamicPairingRound already guarantees the swapped side is
+// never a fixed team, the entrant id being replaced always equals the
+// player id being replaced (individual entrants are always 1:1 with their
+// player id) — so team1EntrantIds/team2EntrantIds can be updated with the
+// exact same replacement, when present.
 export function swapPlayerInDynamicPairingRound(
   round: DynamicPairingRound,
   activePlayerId: string,
@@ -720,10 +1159,13 @@ export function swapPlayerInDynamicPairingRound(
             playerIds: replaceIn(court.playerIds),
             team1PlayerIds: replaceIn(court.team1PlayerIds),
             team2PlayerIds: replaceIn(court.team2PlayerIds),
+            team1EntrantIds: court.team1EntrantIds ? replaceIn(court.team1EntrantIds) : court.team1EntrantIds,
+            team2EntrantIds: court.team2EntrantIds ? replaceIn(court.team2EntrantIds) : court.team2EntrantIds,
           }
         : court,
     ),
     restingPlayerIds: round.restingPlayerIds.map((id) => (id === restingPlayerId ? activePlayerId : id)),
+    restingEntrantIds: round.restingEntrantIds?.map((id) => (id === restingPlayerId ? activePlayerId : id)),
   };
 }
 
@@ -748,6 +1190,22 @@ export function generateInitialGradingRounds(
   const rounds: DynamicPairingRound[] = [];
   for (let i = 0; i < roundsToGenerate; i++) {
     rounds.push(generateDynamicPairingRound(players, settings, rounds));
+  }
+  return rounds.map((round, index) => (index === 0 ? round : { ...round, status: 'upcoming' }));
+}
+
+// Entrant-aware counterpart of generateInitialGradingRounds, called at
+// session start whenever at least one fixed team exists.
+export function generateInitialGradingRoundsForEntrants(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+): DynamicPairingRound[] {
+  if (teams.length === 0) return generateInitialGradingRounds(players, settings);
+  const roundsToGenerate = Math.max(1, settings.gradingRounds);
+  const rounds: DynamicPairingRound[] = [];
+  for (let i = 0; i < roundsToGenerate; i++) {
+    rounds.push(generateDynamicPairingRoundWithTeams(players, teams, settings, rounds));
   }
   return rounds.map((round, index) => (index === 0 ? round : { ...round, status: 'upcoming' }));
 }

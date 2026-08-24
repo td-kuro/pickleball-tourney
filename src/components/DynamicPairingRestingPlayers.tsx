@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import type { DynamicPairingRound, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
+import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
 import {
   calculateDynamicPairingStats,
   dynamicPairingAvailabilityLabel,
+  isDynamicPairingFixedTeamSide,
   isPlayerAvailable,
   playedDynamicPairingRounds,
 } from '../utils/dynamicPairingSocial';
@@ -20,6 +21,7 @@ const PLAYERS_PER_COURT = 4; // Dynamic Pairing Social is doubles-only.
 
 interface DynamicPairingRestingPlayersProps {
   players: Player[];
+  teams: DynamicPairingTeam[];
   rounds: DynamicPairingRound[];
   currentRound: DynamicPairingRound | undefined;
   numberOfCourts: number;
@@ -43,6 +45,7 @@ interface DynamicPairingRestingPlayersProps {
 // suggested layout.
 export function DynamicPairingRestingPlayers({
   players,
+  teams,
   rounds,
   currentRound,
   numberOfCourts,
@@ -90,14 +93,29 @@ export function DynamicPairingRestingPlayers({
     setNoticeDismissed(false);
   }
 
+  // Excludes fixed-team sides (can't be split by a swap — see
+  // canSwapPlayerInDynamicPairingRound) and, on the resting side, any
+  // fixed-team member whose partner isn't also resting (swapping them in
+  // alone would split the team just the same).
   const activeOptions = currentRound
     ? currentRound.courts
         .filter((court) => court.score1 == null && court.score2 == null)
-        .flatMap((court) => court.playerIds)
+        .flatMap((court) =>
+          [court.team1PlayerIds, court.team2PlayerIds]
+            .filter((side) => !isDynamicPairingFixedTeamSide(side, teams))
+            .flat(),
+        )
         .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
     : [];
   const restingOptions = currentRound
-    ? currentRound.restingPlayerIds.map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
+    ? currentRound.restingPlayerIds
+        .filter((id) => {
+          const team = teams.find((t) => t.playerIds.includes(id));
+          if (!team) return true;
+          const partnerId = team.playerIds.find((pid) => pid !== id);
+          return partnerId != null && currentRound.restingPlayerIds.includes(partnerId);
+        })
+        .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
     : [];
 
   return (

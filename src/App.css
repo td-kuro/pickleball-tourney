@@ -333,6 +333,24 @@ button.danger:hover:not(:disabled) {
   min-width: 120px;
 }
 
+.dp-team-members {
+  display: flex;
+  flex: 2;
+  min-width: 240px;
+  gap: 8px;
+}
+
+.dp-team-member {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 4px;
+}
+
+.dp-team-member .player-row-name {
+  min-width: 100px;
+}
+
 .player-row-rating {
   flex: 1;
   min-width: 80px;
@@ -926,6 +944,12 @@ button.danger:hover:not(:disabled) {
   margin: 8px 0 0;
   font-size: 13px;
   color: var(--text);
+}
+
+.dp-side-badge {
+  font-size: 12px;
+  color: var(--text);
+  font-weight: 400;
 }
 
 @media (max-width: 480px) {

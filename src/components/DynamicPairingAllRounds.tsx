@@ -1,5 +1,5 @@
-import type { DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
-import { roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
+import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
+import { entrantIdsForSide, roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
 
 const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
   upcoming: 'status-badge',
@@ -37,6 +37,14 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
     return ids.map((id) => playerNameById.get(id) ?? 'Unknown player').join(', ');
   }
 
+  // A side counts as a fixed team when it's backed by exactly one entrant
+  // (see entrantIdsForSide) — two players sharing one entrant id, as
+  // opposed to two individuals temporarily paired up.
+  function sideBadge(court: DynamicPairingCourtAssignment, side: 1 | 2): string | null {
+    if (court.team1PlayerIds.length !== 2 && court.team2PlayerIds.length !== 2) return null;
+    return entrantIdsForSide(court, side).length === 1 ? 'Fixed Team' : 'Temporary Pair';
+  }
+
   return (
     <section className="card">
       <h2>All Rounds</h2>
@@ -57,11 +65,15 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                 {round.courts.map((court) => {
                   const team1Label = teamLabel(court.team1PlayerIds);
                   const team2Label = teamLabel(court.team2PlayerIds);
+                  const badge1 = sideBadge(court, 1);
+                  const badge2 = sideBadge(court, 2);
                   const hasScore = court.score1 != null && court.score2 != null;
                   return (
                     <li key={court.courtNumber} className="all-rounds-match">
                       <span>
-                        Court {court.courtNumber}: {team1Label} vs {team2Label}
+                        Court {court.courtNumber}: {team1Label}
+                        {badge1 && <span className="dp-side-badge"> ({badge1})</span>} vs {team2Label}
+                        {badge2 && <span className="dp-side-badge"> ({badge2})</span>}
                       </span>
                       {hasScore && (
                         <span className="all-rounds-score">

@@ -497,9 +497,13 @@ function App() {
               players={dynamicPairing.players}
               onAddPlayersBulk={dynamicPairing.addPlayersBulk}
               onUpdatePlayer={dynamicPairing.updatePlayer}
-              onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
               onRemovePlayer={dynamicPairing.removePlayer}
               onRemoveAllPlayers={dynamicPairing.removeAllPlayers}
+              teams={dynamicPairing.teams}
+              onMakeTeam={dynamicPairing.makeTeam}
+              onUnmakeTeam={dynamicPairing.unmakeTeam}
+              onUpdateTeamSeedAndRating={dynamicPairing.updateTeamSeedAndRating}
+              onUpdateEntrantSkillLevel={dynamicPairing.updateEntrantSkillLevel}
               onStartSession={() => {
                 dynamicPairing.startSession();
                 setView('dp-rounds');
@@ -609,13 +613,14 @@ function App() {
           rounds={dynamicPairing.rounds}
           currentRound={dynamicPairing.currentRound}
           players={dynamicPairing.players}
+          teams={dynamicPairing.teams}
           awaitingSkillReview={dynamicPairing.awaitingSkillReview}
           onSetScore={(courtNumber, score1, score2) => {
             if (!dynamicPairing.currentRound) return;
             dynamicPairing.setCourtScore(dynamicPairing.currentRound.id, courtNumber, score1, score2);
           }}
           onGenerateNextRound={dynamicPairing.generateNextRound}
-          onUpdatePlayerSkillLevel={dynamicPairing.updatePlayerSkillLevel}
+          onUpdateEntrantSkillLevel={dynamicPairing.updateEntrantSkillLevel}
           onConfirmSkillReview={dynamicPairing.confirmSkillReviewAndStartRankingRounds}
           onSetAvailability={dynamicPairing.setAvailabilityStatus}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
@@ -623,12 +628,13 @@ function App() {
       )}
 
       {view === 'dp-rankings' && started && (
-        <DynamicPairingRankings players={dynamicPairing.players} rounds={dynamicPairing.rounds} />
+        <DynamicPairingRankings players={dynamicPairing.players} teams={dynamicPairing.teams} rounds={dynamicPairing.rounds} />
       )}
 
       {view === 'dp-resting' && started && (
         <DynamicPairingRestingPlayers
           players={dynamicPairing.players}
+          teams={dynamicPairing.teams}
           rounds={dynamicPairing.rounds}
           currentRound={dynamicPairing.currentRound}
           numberOfCourts={dynamicPairing.settings.numberOfCourts}

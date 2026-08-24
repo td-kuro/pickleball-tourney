@@ -368,11 +368,109 @@ court's *group of 4* carries over, only each individual player's ranking
 and rest history. See `allocatePlayersToCourts`/`createBalancedPartnerships`
 in `src/utils/dynamicPairingSocial.ts`.
 
+### Fixed teams
+
+By default every player in Dynamic Pairing Social is ranked, rested, and
+paired as an individual — the whole app above describes that case. This
+format also supports declaring a **fixed team**: two players who always
+play together, always rest together, and are ranked as a single unit,
+while every match is still physically 2-vs-2 on court (a fixed team's two
+members occupy one whole side; the other side is either another fixed
+team, or two individual players temporarily paired for that round).
+
+- **Making a team**: on Setup, check two individual players' rows and
+  confirm in the **Make Team** bar that appears — same interaction as
+  Standard Social Play's Participants screen. A team is always displayed
+  as "Player 1 / Player 2"; there's no separate team-name field. A team
+  gets its own **seed**, **rating**, and (once grading finishes) **skill
+  level** — set directly on its row — separate from either member's own
+  fields, since those are what ranking actually reads once the team
+  exists. Each member keeps their own name and availability status,
+  editable right there on the team's row.
+- **Splitting a team**: **Split Team** reverts it back to two individual
+  rows. Always available before the session starts. Once the session has
+  started, splitting still works but asks for confirmation first (an
+  explicit "this session has already started" prompt) — completed rounds
+  are never affected either way, since every stat is recorded per physical
+  player underneath (see "Entrants and stats" below); only rounds
+  generated *after* the split pair the two players independently again.
+  Removing a player who's on a team dissolves that team the same way.
+- **Availability**: a team is only available to play/rest as a unit when
+  *both* members are individually Available — same rule Standard Social
+  Play's fixed teams follow. If one member is marked Late/Unavailable/
+  Left Early/Injured, the whole team sits out until they're Available
+  again.
+
+#### Entrants and stats
+
+An **entrant** is whichever unit is actually being ranked: an individual
+player, or a fixed team. Internally this is a *derived* view
+(`buildDynamicPairingEntrants` in `src/utils/dynamicPairingSocial.ts`) —
+there's no separate stats table for teams. Because round generation always
+keeps a fixed team's two members on the same side, they always play, rest,
+and score identically every round, so a team's entire stat line (games
+played, W/L, PF/PA, point differential, rests, ranking) is simply either
+member's own per-player stats, read straight off the same
+`calculateDynamicPairingStats` this format has always used. This also
+means partner/opponent-repeat tracking (which is keyed by physical player
+id, not entrant id) keeps working completely unmodified: a fixed team's
+opponent-repeat history is exactly "how many times have these two
+physical players faced that other physical player," which is exactly what
+matters for pairing variety regardless of team structure.
+
+**Ranking** and **Admin Skill Review** both operate on entrants rather
+than raw players once any fixed team exists — same metrics and priority
+order as "Ranking metrics" above, just with a **Type** column badging each
+row **Individual** or **Fixed Team**. **Rankings**/**All Rounds**/**Current
+Round** all badge each side **Fixed Team** or **Temporary Pair** so it's
+always clear at a glance which sides are locked together and which are
+this round's ad hoc pairing. When no fixed team exists in the session, all
+of this is mathematically identical to ranking players directly — the
+entrant layer only changes behavior once a team is actually declared.
+
+#### Round generation with fixed teams
+
+Grading rounds still shuffle at random (there's no ranking data yet
+either way). Once ranking rounds start, generation branches:
+
+- **No fixed teams** (the default): completely unchanged — same
+  rank-then-group-of-4-then-split logic described in "Court allocation and
+  balanced partnerships" above, including the court movement limit.
+- **At least one fixed team**: entrants are ranked best-to-worst (see
+  "Entrants and stats" above), then built into full doubles **sides**: a
+  fixed team becomes its own side immediately; individual entrants are
+  paired two at a time in the order they're encountered while walking the
+  ranked list (i.e., by rank-adjacency, skipping over any fixed teams in
+  between). Sides are then grouped two per court, strongest sides on Court
+  1 down to the weakest. There's no repeat-partner optimisation pass for
+  the ad hoc individual pairings in this path (unlike
+  `createBalancedPartnerships`) — rank order naturally reshuffles who ends
+  up adjacent round to round, and layering a second optimisation on top of
+  an already-ranked, already-team-aware list was judged unnecessary
+  complexity for this feature. See `buildSidesFromRankedEntrants` /
+  `groupSidesIntoCourts` / `generateDynamicPairingRoundWithTeams` in
+  `src/utils/dynamicPairingSocial.ts`.
+
+Rest selection also branches the same way: with no fixed teams, nothing
+changes. With a fixed team, `selectRestingEntrants` selects whole entrants
+(a team's physical footprint is 2, an individual's is 1) in the same
+fairness order as always (fewest total rests → most consecutive rounds
+played → didn't rest last round → stable tiebreak) to fill each court's
+capacity. Because entrant size varies, a single fairness-ordered greedy
+pass can occasionally leave one physical slot unfilled for a round (e.g.
+exactly one slot of capacity remains and every not-yet-placed entrant is a
+2-player team) — this is accepted rather than solved with a full
+bin-packing search, since filling every last slot would sometimes mean
+resting a *fairer* entrant to make room for a worse-fitting one, which
+would undermine rest fairness itself. See "Current limitations" below.
+
 ### Court movement limit
 
 The **Maximum court movement per round** setting (Unrestricted / Max 1
 Court / Max 2 Courts, default Max 1 Court) only applies once ranking
-rounds start (grading rounds always allocate at random). It caps
+rounds start (grading rounds always allocate at random), and only in
+sessions with no fixed teams — see "Round generation with fixed teams"
+above for why the fixed-team path always ranks fresh instead. It caps
 how far a player's court can move from wherever they played last, so one
 unusually big win or loss doesn't swing them several courts in one round
 — rankings still correct themselves over time, just gradually. The
@@ -474,6 +572,14 @@ it's a full wipe, not a "new round, same roster" reset.
 - Ranking recomputes from full round history every time it's needed
   (O(rounds²) in the number of rounds played) — negligible for realistic
   session lengths, but not optimised for very long-running sessions.
+- **Fixed teams**: no court movement limit is applied once any fixed team
+  exists (rounds are always freshly ranked instead — see "Round generation
+  with fixed teams" above); the ad hoc pairing of individual entrants into
+  temporary sides has no repeat-partner optimisation pass; and entrant-
+  level rest selection can rarely leave one physical court slot unfilled
+  for a round rather than resting a fairer entrant to make room — see
+  "Round generation with fixed teams" above for why each of these is a
+  deliberate scope decision, not an oversight.
 
 ## Pools & Knockout
 

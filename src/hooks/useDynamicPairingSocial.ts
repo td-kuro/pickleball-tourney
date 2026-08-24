@@ -1,14 +1,23 @@
-import type { DynamicPairingRound, DynamicPairingSettings, Player, PlayerAvailabilityStatus, SessionAdjustment, SessionAdjustmentType } from '../types';
+import type {
+  DynamicPairingRound,
+  DynamicPairingSettings,
+  DynamicPairingTeam,
+  Player,
+  PlayerAvailabilityStatus,
+  SessionAdjustment,
+  SessionAdjustmentType,
+} from '../types';
 import {
   canGenerateDynamicPairingRound,
   canSwapPlayerInDynamicPairingRound,
-  generateDynamicPairingRound,
-  generateInitialGradingRounds,
+  dynamicPairingTeamDisplayName,
+  generateDynamicPairingRoundForEntrants,
+  generateInitialGradingRoundsForEntrants,
   isAwaitingSkillReview,
   isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
-  regenerateUpcomingGradingRounds,
+  regenerateUpcomingGradingRoundsForEntrants,
   swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
 // Pure array transform with no round/state coupling, so importing it here
@@ -19,11 +28,16 @@ import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:dp:settings';
 const PLAYERS_KEY = 'pickleball-tourney:dp:players';
+const TEAMS_KEY = 'pickleball-tourney:dp:teams';
 const ROUNDS_KEY = 'pickleball-tourney:dp:rounds';
 const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:dp:sessionAdjustments';
 
 function makeAdjustmentId(): string {
   return `dp-adj-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
+
+function makeDynamicPairingTeamId(): string {
+  return `dp-team-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
 }
 
 export const DEFAULT_DYNAMIC_PAIRING_SETTINGS: DynamicPairingSettings = {
@@ -53,6 +67,14 @@ function makePlayerId(salt = 0): string {
 export function useDynamicPairingSocial() {
   const [settings, setSettings] = useLocalStorage<DynamicPairingSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_PAIRING_SETTINGS);
   const [players, setPlayers] = useLocalStorage<Player[]>(PLAYERS_KEY, []);
+  // Fixed teams — see DynamicPairingTeam. References ids already in
+  // `players` above rather than owning a separate roster (unlike
+  // useTeams/Team), since almost everything in utils/dynamicPairingSocial.ts
+  // is keyed by physical player id and needs every player — team members
+  // included — to stay present in the one `players` array. See
+  // buildDynamicPairingEntrants for how the two views (physical roster vs.
+  // entrant list) are derived from `players` + `teams` together.
+  const [teams, setTeams] = useLocalStorage<DynamicPairingTeam[]>(TEAMS_KEY, []);
   const [rounds, setRounds] = useLocalStorage<DynamicPairingRound[]>(ROUNDS_KEY, []);
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
@@ -126,7 +148,7 @@ export function useDynamicPairingSocial() {
   function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus) {
     const updatedPlayers = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
     setPlayers(updatedPlayers);
-    const regenerated = regenerateUpcomingGradingRounds(updatedPlayers, settings, rounds);
+    const regenerated = regenerateUpcomingGradingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
     if (regenerated !== rounds) {
       setRounds(regenerated);
       logAdjustment('future-rounds-regenerated');
@@ -145,7 +167,7 @@ export function useDynamicPairingSocial() {
     setSettings(nextSettings);
     logAdjustment('court-count-changed', { oldValue: String(settings.numberOfCourts), newValue: String(newCourts) });
 
-    const regenerated = regenerateUpcomingGradingRounds(players, nextSettings, rounds);
+    const regenerated = regenerateUpcomingGradingRoundsForEntrants(players, teams, nextSettings, rounds);
     if (regenerated !== rounds) {
       setRounds(regenerated);
       logAdjustment('future-rounds-regenerated');
@@ -156,7 +178,7 @@ export function useDynamicPairingSocial() {
   // canSwapPlayerInDynamicPairingRound for the full rule set.
   function swapPlayerInCurrentRound(activePlayerId: string, restingPlayerId: string) {
     if (!currentRound) return { ok: false as const, reason: 'No current round.' };
-    const check = canSwapPlayerInDynamicPairingRound(currentRound, activePlayerId, restingPlayerId);
+    const check = canSwapPlayerInDynamicPairingRound(currentRound, activePlayerId, restingPlayerId, teams);
     if (!check.ok) return check;
 
     setRounds(
@@ -168,12 +190,71 @@ export function useDynamicPairingSocial() {
     return { ok: true as const };
   }
 
+  // Removing a player who's on a fixed team also dissolves that team (its
+  // other member reverts to an individual entrant) — a team can never
+  // reference a player id that no longer exists.
   function removePlayer(id: string) {
     setPlayers(players.filter((p) => p.id !== id));
+    if (teams.some((t) => t.playerIds.includes(id))) {
+      setTeams(teams.filter((t) => !t.playerIds.includes(id)));
+    }
   }
 
   function removeAllPlayers() {
     setPlayers([]);
+    setTeams([]);
+  }
+
+  // "Make Team": promotes two already-added individual players into a
+  // fixed team (see the Setup screen's select-2 checkbox flow, mirroring
+  // Standard Social Play's Participants pattern). Disabled by the UI once
+  // `started` is true — see makeTeam's caller.
+  function makeTeam(player1Id: string, player2Id: string) {
+    if (player1Id === player2Id) return;
+    if (teams.some((t) => t.playerIds.includes(player1Id) || t.playerIds.includes(player2Id))) return;
+    const player1 = players.find((p) => p.id === player1Id);
+    const player2 = players.find((p) => p.id === player2Id);
+    if (!player1 || !player2) return;
+    const rating = player1.rating != null && player2.rating != null ? (player1.rating + player2.rating) / 2 : undefined;
+    const team: DynamicPairingTeam = { id: makeDynamicPairingTeamId(), playerIds: [player1Id, player2Id], rating };
+    setTeams([...teams, team]);
+  }
+
+  // "Split Team": reverts a fixed team back into two individual entrants.
+  // Always allowed pre-session-start; once `started`, this is the
+  // "admin confirmation" escape hatch the fixed-team design brief calls
+  // for — the two players' already-completed results stay exactly as
+  // recorded (see the "Fixed teams & entrants" comment in
+  // utils/dynamicPairingSocial.ts: stats are keyed by physical player id,
+  // never by team id, so splitting can't lose or corrupt any history), only
+  // *future* rounds start pairing them independently again.
+  function unmakeTeam(teamId: string) {
+    const team = teams.find((t) => t.id === teamId);
+    if (!team) return;
+    if (started) {
+      const name = dynamicPairingTeamDisplayName(team, players);
+      const confirmed = window.confirm(
+        `This session has already started. Splitting ${name} won't change any completed round, but future rounds will pair its two players independently. Continue?`,
+      );
+      if (!confirmed) return;
+      logAdjustment('team-split', { playerIds: [...team.playerIds] });
+    }
+    setTeams(teams.filter((t) => t.id !== teamId));
+  }
+
+  function updateTeamSeedAndRating(teamId: string, seed?: number, rating?: number) {
+    setTeams(teams.map((t) => (t.id === teamId ? { ...t, seed, rating } : t)));
+  }
+
+  // Entrant-aware skill-level setter for Admin Skill Review — writes to the
+  // matching team's own skillLevel when `entrantId` is a team id, otherwise
+  // falls through to the regular per-player setter.
+  function updateEntrantSkillLevel(entrantId: string, skillLevel?: number) {
+    if (teams.some((t) => t.id === entrantId)) {
+      setTeams(teams.map((t) => (t.id === entrantId ? { ...t, skillLevel } : t)));
+    } else {
+      updatePlayerSkillLevel(entrantId, skillLevel);
+    }
   }
 
   // "Start Matches" for Dynamic Pairing Social: pre-generates the entire
@@ -182,7 +263,7 @@ export function useDynamicPairingSocial() {
   // generateInitialGradingRounds. Only Round 1 is playable to start; the
   // rest are 'upcoming' until generateNextRound activates them in order.
   function startSession() {
-    setRounds(generateInitialGradingRounds(players, settings));
+    setRounds(generateInitialGradingRoundsForEntrants(players, teams, settings));
   }
 
   // Advances past the current round once every court is scored. Three
@@ -221,7 +302,7 @@ export function useDynamicPairingSocial() {
       return;
     }
 
-    const nextRound = generateDynamicPairingRound(revertedPlayers, settings, locked);
+    const nextRound = generateDynamicPairingRoundForEntrants(revertedPlayers, teams, settings, locked);
     setRounds([...locked, nextRound]);
   }
 
@@ -234,7 +315,7 @@ export function useDynamicPairingSocial() {
     if (!awaitingSkillReview) return;
     const check = canGenerateDynamicPairingRound(players, settings, undefined);
     if (!check.ok) return;
-    const nextRound = generateDynamicPairingRound(players, settings, rounds);
+    const nextRound = generateDynamicPairingRoundForEntrants(players, teams, settings, rounds);
     setRounds([...rounds, nextRound]);
   }
 
@@ -250,6 +331,7 @@ export function useDynamicPairingSocial() {
   function resetDynamicPairing() {
     setSettings(DEFAULT_DYNAMIC_PAIRING_SETTINGS);
     setPlayers([]);
+    setTeams([]);
     setRounds([]);
     setSessionAdjustments([]);
   }
@@ -264,6 +346,11 @@ export function useDynamicPairingSocial() {
     setAvailabilityStatus,
     removePlayer,
     removeAllPlayers,
+    teams,
+    makeTeam,
+    unmakeTeam,
+    updateTeamSeedAndRating,
+    updateEntrantSkillLevel,
     rounds,
     currentRound,
     started,

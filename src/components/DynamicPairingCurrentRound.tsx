@@ -1,12 +1,19 @@
 import { useState, type FormEvent } from 'react';
-import type { DynamicPairingCourtAssignment, DynamicPairingRound, Player, PlayerAvailabilityStatus } from '../types';
-import { dynamicPairingAvailabilityLabel, isDynamicPairingRoundComplete, nextRoundButtonLabel, roundPhaseLabel } from '../utils/dynamicPairingSocial';
+import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
+import {
+  dynamicPairingAvailabilityLabel,
+  isDynamicPairingFixedTeamSide,
+  isDynamicPairingRoundComplete,
+  nextRoundButtonLabel,
+  roundPhaseLabel,
+} from '../utils/dynamicPairingSocial';
 import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActionMenu';
 
 interface DynamicPairingCurrentRoundProps {
   round: DynamicPairingRound | undefined;
   rounds: DynamicPairingRound[];
   players: Player[];
+  teams: DynamicPairingTeam[];
   onSetScore: (courtNumber: number, score1: number, score2: number) => void;
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
@@ -27,6 +34,7 @@ export function DynamicPairingCurrentRound({
   round,
   rounds,
   players,
+  teams,
   onSetScore,
   onGenerateNextRound,
   onSetAvailability,
@@ -38,8 +46,18 @@ export function DynamicPairingCurrentRound({
   const allScored = round ? isDynamicPairingRoundComplete(round) : false;
   const selectedPlayer = selectedPlayerId ? playerById.get(selectedPlayerId) : undefined;
 
+  // A resting fixed-team member can't be swapped in alone (see
+  // canSwapPlayerInDynamicPairingRound) — only offer resting players whose
+  // partner, if any, is also resting.
   const restingSwapOptions = round
-    ? round.restingPlayerIds.map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
+    ? round.restingPlayerIds
+        .filter((id) => {
+          const team = teams.find((t) => t.playerIds.includes(id));
+          if (!team) return true;
+          const partnerId = team.playerIds.find((pid) => pid !== id);
+          return partnerId != null && round.restingPlayerIds.includes(partnerId);
+        })
+        .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
     : [];
 
   function menuContextFor(playerId: string): { contextLines: string[]; replacement: PlayerActionMenuReplacement | undefined } {
@@ -56,6 +74,18 @@ export function DynamicPairingCurrentRound({
       lines.push("This court's score is already submitted — edit or reset it before changing players.");
       return { contextLines: lines, replacement: undefined };
     }
+    const side = court.team1PlayerIds.includes(playerId) ? court.team1PlayerIds : court.team2PlayerIds;
+    if (isDynamicPairingFixedTeamSide(side, teams)) {
+      return {
+        contextLines: lines,
+        replacement: {
+          label: 'Swap with resting player',
+          options: [],
+          onReplace: () => ({ ok: false, reason: "That player is on a fixed team, which can't be split by a swap." }),
+          disabledReason: "This player is on a fixed team, which can't be split by a swap.",
+        },
+      };
+    }
     return {
       contextLines: lines,
       replacement: {
@@ -68,6 +98,11 @@ export function DynamicPairingCurrentRound({
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
+  }
+
+  function sideBadge(playerIds: string[]): string | null {
+    if (playerIds.length !== 2) return null;
+    return isDynamicPairingFixedTeamSide(playerIds, teams) ? 'Fixed Team' : 'Temporary Pair';
   }
 
   function renderPlayerNames(playerIds: string[]) {
@@ -124,6 +159,8 @@ export function DynamicPairingCurrentRound({
                 court={court}
                 team1Label={teamLabel(court.team1PlayerIds)}
                 team2Label={teamLabel(court.team2PlayerIds)}
+                team1Badge={sideBadge(court.team1PlayerIds)}
+                team2Badge={sideBadge(court.team2PlayerIds)}
                 renderTeam1={() => renderPlayerNames(court.team1PlayerIds)}
                 renderTeam2={() => renderPlayerNames(court.team2PlayerIds)}
                 onSetScore={(score1, score2) => onSetScore(court.courtNumber, score1, score2)}
@@ -170,12 +207,14 @@ interface DynamicPairingCourtCardProps {
   court: DynamicPairingCourtAssignment;
   team1Label: string;
   team2Label: string;
+  team1Badge: string | null;
+  team2Badge: string | null;
   renderTeam1: () => React.ReactNode;
   renderTeam2: () => React.ReactNode;
   onSetScore: (score1: number, score2: number) => void;
 }
 
-function DynamicPairingCourtCard({ court, team1Label, team2Label, renderTeam1, renderTeam2, onSetScore }: DynamicPairingCourtCardProps) {
+function DynamicPairingCourtCard({ court, team1Label, team2Label, team1Badge, team2Badge, renderTeam1, renderTeam2, onSetScore }: DynamicPairingCourtCardProps) {
   const [score1, setScore1] = useState(court.score1 != null ? String(court.score1) : '');
   const [score2, setScore2] = useState(court.score2 != null ? String(court.score2) : '');
   const [error, setError] = useState<string | null>(null);
@@ -207,6 +246,7 @@ function DynamicPairingCourtCard({ court, team1Label, team2Label, renderTeam1, r
       <div className="match-teams">
         <div className={court.winnerTeam === 1 ? 'match-team winner' : 'match-team'}>
           {renderTeam1()}
+          {team1Badge && <span className="dp-side-badge">{team1Badge}</span>}
           <input
             type="number"
             min={0}
@@ -219,6 +259,7 @@ function DynamicPairingCourtCard({ court, team1Label, team2Label, renderTeam1, r
         <div className="match-vs">vs</div>
         <div className={court.winnerTeam === 2 ? 'match-team winner' : 'match-team'}>
           {renderTeam2()}
+          {team2Badge && <span className="dp-side-badge">{team2Badge}</span>}
           <input
             type="number"
             min={0}
