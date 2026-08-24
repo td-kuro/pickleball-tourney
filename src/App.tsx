@@ -27,7 +27,7 @@ import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
 import { SessionControls } from './components/SessionControls';
 import { ThemeToggle } from './components/ThemeToggle';
-import { SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
+import { NumberOfCourtsSetup, SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
 import { useDynamicPairingSocial } from './hooks/useDynamicPairingSocial';
 import { useDynamicTeamQualifier } from './hooks/useDynamicTeamQualifier';
 import { useKingCourt } from './hooks/useKingCourt';
@@ -122,6 +122,11 @@ function App() {
   // rather than reusing usePlayers/useTeams/useTournament, so it can't affect
   // any other mode's data.
   const isDynamicPairingSocial = settings.playMode === 'social' && settings.socialFormat === 'dynamic-pairing-social';
+  // "Social" groups two underlying playMode values — 'social' (Standard
+  // Social Play / Dynamic Pairing Social) and 'king-court-5' (5-Player King
+  // Court) — same grouping TournamentSetup's Social Format toggle uses.
+  // Drives which of the top nav's Tournament/Social buttons is highlighted.
+  const isSocialGroup = settings.playMode === 'social' || isKingCourt;
   // Doubles roster shape: "fixed teams only" and "mixed" are two of the
   // three shapes the Participants roster can take (see ParticipantSetup),
   // not an exclusive mode switch. `isDoublesFixedOnly` keeps the original
@@ -295,6 +300,26 @@ function App() {
     }
   }
 
+  // Top nav's Tournament/Social buttons — replaces the old single "Setup"
+  // tab plus the in-page Play Mode toggle that used to live on
+  // TournamentSetup: picking a mode and landing on Setup are now the same
+  // click. Mirrors the removed toggle's exact behaviour: switching to
+  // Social from Tournament defaults into Standard Social Play; re-clicking
+  // Social while already somewhere in the social group (Standard, Dynamic
+  // Pairing, or King Court) is a no-op on playMode — only the Social
+  // Format toggle on the Setup screen switches between those three.
+  function handleGoToTournamentSetup() {
+    updateSettings({ ...settings, playMode: 'tournament' });
+    setView('setup');
+  }
+
+  function handleGoToSocialSetup() {
+    if (!isSocialGroup) {
+      updateSettings({ ...settings, playMode: 'social', socialFormat: 'standard-social' });
+    }
+    setView('setup');
+  }
+
   return (
     <div className="app">
       <header className="app-header">
@@ -313,8 +338,19 @@ function App() {
 
       <div className="tab-bar">
         <nav className="tabs" aria-label="View">
-          <button type="button" className={view === 'setup' ? 'tab active' : 'tab'} onClick={() => setView('setup')}>
-            Setup
+          <button
+            type="button"
+            className={view === 'setup' && !isSocialGroup ? 'tab active' : 'tab'}
+            onClick={handleGoToTournamentSetup}
+          >
+            Tournament
+          </button>
+          <button
+            type="button"
+            className={view === 'setup' && isSocialGroup ? 'tab active' : 'tab'}
+            onClick={handleGoToSocialSetup}
+          >
+            Social
           </button>
           {isKingCourt ? (
             <>
@@ -450,6 +486,14 @@ function App() {
             playerCount={players.length}
             fixedTeamCount={teams.length}
             tournamentInProgress={started}
+          />
+
+          <NumberOfCourtsSetup
+            settings={settings}
+            onChange={updateSettings}
+            isKingCourt={isKingCourt}
+            isDynamicPairingSocial={isDynamicPairingSocial}
+            isDynamicTeamQualifier={isDynamicTeamQualifier}
           />
 
           {isKingCourt ? (

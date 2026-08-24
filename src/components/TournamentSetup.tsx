@@ -1,6 +1,5 @@
 import type { ChangeEvent } from 'react';
 import type {
-  MatchType,
   PairingStyle,
   PoolKnockoutSettings,
   SessionTiming,
@@ -35,11 +34,19 @@ interface TournamentSetupProps {
 
 const SOCIAL_SCORING_MODES: SocialScoringMode[] = ['none', 'scoresOnly', 'scoresAndWins'];
 
-// Setup fields 1–5 (see App.tsx for the full page order): Match Type, Play
-// Mode, Tournament Format + Pool/Knockout Setup, Doubles Pairing Mode, and
-// Number of Courts. Player/Team setup (6) and Social Play timing (7) sit
-// between/after this in App.tsx — see RosterSetup and SocialSessionSetup
-// below.
+// Setup fields 1–3 (see App.tsx for the full page order): Format (Social
+// Format and/or Tournament Format + Pool/Knockout Setup) and Doubles
+// Pairing Mode. Number of Courts is its own separate card, rendered right
+// after this one. Player/Team setup and Social Play timing sit further
+// down in App.tsx — see RosterSetup and SocialSessionSetup below.
+//
+// Match Type (Singles/Doubles) and Play Mode (Tournament/Social) used to
+// live here as toggles — both are gone now: matchType silently defaults to
+// 'doubles' (see useTournament's DEFAULT_SETTINGS) with no UI to change it
+// back (singles logic itself is untouched, just not reachable from the UI —
+// easy to re-expose later if needed), and picking Tournament vs. Social now
+// happens directly from the top nav (see App.tsx's handleGoToTournamentSetup
+// / handleGoToSocialSetup), which also sets playMode before landing here.
 export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCount, tournamentInProgress }: TournamentSetupProps) {
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isDynamicTeamQualifier = settings.playMode === 'tournament' && settings.tournamentFormat === 'dynamic-team-qualifier';
@@ -53,22 +60,6 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
   const isSocialGroup = settings.playMode === 'social' || isKingCourt;
   const activeSocialFormat: SocialFormat = isKingCourt ? 'king-court-5' : (settings.socialFormat ?? 'standard-social');
   const isDynamicPairingSocial = settings.playMode === 'social' && activeSocialFormat === 'dynamic-pairing-social';
-
-  function handleMatchTypeChange(matchType: MatchType) {
-    onChange({ ...settings, matchType });
-  }
-
-  function handlePlayModeGroupChange(group: 'tournament' | 'social') {
-    if (group === 'tournament') {
-      onChange({ ...settings, playMode: 'tournament' });
-    } else if (!isSocialGroup) {
-      // Coming from Tournament Mode — default into Standard Social Play.
-      // If already somewhere in the social group (Standard, Dynamic
-      // Pairing, or King Court), this button re-clicking is a no-op; the
-      // Social Format toggle below is what actually switches between them.
-      onChange({ ...settings, playMode: 'social', socialFormat: 'standard-social' });
-    }
-  }
 
   function handleSocialFormatChange(format: SocialFormat) {
     if (format === 'king-court-5') {
@@ -92,35 +83,6 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
 
   return (
     <section className="card">
-      <h2>Session Setup</h2>
-
-      {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
-        <div className="form-row">
-          <span>Match Type</span>
-          <div className="toggle-group" role="group" aria-label="Match type">
-            <button
-              type="button"
-              className={settings.matchType === 'singles' ? 'toggle-option active' : 'toggle-option'}
-              onClick={() => handleMatchTypeChange('singles')}
-            >
-              Singles
-            </button>
-            <button
-              type="button"
-              className={settings.matchType === 'doubles' ? 'toggle-option active' : 'toggle-option'}
-              onClick={() => handleMatchTypeChange('doubles')}
-            >
-              Doubles
-            </button>
-          </div>
-          <p className="hint">
-            {settings.matchType === 'singles'
-              ? 'Player vs. player — each court needs 2 players.'
-              : 'Team vs. team — each court needs 4 players. Add individual players, fixed teams, or both below.'}
-          </p>
-        </div>
-      )}
-
       {isDynamicPairingSocial && (
         <p className="hint">Dynamic Pairing Social is doubles only — each court seats 4 players.</p>
       )}
@@ -128,31 +90,6 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
       {isDynamicTeamQualifier && (
         <p className="hint">Dynamic Team Qualifier is fixed-partner doubles only — teams, not individual players, are the ranking unit.</p>
       )}
-
-      <div className="form-row">
-        <span>Play Mode</span>
-        <div className="toggle-group" role="group" aria-label="Play mode">
-          <button
-            type="button"
-            className={!isSocialGroup ? 'toggle-option active' : 'toggle-option'}
-            onClick={() => handlePlayModeGroupChange('tournament')}
-          >
-            Tournament Mode
-          </button>
-          <button
-            type="button"
-            className={isSocialGroup ? 'toggle-option active toggle-option-green' : 'toggle-option'}
-            onClick={() => handlePlayModeGroupChange('social')}
-          >
-            Social Play Mode
-          </button>
-        </div>
-        <p className="hint">
-          {!isSocialGroup
-            ? 'Competitive: tracks points, wins/losses, and a ranked leaderboard.'
-            : 'Casual: fair rotation, a ranking-driven competitive format, or a fixed 5-player court ladder — pick a Social Format below.'}
-        </p>
-      </div>
 
       {isSocialGroup && (
         <div className="form-row">
@@ -285,6 +222,34 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
         </div>
       )}
 
+    </section>
+  );
+}
+
+interface NumberOfCourtsSetupProps {
+  settings: TournamentSettings;
+  onChange: (settings: TournamentSettings) => void;
+  isKingCourt: boolean;
+  isDynamicPairingSocial: boolean;
+  isDynamicTeamQualifier: boolean;
+}
+
+// Its own card (previously the tail end of the Session Setup card above) —
+// King Court, Dynamic Pairing Social, and Dynamic Team Qualifier each set
+// their court count from their own dedicated setup card instead, so this
+// one just explains where to look for those three rather than rendering
+// the shared CourtSelector.
+export function NumberOfCourtsSetup({
+  settings,
+  onChange,
+  isKingCourt,
+  isDynamicPairingSocial,
+  isDynamicTeamQualifier,
+}: NumberOfCourtsSetupProps) {
+  return (
+    <section className="card">
+      <h2>Number of Courts</h2>
+
       {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
         <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
       )}
@@ -297,6 +262,10 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
         <p className="hint">
           Session name, number of courts, players, and every other Dynamic Pairing Social setting are on the card below.
         </p>
+      )}
+
+      {isDynamicTeamQualifier && (
+        <p className="hint">Number of courts is set below, on the Dynamic Team Qualifier setup card.</p>
       )}
     </section>
   );
