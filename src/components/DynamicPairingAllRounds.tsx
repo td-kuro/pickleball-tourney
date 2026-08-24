@@ -90,6 +90,11 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                   ? `Resting: ${restLabel(round.restingPlayerIds)}`
                   : 'Everyone available played this round.'}
               </p>
+              {round.phase === 'grading' && (
+                <p className="all-rounds-byes">
+                  Rotation note: {round.rotationNote ?? 'No repeat opponents.'}
+                </p>
+              )}
             </div>
           ))}
       </div>

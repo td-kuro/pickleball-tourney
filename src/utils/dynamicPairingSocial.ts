@@ -792,6 +792,13 @@ export function generateDynamicPairingRound(
   const roundNumber = priorRounds.length + 1;
   const phase: DynamicPairingRound['phase'] = roundNumber <= settings.gradingRounds ? 'grading' : 'ranking';
 
+  // Grading rounds delegate to the rotation-aware entrant-based generator
+  // (see "Rotation-aware grading rounds" below) — teams is always empty
+  // here by contract, so buildDynamicPairingEntrants just returns one
+  // entrant per player, and the search reduces to plain individual
+  // opponent-rotation avoidance.
+  if (phase === 'grading') return generateRotationAwareGradingRound(players, [], settings, priorRounds);
+
   const availablePlayers = players.filter(isPlayerAvailable);
   const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePlayers.length);
 
@@ -802,27 +809,16 @@ export function generateDynamicPairingRound(
   const { restingIds, activeIds } = selectRestingPlayers(availablePlayers, stats, courtsUsed, lastRoundRestingIds);
   const activeSet = new Set(activeIds);
 
-  // During grading, there isn't enough game data yet to rank meaningfully,
-  // and skill levels aren't assignable yet either (see
-  // isGradingPhaseComplete) — so courts/partnerships are shuffled at
-  // random, per the design brief. Once grading is over, every subsequent
-  // round re-ranks from actual results (see sortPlayersByRanking).
-  let orderedActiveIds: string[];
+  // Grading already returned above — every round reaching this point is a
+  // ranking round, re-ranking from actual results (see sortPlayersByRanking).
   const previousCourtByPlayerId = new Map<string, number>();
-  if (phase === 'grading') {
-    orderedActiveIds = shuffle(activeIds);
-  } else {
-    const ranking = calculatePlayerRankings(players, priorRounds);
-    orderedActiveIds = ranking.filter((row) => activeSet.has(row.player.id)).map((row) => row.player.id);
-    for (const row of ranking) {
-      if (row.stats.currentCourt != null) previousCourtByPlayerId.set(row.player.id, row.stats.currentCourt);
-    }
+  const ranking = calculatePlayerRankings(players, priorRounds);
+  const orderedActiveIds = ranking.filter((row) => activeSet.has(row.player.id)).map((row) => row.player.id);
+  for (const row of ranking) {
+    if (row.stats.currentCourt != null) previousCourtByPlayerId.set(row.player.id, row.stats.currentCourt);
   }
 
-  const courtGroups =
-    phase === 'grading'
-      ? allocatePlayersToCourts(orderedActiveIds, courtsUsed)
-      : applyCourtMovementLimit(orderedActiveIds, previousCourtByPlayerId, courtsUsed, settings.maxCourtMovement);
+  const courtGroups = applyCourtMovementLimit(orderedActiveIds, previousCourtByPlayerId, courtsUsed, settings.maxCourtMovement);
 
   // "Avoid repeating the previous round's partner" needs to know who
   // partnered whom last round specifically (separate from the cumulative
@@ -932,13 +928,226 @@ export function groupSidesIntoCourts(sides: DynamicPairingSide[], courtsUsed: nu
   return courts;
 }
 
+// --- Rotation-aware grading rounds --------------------------------------
+// During the first `gradingRounds` rounds, courts are still random — no
+// ranking data exists yet to do anything else (see the file header) — but
+// "random" doesn't mean "careless": this section makes a best effort to
+// avoid pairing two entrants (individual players or fixed teams — see
+// buildDynamicPairingEntrants) against each other more than once until
+// every entrant has met every other available entrant at least once (a
+// "full rotation"). A repeat is only ever allowed once an entrant's
+// rotation is genuinely exhausted, or when no better schedule turns up
+// within a bounded random search — see generateRotationAwareGradingRound.
+// Used for BOTH the individual-only and fixed-team cases (an individual is
+// just a 1-player entrant), so generateDynamicPairingRound and
+// generateDynamicPairingRoundWithTeams both delegate here while a round is
+// still in the grading phase — only their ranking-phase logic (Round 4+)
+// stays split, exactly as before.
+//
+// Rest selection is untouched — still handled entirely by
+// selectRestingPlayers/selectRestingEntrants before any of this runs, kept
+// completely independent of pairing (see the file header's "Two
+// independent systems"). Only *who plays whom*, among whoever's already
+// selected to play, is searched here.
+
+// Has `entrantA` already faced `entrantB`? Reuses the *player*-level
+// opponentHistory DynamicPairingPlayerStats already tracks (see
+// updatePartnerOpponentHistory) rather than a new entrant-level store — a
+// fixed team's members always face the same opponents together (round
+// generation never splits them across sides), so either member's own
+// opponentHistory count already *is* "how many times has this team met
+// that entrant," with no extra bookkeeping needed.
+export function hasMetOpponent(
+  entrantA: DynamicPairingEntrant,
+  entrantB: DynamicPairingEntrant,
+  playerStatsById: Map<string, DynamicPairingPlayerStats>,
+): boolean {
+  return (playerStatsById.get(entrantA.playerIds[0])?.opponentHistory[entrantB.playerIds[0]] ?? 0) > 0;
+}
+
+// True once `entrant` has met every other eligible entrant at least once.
+// "Eligible" means every currently-available entrant in the session (see
+// isEntrantAvailable) — regardless of whether they happen to be resting
+// this specific round — since the goal is full rotation across the whole
+// pre-generated grading batch, not just whoever's active in one round.
+export function hasCompletedOpponentRotation(
+  entrant: DynamicPairingEntrant,
+  eligibleEntrants: DynamicPairingEntrant[],
+  playerStatsById: Map<string, DynamicPairingPlayerStats>,
+): boolean {
+  return eligibleEntrants
+    .filter((other) => other.id !== entrant.id)
+    .every((other) => hasMetOpponent(entrant, other, playerStatsById));
+}
+
+// Same two sides (by entrant id set, order-independent) have already faced
+// each other in a previously generated round — checked via entrantIdsForSide
+// so it reads correctly even for rounds/entrants that predate fixed teams.
+function isExactMatchRepeat(side1Ids: string[], side2Ids: string[], priorRounds: DynamicPairingRound[]): boolean {
+  const key = (ids: string[]) => [...ids].sort().join('|');
+  const thisMatch = [key(side1Ids), key(side2Ids)].sort().join('~');
+  return priorRounds.some((round) =>
+    round.courts.some((court) => {
+      const priorKey = [key(entrantIdsForSide(court, 1)), key(entrantIdsForSide(court, 2))].sort().join('~');
+      return priorKey === thisMatch;
+    }),
+  );
+}
+
+// Very high penalties dominate the search — a repeat opponent (before that
+// entrant's rotation is complete) or an exact rematch of the same two sides
+// should only ever be chosen when literally nothing better was found in
+// GRADING_SCHEDULE_ATTEMPTS tries. Repeat partner (two individuals
+// temporarily paired again) is a much softer preference — worth avoiding,
+// never worth forcing a repeat opponent to dodge.
+const REPEAT_OPPONENT_PENALTY = 10000;
+const EXACT_MATCH_REPEAT_PENALTY = 15000;
+const REPEAT_PARTNER_PENALTY = 100;
+const GRADING_SCHEDULE_ATTEMPTS = 50;
+
+interface GradingCandidate {
+  courts: DynamicPairingCourtAssignment[];
+  penalty: number;
+  repeatOpponentCount: number;
+}
+
+// Builds one candidate schedule from a given (already shuffled) entrant
+// order — same side-building shape as buildSidesFromRankedEntrants (fixed
+// teams become their own side; individual entrants pair up consecutively
+// in whatever order they're given) — then scores it against opponent/
+// exact-match/partner history, so generateRotationAwareGradingRound can
+// compare several random orderings and keep the best one.
+function buildGradingCandidate(
+  shuffledEntrants: DynamicPairingEntrant[],
+  courtsUsed: number,
+  eligibleEntrants: DynamicPairingEntrant[],
+  eligibleEntrantById: Map<string, DynamicPairingEntrant>,
+  playerStatsById: Map<string, DynamicPairingPlayerStats>,
+  priorRounds: DynamicPairingRound[],
+): GradingCandidate {
+  const { sides } = buildSidesFromRankedEntrants(shuffledEntrants);
+  const courts = groupSidesIntoCourts(sides, courtsUsed);
+
+  let penalty = 0;
+  let repeatOpponentCount = 0;
+
+  for (const court of courts) {
+    const side1Ids = entrantIdsForSide(court, 1);
+    const side2Ids = entrantIdsForSide(court, 2);
+    const side1Entrants = side1Ids.map((id) => eligibleEntrantById.get(id)).filter((e): e is DynamicPairingEntrant => e != null);
+    const side2Entrants = side2Ids.map((id) => eligibleEntrantById.get(id)).filter((e): e is DynamicPairingEntrant => e != null);
+
+    for (const a of side1Entrants) {
+      for (const b of side2Entrants) {
+        if (hasMetOpponent(a, b, playerStatsById) && !hasCompletedOpponentRotation(a, eligibleEntrants, playerStatsById)) {
+          penalty += REPEAT_OPPONENT_PENALTY;
+          repeatOpponentCount += 1;
+        }
+      }
+    }
+
+    if (isExactMatchRepeat(side1Ids, side2Ids, priorRounds)) {
+      penalty += EXACT_MATCH_REPEAT_PENALTY;
+    }
+
+    // Repeat-partner penalty only applies to a temporary pairing of two
+    // individual entrants — a fixed-team side always "repeats" its own
+    // partnership by definition, so that's never counted here.
+    for (const sideEntrants of [side1Entrants, side2Entrants]) {
+      if (sideEntrants.length === 2 && sideEntrants.every((e) => e.type === 'individual-player')) {
+        const [p1, p2] = sideEntrants;
+        const alreadyPartnered = (playerStatsById.get(p1.playerIds[0])?.partnerHistory[p2.playerIds[0]] ?? 0) > 0;
+        if (alreadyPartnered) penalty += REPEAT_PARTNER_PENALTY;
+      }
+    }
+  }
+
+  penalty += Math.random(); // low-weight tiebreaker so ties don't always resolve the same way
+  return { courts, penalty, repeatOpponentCount };
+}
+
+// Generates one grading-phase round with a best-effort "full rotation
+// before repeats" search: try GRADING_SCHEDULE_ATTEMPTS random entrant
+// orderings, score each with buildGradingCandidate, keep the lowest-
+// penalty one (stopping early once a fully clean one turns up). If even
+// the best candidate still has repeat opponents, that's recorded on the
+// round as `rotationNote` rather than hidden — see "Round generation with
+// fixed teams"/"Fixed teams" in the README. Deliberately a bounded random
+// search rather than an exact constraint solver, per the "prefer correct
+// and predictable scheduling over perfect optimisation" brief this was
+// built from.
+export function generateRotationAwareGradingRound(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  priorRounds: DynamicPairingRound[],
+): DynamicPairingRound {
+  const roundNumber = priorRounds.length + 1;
+  const playersById = new Map(players.map((p) => [p.id, p]));
+  const entrants = buildDynamicPairingEntrants(players, teams);
+  const eligibleEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById));
+  const eligibleEntrantById = new Map(eligibleEntrants.map((e) => [e.id, e]));
+  const availablePhysicalCount = eligibleEntrants.reduce((sum, e) => sum + e.playerIds.length, 0);
+  const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePhysicalCount);
+
+  const playerStats = calculateDynamicPairingStats(players, priorRounds);
+  const playerStatsById = new Map(playerStats.map((s) => [s.playerId, s]));
+  const entrantStatsById = new Map(
+    eligibleEntrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
+  );
+
+  const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : undefined;
+  const lastRoundRestingEntrantIds = new Set(lastRound?.restingEntrantIds ?? lastRound?.restingPlayerIds ?? []);
+  const { restingEntrantIds, activeEntrantIds } = selectRestingEntrants(
+    eligibleEntrants,
+    entrantStatsById,
+    courtsUsed,
+    lastRoundRestingEntrantIds,
+  );
+  const activeEntrants = activeEntrantIds.map((id) => eligibleEntrantById.get(id)!);
+
+  let best: GradingCandidate | null = null;
+  for (let attempt = 0; attempt < GRADING_SCHEDULE_ATTEMPTS; attempt++) {
+    const candidate = buildGradingCandidate(
+      shuffle(activeEntrants),
+      courtsUsed,
+      eligibleEntrants,
+      eligibleEntrantById,
+      playerStatsById,
+      priorRounds,
+    );
+    if (!best || candidate.penalty < best.penalty) best = candidate;
+    if (best.repeatOpponentCount === 0 && attempt >= 5) break; // good enough — stop searching early
+  }
+  const chosen =
+    best ??
+    buildGradingCandidate(activeEntrants, courtsUsed, eligibleEntrants, eligibleEntrantById, playerStatsById, priorRounds);
+
+  const restingPlayerIds = restingEntrantIds.flatMap((id) => eligibleEntrantById.get(id)?.playerIds ?? []);
+
+  return {
+    id: makeDynamicPairingId('round'),
+    roundNumber,
+    phase: 'grading',
+    status: 'current',
+    courts: chosen.courts,
+    restingPlayerIds,
+    restingEntrantIds,
+    rotationNote:
+      chosen.repeatOpponentCount > 0
+        ? `${chosen.repeatOpponentCount} repeat opponent${chosen.repeatOpponentCount === 1 ? '' : 's'} unavoidable due to available player/court constraints.`
+        : undefined,
+    createdAt: Date.now(),
+  };
+}
+
 // Entrant-aware counterpart of generateDynamicPairingRound, used once at
-// least one fixed team exists. Grading rounds still shuffle (no ranking
-// data to use yet); ranking rounds rank entrants best-to-worst and build
-// sides via buildSidesFromRankedEntrants. Per-player stats
-// (calculateDynamicPairingStats) and partner/opponent history are read
-// completely unmodified — see the "Fixed teams & entrants" section above
-// for why that's safe.
+// least one fixed team exists. Grading rounds delegate to
+// generateRotationAwareGradingRound above; ranking rounds rank entrants
+// best-to-worst and build sides via buildSidesFromRankedEntrants. Per-
+// player stats (calculateDynamicPairingStats) and partner/opponent history
+// are read completely unmodified — see the "Fixed teams & entrants"
+// section above for why that's safe.
 export function generateDynamicPairingRoundWithTeams(
   players: Player[],
   teams: DynamicPairingTeam[],
@@ -947,6 +1156,12 @@ export function generateDynamicPairingRoundWithTeams(
 ): DynamicPairingRound {
   const roundNumber = priorRounds.length + 1;
   const phase: DynamicPairingRound['phase'] = roundNumber <= settings.gradingRounds ? 'grading' : 'ranking';
+
+  // Grading rounds delegate to the rotation-aware entrant-based generator
+  // (see "Rotation-aware grading rounds" above) — the same function used
+  // by generateDynamicPairingRound's grading branch, just with `teams`
+  // actually populated this time.
+  if (phase === 'grading') return generateRotationAwareGradingRound(players, teams, settings, priorRounds);
 
   const playersById = new Map(players.map((p) => [p.id, p]));
   const entrants = buildDynamicPairingEntrants(players, teams);
@@ -972,15 +1187,10 @@ export function generateDynamicPairingRoundWithTeams(
   const availableEntrantById = new Map(availableEntrants.map((e) => [e.id, e]));
   const activeEntrantIdSet = new Set(activeEntrantIds);
 
-  let orderedActiveEntrants: DynamicPairingEntrant[];
-  if (phase === 'grading') {
-    orderedActiveEntrants = shuffle(activeEntrantIds.map((id) => availableEntrantById.get(id)!));
-  } else {
-    const ranking = calculateEntrantRankings(players, teams, priorRounds);
-    orderedActiveEntrants = ranking
-      .filter((row) => activeEntrantIdSet.has(row.entrant.id))
-      .map((row) => row.entrant);
-  }
+  // Grading already returned above — every round reaching this point is a
+  // ranking round, re-ranking from actual results (see calculateEntrantRankings).
+  const ranking = calculateEntrantRankings(players, teams, priorRounds);
+  const orderedActiveEntrants = ranking.filter((row) => activeEntrantIdSet.has(row.entrant.id)).map((row) => row.entrant);
 
   const { sides, oddOneOutEntrantId } = buildSidesFromRankedEntrants(orderedActiveEntrants);
   const courts = groupSidesIntoCourts(sides, courtsUsed);

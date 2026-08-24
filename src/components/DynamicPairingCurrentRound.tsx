@@ -141,6 +141,9 @@ export function DynamicPairingCurrentRound({
         {round && !allScored && (
           <p className="hint error">Enter scores for every court before generating the next round.</p>
         )}
+        {round && round.phase === 'grading' && (
+          <p className="hint">Rotation note: {round.rotationNote ?? 'No repeat opponents.'}</p>
+        )}
 
         {!round && <p className="empty-state">No round generated yet.</p>}
 

@@ -607,6 +607,12 @@ export interface DynamicPairingRound {
   // Entrant-level view of the same rest decision — absent on rounds
   // generated before fixed teams existed. See restingPlayerIds above.
   restingEntrantIds?: string[];
+  // Grading rounds only (see generateRotationAwareGradingRound in
+  // utils/dynamicPairingSocial.ts) — set only when at least one repeat
+  // opponent was genuinely unavoidable while building this round; absent
+  // (not an empty string) whenever the round achieved a fully clean,
+  // no-repeat schedule.
+  rotationNote?: string;
   createdAt: number;
 }
 

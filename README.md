@@ -261,6 +261,25 @@ During every grading round:
   tracked and rotated fairly — grading rounds are real matches, not
   throwaway ones.
 
+**Random doesn't mean careless: grading rounds are rotation-aware.**
+Before settling on a schedule, the app makes a best-effort search (several
+random attempts, keeping whichever scores best — see
+`generateRotationAwareGradingRound` in `src/utils/dynamicPairingSocial.ts`)
+to avoid pairing the same two opponents against each other more than once
+until every player/team has met every other available player/team at
+least once — a "full rotation." This is tracked at **entrant** level (see
+"Fixed teams" below): a fixed team of 2 players counts as one opponent
+unit, so "Ben / Sarah" either has or hasn't been met yet, exactly like an
+individual player has or hasn't. A repeat opponent is only ever allowed
+once an entrant has genuinely exhausted their rotation, or when no better
+schedule turns up within the search — in that case the round is marked
+with a rotation note (visible on **Current Round** and **All Rounds**)
+explaining the repeat was unavoidable given the available players/courts.
+With only 3 grading rounds by default, a full rotation across a large
+group usually can't complete in that time regardless — the goal is to get
+as far through it as possible before any repeat happens, not to guarantee
+completion.
+
 Once all grading rounds are scored, the app hands off to **Admin Skill
 Review** (see below) instead of immediately generating a next round; every
 round from there on is badged **Dynamic Pairing** and uses the actual
@@ -575,11 +594,21 @@ it's a full wipe, not a "new round, same roster" reset.
 - **Fixed teams**: no court movement limit is applied once any fixed team
   exists (rounds are always freshly ranked instead — see "Round generation
   with fixed teams" above); the ad hoc pairing of individual entrants into
-  temporary sides has no repeat-partner optimisation pass; and entrant-
-  level rest selection can rarely leave one physical court slot unfilled
-  for a round rather than resting a fairer entrant to make room — see
-  "Round generation with fixed teams" above for why each of these is a
+  temporary *ranking-round* (Round 4+) sides has no repeat-partner
+  optimisation pass — grading rounds are different, see below; and
+  entrant-level rest selection can rarely leave one physical court slot
+  unfilled for a round rather than resting a fairer entrant to make room —
+  see "Round generation with fixed teams" above for why each of these is a
   deliberate scope decision, not an oversight.
+- **Grading round rotation is a bounded random search, not an exact
+  solver** — a fixed number of random schedule attempts, keeping the best
+  one found (see "Grading rounds are pre-generated up front" above) — so a
+  technically-possible zero-repeat schedule can occasionally be missed in
+  a large or awkwardly-shaped group even though one exists, and the round
+  gets a rotation note anyway. Rest selection itself is never varied by
+  this search (it stays fully independent of pairing, per this format's
+  core design — see "Two independent systems" above), so an unavoidable
+  repeat is never resolved by resting someone different instead.
 
 ## Pools & Knockout
 
