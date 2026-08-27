@@ -21,6 +21,7 @@ import type {
   DynamicPairingCourtAssignment,
   DynamicPairingEntrant,
   DynamicPairingPlayerStats,
+  DynamicPairingRankingBasis,
   DynamicPairingRound,
   DynamicPairingRoundPhase,
   DynamicPairingRoundStatus,
@@ -439,6 +440,88 @@ export function entrantIdsForSide(court: DynamicPairingCourtAssignment, side: 1 
 
 // --- Rest selection ------------------------------------------------------
 // Deliberately doesn't look at ranking at all — see the file-level comment.
+
+// The single fair-bye engine every rest-selection call in this file goes
+// through — entrant-level (an individual player is just a size-1 entrant),
+// so both the plain-player path (selectRestingPlayers) and the fixed-team
+// path (selectRestingEntrants) share one implementation and can't drift
+// out of sync with each other again.
+//
+// Priority order (README's "Bye fairness"/"Bye cycle"): fewest total byes
+// first — this is the core invariant, and the only thing that actually
+// matters for "nobody gets a 2nd bye before everyone's had a 1st, a 3rd
+// before everyone's had a 2nd," and so on. Ties break by longest since
+// their last bye (never-rested sorts first), then whether they rested last
+// round at all (avoid back-to-back byes), then a stable tiebreak so
+// genuinely tied entrants don't reshuffle on every re-render. Because this
+// same fewest-byes-first rule is reapplied every round, the gap between
+// the most- and least-rested eligible entrant can never exceed 1 — no
+// extra "cycle" bookkeeping needed to enforce that separately.
+//
+// IMPORTANT — this fills `resting` from the front of the fairness queue
+// (lowest bye count = most due for a bye), not `active`. Filling `active`
+// from that same ascending order instead (as an earlier version of this
+// file did for the entrant path only) silently inverts the fairness rule:
+// it hands the byes to whoever already has the *most* rests, which is
+// exactly the "one player got 3 byes while others had 0" bug this function
+// exists to prevent.
+export interface SelectFairByeEntrantsParams {
+  eligibleEntrants: DynamicPairingEntrant[];
+  // Physical players that must sit out this round — availablePhysicalCount
+  // minus active court capacity. Not an entrant count, since a resting
+  // fixed team counts as 2 physical players but 1 bye for that team.
+  requiredRestPhysicalCount: number;
+  statsById: Map<string, DynamicPairingPlayerStats>;
+  lastRoundRestingEntrantIds: Set<string>;
+}
+
+export function selectFairByeEntrants({
+  eligibleEntrants,
+  requiredRestPhysicalCount,
+  statsById,
+  lastRoundRestingEntrantIds,
+}: SelectFairByeEntrantsParams): { restingEntrantIds: string[]; activeEntrantIds: string[] } {
+  if (requiredRestPhysicalCount <= 0) {
+    return { restingEntrantIds: [], activeEntrantIds: eligibleEntrants.map((e) => e.id) };
+  }
+
+  const sorted = [...eligibleEntrants].sort((a, b) => {
+    const sa = statsById.get(a.id) ?? emptyStats(a.id);
+    const sb = statsById.get(b.id) ?? emptyStats(b.id);
+    if (sa.totalRests !== sb.totalRests) return sa.totalRests - sb.totalRests;
+    const lastA = sa.lastRestRound ?? -1;
+    const lastB = sb.lastRestRound ?? -1;
+    if (lastA !== lastB) return lastA - lastB;
+    const aRestedLastRound = lastRoundRestingEntrantIds.has(a.id) ? 1 : 0;
+    const bRestedLastRound = lastRoundRestingEntrantIds.has(b.id) ? 1 : 0;
+    if (aRestedLastRound !== bRestedLastRound) return aRestedLastRound - bRestedLastRound;
+    return stableRandomTiebreak(a.id, b.id);
+  });
+
+  // Walk the "most due for a bye" end of the queue, resting whole entrants
+  // (never splitting a fixed team) until the physical requirement is met.
+  // A team-sized entrant can overshoot the exact requirement by one
+  // physical player — accepted rather than skipping ahead to a
+  // worse-fitting-but-less-due entrant, which would undo the very fairness
+  // ordering this function exists to enforce. See README's "Current
+  // limitations".
+  const resting: DynamicPairingEntrant[] = [];
+  let restedPhysical = 0;
+  for (const entrant of sorted) {
+    if (restedPhysical >= requiredRestPhysicalCount) break;
+    resting.push(entrant);
+    restedPhysical += entrant.playerIds.length;
+  }
+
+  const restingIds = new Set(resting.map((e) => e.id));
+  const restingEntrantIds = resting.map((e) => e.id);
+  const activeEntrantIds = eligibleEntrants.filter((e) => !restingIds.has(e.id)).map((e) => e.id);
+  return { restingEntrantIds, activeEntrantIds };
+}
+
+// Player-keyed convenience wrapper around selectFairByeEntrants for the
+// no-fixed-teams path — every player is its own size-1 entrant, so results
+// are identical to calling selectFairByeEntrants directly.
 export function selectRestingPlayers(
   availablePlayers: Player[],
   stats: DynamicPairingPlayerStats[],
@@ -446,54 +529,27 @@ export function selectRestingPlayers(
   lastRoundRestingIds: Set<string>,
 ): { restingIds: string[]; activeIds: string[] } {
   const activeCapacity = calculateActiveCapacity(courtsUsed);
-  const restCount = Math.max(0, availablePlayers.length - activeCapacity);
-  if (restCount === 0) {
-    return { restingIds: [], activeIds: availablePlayers.map((p) => p.id) };
-  }
-
+  const requiredRestPhysicalCount = Math.max(0, availablePlayers.length - activeCapacity);
+  const entrants: DynamicPairingEntrant[] = availablePlayers.map((p) => ({
+    id: p.id,
+    type: 'individual-player',
+    displayName: p.name,
+    playerIds: [p.id],
+  }));
   const statsById = new Map(stats.map((s) => [s.playerId, s]));
-
-  // Fair-rest priority: fewest total rests first, then most consecutive
-  // rounds played (they're "due"), then whoever didn't rest last round,
-  // then a stable tiebreak. Because this same fewest-rests-first rule is
-  // reapplied every round, the gap between the most- and least-rested
-  // player can never exceed 1 (the classic round-robin fairness argument)
-  // — no extra bookkeeping needed to enforce that separately.
-  const candidates = availablePlayers
-    .map((player) => ({ player, s: statsById.get(player.id) ?? emptyStats(player.id) }))
-    .sort((a, b) => {
-      if (a.s.totalRests !== b.s.totalRests) return a.s.totalRests - b.s.totalRests;
-      if (b.s.consecutiveRoundsPlayed !== a.s.consecutiveRoundsPlayed) {
-        return b.s.consecutiveRoundsPlayed - a.s.consecutiveRoundsPlayed;
-      }
-      const aRestedLastRound = lastRoundRestingIds.has(a.player.id) ? 1 : 0;
-      const bRestedLastRound = lastRoundRestingIds.has(b.player.id) ? 1 : 0;
-      if (aRestedLastRound !== bRestedLastRound) return aRestedLastRound - bRestedLastRound;
-      return stableRandomTiebreak(a.player.id, b.player.id);
-    });
-
-  const restingIds = candidates.slice(0, restCount).map((c) => c.player.id);
-  const restingSet = new Set(restingIds);
-  const activeIds = availablePlayers.filter((p) => !restingSet.has(p.id)).map((p) => p.id);
-  return { restingIds, activeIds };
+  const { restingEntrantIds, activeEntrantIds } = selectFairByeEntrants({
+    eligibleEntrants: entrants,
+    requiredRestPhysicalCount,
+    statsById,
+    lastRoundRestingEntrantIds: lastRoundRestingIds,
+  });
+  return { restingIds: restingEntrantIds, activeIds: activeEntrantIds };
 }
 
-// Entrant-level version of selectRestingPlayers, used only once a fixed
-// team exists (see generateDynamicPairingRoundWithTeams) — same fairness
-// order (fewest total rests, then most consecutive rounds played, then
-// didn't rest last round, then a stable tiebreak), but selecting *entrants*
-// (physical footprint 1 or 2) to keep active physical players at or under
-// `courtsUsed * 4`. A fixed team rests or plays as one atomic unit.
-//
-// Because entrant size varies, a single greedy pass in fairness order can
-// occasionally leave one physical slot unfilled (e.g. exactly one slot of
-// capacity remains and every not-yet-placed entrant is a 2-player team).
-// That's accepted rather than solved with a full bin-packing search:
-// filling every last slot would sometimes require resting a *fairer*
-// entrant to make room for a worse-fitting one, which would violate rest
-// fairness — so this deliberately prioritises fairness over perfect court
-// utilisation (see the file-level comment on why rest stays independent of
-// everything else). See README's "Current limitations".
+// Entrant-level convenience wrapper around selectFairByeEntrants, used once
+// a fixed team exists (see generateDynamicPairingRoundWithTeams) — keeps
+// active physical players at or under `courtsUsed * 4` while a fixed team
+// rests or plays as one atomic unit.
 export function selectRestingEntrants(
   availableEntrants: DynamicPairingEntrant[],
   representativeStatsById: Map<string, DynamicPairingPlayerStats>,
@@ -501,33 +557,36 @@ export function selectRestingEntrants(
   lastRoundRestingEntrantIds: Set<string>,
 ): { restingEntrantIds: string[]; activeEntrantIds: string[] } {
   const capacity = calculateActiveCapacity(courtsUsed);
-
-  const sorted = [...availableEntrants].sort((a, b) => {
-    const sa = representativeStatsById.get(a.id) ?? emptyStats(a.id);
-    const sb = representativeStatsById.get(b.id) ?? emptyStats(b.id);
-    if (sa.totalRests !== sb.totalRests) return sa.totalRests - sb.totalRests;
-    if (sb.consecutiveRoundsPlayed !== sa.consecutiveRoundsPlayed) {
-      return sb.consecutiveRoundsPlayed - sa.consecutiveRoundsPlayed;
-    }
-    const aRestedLastRound = lastRoundRestingEntrantIds.has(a.id) ? 1 : 0;
-    const bRestedLastRound = lastRoundRestingEntrantIds.has(b.id) ? 1 : 0;
-    if (aRestedLastRound !== bRestedLastRound) return aRestedLastRound - bRestedLastRound;
-    return stableRandomTiebreak(a.id, b.id);
+  const availablePhysicalCount = availableEntrants.reduce((sum, e) => sum + e.playerIds.length, 0);
+  const requiredRestPhysicalCount = Math.max(0, availablePhysicalCount - capacity);
+  return selectFairByeEntrants({
+    eligibleEntrants: availableEntrants,
+    requiredRestPhysicalCount,
+    statsById: representativeStatsById,
+    lastRoundRestingEntrantIds,
   });
+}
 
-  const active: DynamicPairingEntrant[] = [];
-  let remaining = capacity;
-  for (const entrant of sorted) {
-    const size = entrant.playerIds.length;
-    if (size <= remaining) {
-      active.push(entrant);
-      remaining -= size;
-    }
+// A round's bye-fairness self-check, run right after selectFairByeEntrants
+// — surfaced on the round as `byeFairnessNote` (see DynamicPairingRound)
+// rather than trusted silently, so a genuine compromise (only possible via
+// the "overshoot" trade-off documented on selectFairByeEntrants) is visible
+// to the organiser instead of looking like an unexplained anomaly. Takes
+// plain entrant ids (not DynamicPairingEntrant objects) since only each
+// one's bye count matters here.
+export function computeByeFairnessNote(
+  restingEntrantIds: string[],
+  activeEntrantIds: string[],
+  statsById: Map<string, DynamicPairingPlayerStats>,
+): string | undefined {
+  if (restingEntrantIds.length === 0) return undefined;
+  const byeCountOf = (id: string) => statsById.get(id)?.totalRests ?? 0;
+  const maxRestingBye = Math.max(...restingEntrantIds.map(byeCountOf));
+  const minActiveBye = activeEntrantIds.length > 0 ? Math.min(...activeEntrantIds.map(byeCountOf)) : Infinity;
+  if (maxRestingBye > minActiveBye) {
+    return `An entrant with ${maxRestingBye} prior bye${maxRestingBye === 1 ? '' : 's'} rested again this round because a lower-bye-count entrant didn't fit the remaining court capacity exactly (fixed-team size) — unavoidable, not a fairness break.`;
   }
-
-  const activeIds = new Set(active.map((e) => e.id));
-  const restingEntrantIds = availableEntrants.filter((e) => !activeIds.has(e.id)).map((e) => e.id);
-  return { restingEntrantIds, activeEntrantIds: Array.from(activeIds) };
+  return 'Bye selection: fair rotation — no entrant rests again before every eligible entrant has rested at least as many times.';
 }
 
 // --- Court allocation ------------------------------------------------------
@@ -757,6 +816,55 @@ export function calculateEntrantRankings(
   return latest;
 }
 
+// Entrant-level ranking for one specific *future* round, respecting the
+// session's ranking lag (see DynamicPairingSettings.rankingLagRounds) —
+// this is what makes predetermined rounds possible: Round N's competitive
+// pairing/court order only ever needs completed results up to
+// Round N - 1 - rankingLagRounds, so it can be generated (and shown in All
+// Rounds) before Round N - 1, or even Round N - rankingLagRounds, has
+// actually been played. `completedRounds` must be genuinely-finished
+// rounds only (status 'locked'/'completed') — never 'current' or
+// 'upcoming' ones, even if the caller is mid-way through pre-generating a
+// chain of future rounds (see regenerateUpcomingRankingRoundsForEntrants).
+// Falls back to baseline ranking (seed/rating/skill level/admin order —
+// see sortEntrantsByRanking's tiebreak chain, naturally what you get when
+// there are zero rounds of results to rank on) whenever the lag pushes the
+// cutoff below Round 1.
+export function calculateDynamicPairingRankingForRound(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  completedRounds: DynamicPairingRound[],
+  targetRoundNumber: number,
+  rankingLagRounds: number,
+): { ranking: RankedEntrant[]; basis: DynamicPairingRankingBasis } {
+  const maxIncludedRoundNumber = targetRoundNumber - 1 - Math.max(0, rankingLagRounds);
+  const includedRounds = completedRounds
+    .filter((r) => r.roundNumber <= maxIncludedRoundNumber)
+    .sort((a, b) => a.roundNumber - b.roundNumber);
+
+  const ranking = calculateEntrantRankings(players, teams, includedRounds);
+  const basis: DynamicPairingRankingBasis = {
+    type: includedRounds.length > 0 ? 'lagged-results' : 'baseline',
+    includedRoundNumbers: includedRounds.map((r) => r.roundNumber),
+    rankingLagRounds: Math.max(0, rankingLagRounds),
+  };
+  return { ranking, basis };
+}
+
+// Human-readable "Pairing basis" label for Current Round / All Rounds —
+// see DynamicPairingRankingBasis.
+export function rankingBasisLabel(round: DynamicPairingRound): string {
+  if (round.phase === 'grading') return 'Random grading — no ranking data yet';
+  const basis = round.rankingBasis;
+  if (!basis) return 'Pairing basis unavailable (round generated before this feature existed)';
+  if (basis.type === 'baseline') {
+    return 'Baseline ranking (seed / rating / skill level / admin order) — not enough completed results yet';
+  }
+  const nums = basis.includedRoundNumbers;
+  const range = nums.length === 1 ? `${nums[0]}` : `${nums[0]}-${nums[nums.length - 1]}`;
+  return `Results from Round${nums.length === 1 ? '' : 's'} ${range}`;
+}
+
 // --- Round generation --------------------------------------------------
 
 let idCounter = 0;
@@ -810,12 +918,29 @@ export function generateDynamicPairingRound(
   const activeSet = new Set(activeIds);
 
   // Grading already returned above — every round reaching this point is a
-  // ranking round, re-ranking from actual results (see sortPlayersByRanking).
+  // ranking round. `priorRounds` may include already-generated-but-not-yet-
+  // played 'upcoming' rounds when this is called while predetermining a
+  // future look-ahead window (see regenerateUpcomingRankingRoundsForEntrants)
+  // — only genuinely-finished rounds may ever feed the *ranking* (see
+  // calculateDynamicPairingRankingForRound and the ranking-lag rule), even
+  // though rest/partner history above correctly used the full projected
+  // chain, same precedent as the grading pre-generation path.
+  const completedRoundsForRanking = priorRounds.filter((r) => r.status === 'locked' || r.status === 'completed');
+  const { ranking, basis } = calculateDynamicPairingRankingForRound(
+    players,
+    [],
+    completedRoundsForRanking,
+    roundNumber,
+    settings.rankingLagRounds,
+  );
+  const orderedActiveIds = ranking.filter((row) => activeSet.has(row.entrant.id)).map((row) => row.entrant.playerIds[0]);
+
+  // Court continuity for the movement-limit clamp below is a physical-play
+  // fact, not a ranking one — always derived from the *full* history
+  // (`stats`), independent of the ranking lag above.
   const previousCourtByPlayerId = new Map<string, number>();
-  const ranking = calculatePlayerRankings(players, priorRounds);
-  const orderedActiveIds = ranking.filter((row) => activeSet.has(row.player.id)).map((row) => row.player.id);
-  for (const row of ranking) {
-    if (row.stats.currentCourt != null) previousCourtByPlayerId.set(row.player.id, row.stats.currentCourt);
+  for (const s of stats) {
+    if (s.currentCourt != null) previousCourtByPlayerId.set(s.playerId, s.currentCourt);
   }
 
   const courtGroups = applyCourtMovementLimit(orderedActiveIds, previousCourtByPlayerId, courtsUsed, settings.maxCourtMovement);
@@ -854,6 +979,8 @@ export function generateDynamicPairingRound(
     status: 'current',
     courts,
     restingPlayerIds: restingIds,
+    rankingBasis: basis,
+    byeFairnessNote: computeByeFairnessNote(restingIds, activeIds, statsById),
     createdAt: Date.now(),
   };
 }
@@ -1137,6 +1264,7 @@ export function generateRotationAwareGradingRound(
       chosen.repeatOpponentCount > 0
         ? `${chosen.repeatOpponentCount} repeat opponent${chosen.repeatOpponentCount === 1 ? '' : 's'} unavoidable due to available player/court constraints.`
         : undefined,
+    byeFairnessNote: computeByeFairnessNote(restingEntrantIds, activeEntrantIds, entrantStatsById),
     createdAt: Date.now(),
   };
 }
@@ -1188,8 +1316,18 @@ export function generateDynamicPairingRoundWithTeams(
   const activeEntrantIdSet = new Set(activeEntrantIds);
 
   // Grading already returned above — every round reaching this point is a
-  // ranking round, re-ranking from actual results (see calculateEntrantRankings).
-  const ranking = calculateEntrantRankings(players, teams, priorRounds);
+  // ranking round. See generateDynamicPairingRound's ranking branch for why
+  // only genuinely-finished rounds may feed the lagged ranking, even when
+  // `priorRounds` is a projected chain containing not-yet-played 'upcoming'
+  // rounds (see regenerateUpcomingRankingRoundsForEntrants).
+  const completedRoundsForRanking = priorRounds.filter((r) => r.status === 'locked' || r.status === 'completed');
+  const { ranking, basis } = calculateDynamicPairingRankingForRound(
+    players,
+    teams,
+    completedRoundsForRanking,
+    roundNumber,
+    settings.rankingLagRounds,
+  );
   const orderedActiveEntrants = ranking.filter((row) => activeEntrantIdSet.has(row.entrant.id)).map((row) => row.entrant);
 
   const { sides, oddOneOutEntrantId } = buildSidesFromRankedEntrants(orderedActiveEntrants);
@@ -1206,6 +1344,8 @@ export function generateDynamicPairingRoundWithTeams(
     courts,
     restingPlayerIds,
     restingEntrantIds: allRestingEntrantIds,
+    rankingBasis: basis,
+    byeFairnessNote: computeByeFairnessNote(allRestingEntrantIds, activeEntrantIds, entrantStatsById),
     createdAt: Date.now(),
   };
 }
@@ -1256,12 +1396,11 @@ export function lockCompletedRound(round: DynamicPairingRound): DynamicPairingRo
 }
 
 // --- Mid-session player/court changes -------------------------------------
-// See README's "Mid-session player and court changes". Only ever touches
-// pre-generated-but-'upcoming' grading rounds (Round 4+ is generated one at
-// a time by generateNextRound, so a court-count or availability change just
-// takes effect on the next click there — nothing to regenerate) and the
-// live 'current' round (for a swap). 'locked'/'completed' rounds are never
-// rewritten.
+// See README's "Mid-session player and court changes". Touches whichever
+// 'upcoming' rounds currently exist — the pre-generated grading batch, and/
+// or the ranking-phase look-ahead window (see
+// regenerateUpcomingRankingRoundsForEntrants) — plus the live 'current'
+// round (for a swap only). 'locked'/'completed' rounds are never rewritten.
 
 // Regenerates every still-'upcoming' pre-generated grading round against
 // the current player pool/settings — call after a player's availability
@@ -1304,6 +1443,60 @@ export function regenerateUpcomingGradingRoundsForEntrants(
     ];
   }
   return generated;
+}
+
+// Ranking-phase counterpart of regenerateUpcomingGradingRoundsForEntrants —
+// see goal 2, "Predetermined future rounds", in the design brief this was
+// built from. Discards every currently-'upcoming' ranking round and
+// regenerates exactly `settings.rankingLagRounds` of them fresh, anchored
+// on whatever is currently 'locked'/'completed'/'current', using the
+// freshest completed-round data for each one's lagged ranking (see
+// calculateDynamicPairingRankingForRound) — this is what keeps All Rounds
+// always showing a consistent look-ahead window, and what re-derives every
+// future round's pairing the moment new results (or an availability/court
+// change) would change its ranking basis. A no-op while still mid-grading,
+// or on the last grading round before skill review is confirmed — there's
+// no ranking window to maintain until the first ranking round exists (see
+// confirmSkillReviewAndStartRankingRounds, which calls this once it
+// generates Round `gradingRounds + 1`). Never touches a 'locked',
+// 'completed', or 'current' round — only ever rebuilds 'upcoming' ones,
+// per the file's safety rule.
+export function regenerateUpcomingRankingRoundsForEntrants(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] {
+  const settled = rounds.filter((r) => r.status !== 'upcoming');
+  if (settled.length === 0) return rounds;
+
+  const lastSettledRoundNumber = settled[settled.length - 1].roundNumber;
+  if (lastSettledRoundNumber <= settings.gradingRounds) return rounds; // still mid-grading — nothing to do here
+
+  const lookahead = Math.max(0, settings.rankingLagRounds);
+  const targetMaxRoundNumber = lastSettledRoundNumber + lookahead;
+
+  let projected = settled;
+  for (let roundNumber = lastSettledRoundNumber + 1; roundNumber <= targetMaxRoundNumber; roundNumber++) {
+    const nextRound = generateDynamicPairingRoundForEntrants(players, teams, settings, projected);
+    projected = [...projected, { ...nextRound, status: 'upcoming' }];
+  }
+  return projected;
+}
+
+// Convenience wrapper for mid-session availability/court-count changes —
+// covers both phases in one call. Exactly one of the two steps ever does
+// anything on a given call, since a session is always in one phase or the
+// other (grading's pre-generated batch is fully consumed before any
+// ranking round exists).
+export function regenerateUpcomingRoundsForEntrants(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] {
+  const afterGrading = regenerateUpcomingGradingRoundsForEntrants(players, teams, settings, rounds);
+  return regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, afterGrading);
 }
 
 // `teams` defaults to none, so existing individual-only callers are

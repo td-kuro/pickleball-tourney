@@ -514,6 +514,16 @@ export interface DynamicPairingSettings {
   // before they're final" flow — always false in this version; scores are
   // accepted as entered, same as every other mode.
   scoreConfirmationRequired: boolean;
+  // Predetermined-round ranking lag — see
+  // calculateDynamicPairingRankingForRound in utils/dynamicPairingSocial.ts.
+  // Round N's competitive pairing/court order is decided from completed
+  // results only up to Round N - 1 - rankingLagRounds, which is what lets
+  // Round N be generated (and shown in All Rounds) before Round N - 1, or
+  // even Round N - rankingLagRounds, has finished. Bye/rest fairness and
+  // partner/opponent variety are never lagged — they always use every
+  // round actually completed so far, independent of ranking (see the file
+  // header of dynamicPairingSocial.ts). Default 1.
+  rankingLagRounds: number;
 }
 
 // Aggregated, per-game (not raw-total) stats for one player across the
@@ -556,6 +566,23 @@ export interface DynamicPairingPlayerStats {
 }
 
 export type DynamicPairingRoundPhase = 'grading' | 'ranking';
+
+// How a ranking-phase round's competitive pairing/court order was decided
+// — see calculateDynamicPairingRankingForRound in
+// utils/dynamicPairingSocial.ts. 'baseline': not enough completed rounds
+// existed yet at the required lag, so seed/rating/skill level/admin order
+// (sortEntrantsByRanking's tiebreak chain, applied to zero rounds of
+// results) decided instead. 'lagged-results': real results from
+// includedRoundNumbers decided it. There's no separate 'admin-review'
+// case — organiser-assigned skill level is already one of the tiebreakers
+// folded into both cases above, not a distinct basis of its own.
+export type DynamicPairingRankingBasisType = 'baseline' | 'lagged-results';
+
+export interface DynamicPairingRankingBasis {
+  type: DynamicPairingRankingBasisType;
+  includedRoundNumbers: number[];
+  rankingLagRounds: number;
+}
 
 // 'upcoming': a pre-generated grading round (see generateInitialGradingRounds
 // in utils/dynamicPairingSocial.ts) whose courts/partners are already
@@ -613,6 +640,17 @@ export interface DynamicPairingRound {
   // (not an empty string) whenever the round achieved a fully clean,
   // no-repeat schedule.
   rotationNote?: string;
+  // Ranking-phase only (absent for 'grading' rounds, and absent on rounds
+  // generated before this feature existed) — which completed rounds'
+  // results decided this round's competitive pairing/court order. See
+  // DynamicPairingRankingBasis / calculateDynamicPairingRankingForRound.
+  rankingBasis?: DynamicPairingRankingBasis;
+  // Set only when selectFairByeEntrants had to rest an entrant slightly
+  // "out of order" (by total bye count) because of an unavoidable
+  // court-capacity/fixed-team-size mismatch — see selectFairByeEntrants.
+  // Absent (not a generic "all good" string) whenever bye selection
+  // followed strict fairness order with no compromise.
+  byeFairnessNote?: string;
   createdAt: number;
 }
 

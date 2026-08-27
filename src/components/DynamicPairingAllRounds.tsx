@@ -1,5 +1,5 @@
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
-import { entrantIdsForSide, roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
+import { entrantIdsForSide, rankingBasisLabel, roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
 
 const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
   upcoming: 'status-badge',
@@ -85,11 +85,13 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                   );
                 })}
               </ul>
+              <p className="all-rounds-byes">Pairing basis: {rankingBasisLabel(round)}</p>
               <p className="all-rounds-byes">
                 {round.restingPlayerIds.length > 0
                   ? `Resting: ${restLabel(round.restingPlayerIds)}`
                   : 'Everyone available played this round.'}
               </p>
+              {round.byeFairnessNote && <p className="all-rounds-byes">{round.byeFairnessNote}</p>}
               {round.phase === 'grading' && (
                 <p className="all-rounds-byes">
                   Rotation note: {round.rotationNote ?? 'No repeat opponents.'}

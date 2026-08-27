@@ -5,6 +5,7 @@ import {
   isDynamicPairingFixedTeamSide,
   isDynamicPairingRoundComplete,
   nextRoundButtonLabel,
+  rankingBasisLabel,
   roundPhaseLabel,
 } from '../utils/dynamicPairingSocial';
 import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActionMenu';
@@ -141,9 +142,11 @@ export function DynamicPairingCurrentRound({
         {round && !allScored && (
           <p className="hint error">Enter scores for every court before generating the next round.</p>
         )}
+        {round && <p className="hint">Pairing basis: {rankingBasisLabel(round)}</p>}
         {round && round.phase === 'grading' && (
           <p className="hint">Rotation note: {round.rotationNote ?? 'No repeat opponents.'}</p>
         )}
+        {round && round.byeFairnessNote && <p className="hint">{round.byeFairnessNote}</p>}
 
         {!round && <p className="empty-state">No round generated yet.</p>}
 

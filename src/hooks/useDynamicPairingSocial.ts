@@ -17,7 +17,8 @@ import {
   isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
-  regenerateUpcomingGradingRoundsForEntrants,
+  regenerateUpcomingRankingRoundsForEntrants,
+  regenerateUpcomingRoundsForEntrants,
   swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
 // Pure array transform with no round/state coupling, so importing it here
@@ -53,6 +54,7 @@ export const DEFAULT_DYNAMIC_PAIRING_SETTINGS: DynamicPairingSettings = {
   // 'ranking' phase in the first place.
   maxCourtMovement: 'max-1',
   scoreConfirmationRequired: false,
+  rankingLagRounds: 1,
 };
 
 function makePlayerId(salt = 0): string {
@@ -148,29 +150,28 @@ export function useDynamicPairingSocial() {
   function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus) {
     const updatedPlayers = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
     setPlayers(updatedPlayers);
-    const regenerated = regenerateUpcomingGradingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
+    const regenerated = regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
     if (regenerated !== rounds) {
       setRounds(regenerated);
-      logAdjustment('future-rounds-regenerated');
+      logAdjustment('future-rounds-regenerated', { note: 'Future rounds were regenerated due to player/court changes.' });
     }
   }
 
-  // "Change Courts": updates numberOfCourts, then regenerates the
-  // still-'upcoming' pre-generated grading rounds (if any) against the new
-  // court count — generated against `nextSettings` explicitly since
-  // setSettings above hasn't taken effect in this render yet. A no-op past
-  // grading (see regenerateUpcomingGradingRounds) — Round 4+ picks up the
-  // new court count automatically on the next generateNextRound call.
+  // "Change Courts": updates numberOfCourts, then regenerates whichever
+  // 'upcoming' rounds currently exist (pre-generated grading batch, and/or
+  // the ranking-phase look-ahead window) against the new court count —
+  // generated against `nextSettings` explicitly since setSettings above
+  // hasn't taken effect in this render yet.
   function changeCourtCount(newCourts: number) {
     if (newCourts === settings.numberOfCourts) return;
     const nextSettings = { ...settings, numberOfCourts: newCourts };
     setSettings(nextSettings);
     logAdjustment('court-count-changed', { oldValue: String(settings.numberOfCourts), newValue: String(newCourts) });
 
-    const regenerated = regenerateUpcomingGradingRoundsForEntrants(players, teams, nextSettings, rounds);
+    const regenerated = regenerateUpcomingRoundsForEntrants(players, teams, nextSettings, rounds);
     if (regenerated !== rounds) {
       setRounds(regenerated);
-      logAdjustment('future-rounds-regenerated');
+      logAdjustment('future-rounds-regenerated', { note: 'Future rounds were regenerated due to player/court changes.' });
     }
   }
 
@@ -262,21 +263,27 @@ export function useDynamicPairingSocial() {
   // All Rounds shows the whole planned schedule immediately — see
   // generateInitialGradingRounds. Only Round 1 is playable to start; the
   // rest are 'upcoming' until generateNextRound activates them in order.
+  // The extra regenerateUpcomingRankingRoundsForEntrants pass is a no-op
+  // in the normal case (grading rounds exist, so there's no ranking round
+  // to look ahead from yet) — it only does something when gradingRounds is
+  // 0, where the very first generated round is already a ranking round.
   function startSession() {
-    setRounds(generateInitialGradingRoundsForEntrants(players, teams, settings));
+    const initial = generateInitialGradingRoundsForEntrants(players, teams, settings);
+    setRounds(regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, initial));
   }
 
-  // Advances past the current round once every court is scored. Three
-  // cases, mirrored by nextRoundButtonLabel so the button text always
-  // matches what this actually does:
-  // 1. A pre-generated grading round is waiting (Round 2 or 3) — just
-  //    activate it, no generation needed.
-  // 2. This was the last grading round — lock it and stop. No round is
-  //    'current' after this, which is exactly what makes
-  //    isAwaitingSkillReview true; DynamicPairingAdminSkillReview takes it
-  //    from here via confirmSkillReviewAndStartRankingRounds.
-  // 3. Otherwise (Round 4+, already past skill review) — generate a fresh
-  //    ranking round, same as this app always has.
+  // Advances past the current round once every court is scored.
+  // Grading phase: a pre-generated round (Round 2 or 3) is just activated
+  // in order, or — on the last grading round — locked with nothing made
+  // 'current' after it, which is exactly what makes isAwaitingSkillReview
+  // true; DynamicPairingAdminSkillReview takes it from here via
+  // confirmSkillReviewAndStartRankingRounds. Ranking phase: the look-ahead
+  // window (see regenerateUpcomingRankingRoundsForEntrants) normally
+  // already has the next round pre-generated — activate it — then rebuild
+  // the remaining look-ahead window against the results that just came in,
+  // per the "Predetermined round generation" rule (recalculate rankings,
+  // regenerate only future unlocked rounds, never touch what's
+  // locked/completed/current).
   function generateNextRound() {
     if (!currentRound) return;
     // "This round" is ending — resting-this-round players are available
@@ -290,33 +297,49 @@ export function useDynamicPairingSocial() {
     if (!check.ok) return;
 
     const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
-
     const upcoming = locked.find((r) => r.roundNumber === currentRound.roundNumber + 1 && r.status === 'upcoming');
-    if (upcoming) {
-      setRounds(locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r)));
-      return;
-    }
 
     if (currentRound.phase === 'grading') {
-      setRounds(locked);
+      if (upcoming) {
+        setRounds(locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r)));
+        return;
+      }
+      setRounds(locked); // last grading round — hands off to Admin Skill Review
       return;
     }
 
-    const nextRound = generateDynamicPairingRoundForEntrants(revertedPlayers, teams, settings, locked);
-    setRounds([...locked, nextRound]);
+    // Ranking phase. Only generates fresh here (instead of activating an
+    // already-pre-generated round) when rankingLagRounds is 0, i.e. no
+    // look-ahead window exists at all.
+    const activated: DynamicPairingRound[] = upcoming
+      ? locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r))
+      : [...locked, generateDynamicPairingRoundForEntrants(revertedPlayers, teams, settings, locked)];
+
+    const regenerated = regenerateUpcomingRankingRoundsForEntrants(revertedPlayers, teams, settings, activated);
+    setRounds(regenerated);
+    if (regenerated.some((r) => r.status === 'upcoming')) {
+      logAdjustment('future-rounds-regenerated', {
+        note: 'Future rounds were updated using latest available lagged rankings.',
+      });
+    }
   }
 
-  // Confirms Admin Skill Review and generates Round 4 — the first round to
-  // use real ranking-based pairing (see generateDynamicPairingRound's
-  // 'ranking' phase). Setting skill levels beforehand is optional (see
-  // updatePlayerSkillLevel); only reaching and clicking Confirm is
-  // required to unblock Round 4.
+  // Confirms Admin Skill Review and generates Round `gradingRounds + 1` —
+  // the first round to use real ranking-based pairing (see
+  // generateDynamicPairingRound's 'ranking' phase) — then immediately
+  // extends the ranking look-ahead window as far as rankingLagRounds
+  // allows (see regenerateUpcomingRankingRoundsForEntrants), so e.g. with
+  // the default lag of 1 and 3 grading rounds, Round 5 is already visible
+  // in All Rounds the moment Round 4 becomes current. Setting skill levels
+  // beforehand is optional (see updatePlayerSkillLevel); only reaching and
+  // clicking Confirm is required to unblock Round 4.
   function confirmSkillReviewAndStartRankingRounds() {
     if (!awaitingSkillReview) return;
     const check = canGenerateDynamicPairingRound(players, settings, undefined);
     if (!check.ok) return;
-    const nextRound = generateDynamicPairingRoundForEntrants(players, teams, settings, rounds);
-    setRounds([...rounds, nextRound]);
+    const firstRankingRound = generateDynamicPairingRoundForEntrants(players, teams, settings, rounds);
+    const withLookahead = regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, [...rounds, firstRankingRound]);
+    setRounds(withLookahead);
   }
 
   function setCourtScore(roundId: string, courtNumber: number, score1: number, score2: number) {

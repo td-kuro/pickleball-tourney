@@ -147,6 +147,27 @@ export function DynamicPairingSetup({
         </div>
 
         <div className="form-row">
+          <label htmlFor="dp-ranking-lag">Ranking lag (rounds)</label>
+          <input
+            id="dp-ranking-lag"
+            type="number"
+            min={0}
+            value={settings.rankingLagRounds}
+            onChange={(event) => {
+              const parsed = parseInt(event.target.value, 10);
+              onChangeSettings({ ...settings, rankingLagRounds: Number.isNaN(parsed) ? 0 : Math.max(0, parsed) });
+            }}
+            disabled={started}
+          />
+          <p className="hint">
+            Once dynamic pairing starts, Round N's court order is decided from completed results up to Round N − 1 −
+            this number — so with the default of 1, Round N is generated (and already visible under All Rounds) as
+            soon as Round N − 1 becomes current, without waiting for it to finish. Set to 0 to always wait for the
+            immediately preceding round to complete before generating the next one.
+          </p>
+        </div>
+
+        <div className="form-row">
           <span>Game format</span>
           <div className="toggle-group" role="group" aria-label="Game format">
             <button

@@ -122,7 +122,7 @@ export function DynamicPairingRestingPlayers({
     <>
       {lastNotice?.type === 'future-rounds-regenerated' && !noticeDismissed && (
         <div className="session-adjustment-notice">
-          <span className="hint">Future rounds were regenerated due to player/court changes.</span>
+          <span className="hint">{lastNotice.note ?? 'Future rounds were regenerated due to player/court changes.'}</span>
           <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
             Dismiss
           </button>

@@ -182,6 +182,9 @@ with its own card:
   "Admin Skill Review" below.
 - **Grading rounds** — how many of the first rounds are grading rounds.
   Default: **3**.
+- **Ranking lag (rounds)** — how many rounds "behind" the competitive
+  ranking a predetermined round's pairing is allowed to be. Default: **1**.
+  See "Predetermined rounds and ranking lag" below.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
   **First to Score** (with a winning score) — for the organiser's
   reference; this version doesn't enforce either automatically (same
@@ -285,6 +288,63 @@ Review** (see below) instead of immediately generating a next round; every
 round from there on is badged **Dynamic Pairing** and uses the actual
 calculated ranking to build courts and partnerships.
 
+### Predetermined rounds and ranking lag
+
+Dynamic Pairing rounds (Round 4 on, by default) don't wait to be generated
+one at a time the way earlier versions did — the organiser can see a round
+or more into the future under **All Rounds**, badged **Upcoming**, courts
+and partnerships already decided, before the round(s) ahead of it have
+even finished.
+
+This works via the **Ranking lag (rounds)** setting (default **1**):
+generating Round N only ever needs completed results up to
+Round N − 1 − ranking lag. With the default lag of 1, that means Round N
+is generatable the moment Round N − 1 exists at all (current or later) —
+so the app always keeps exactly one Dynamic Pairing round pre-generated
+beyond whichever one is current. For example, with 3 grading rounds and
+the default lag:
+
+```
+Round 4 — generated the moment Round 3 becomes current — uses results from Rounds 1-2
+Round 5 — generated the moment Round 4 becomes current — uses results from Rounds 1-3
+Round 6 — generated the moment Round 5 becomes current — uses results from Rounds 1-4
+```
+
+Each predetermined round shows a **pairing basis** note (e.g. "Results
+from Rounds 1-2") so it's clear how current the ranking behind it is. If
+there isn't enough completed-round data yet for the lag to resolve to
+anything (only possible right at the very start of a session, before any
+round has completed at all), the round falls back to **baseline
+ranking** — starting seed, rating, skill level, and admin order, the same
+tiebreak chain "Ranking metrics" describes applied to zero rounds of
+results — and says so on its pairing basis note instead of silently using
+partial data.
+
+**Bye/rest fairness and partner/opponent variety are never lagged** — they
+always look at every round actually completed so far, independent of the
+ranking lag above. Only the *competitive* pairing/court-strength ordering
+respects the lag; who sits out and who's already partnered/faced whom is
+decided from real history, same as always (see "Two independent systems"
+above).
+
+Raising **Ranking lag** shows further into the future at once, at the
+cost of that much more staleness in each predetermined round's ranking
+basis; setting it to **0** turns predetermined rounds off entirely — Round
+N then always waits for Round N − 1 to fully complete first, exactly like
+earlier versions of this format.
+
+**Regeneration, not silent drift:** every time a round completes, the app
+recalculates rankings and rebuilds every still-**Upcoming** predetermined
+round against the freshest completed-round data — a notice ("Future
+rounds were updated using latest available lagged rankings.") appears
+under Resting Players when this happens. The same rebuild runs after a
+mid-session availability or court-count change. **Locked, completed, and
+current rounds are never touched by this** — regeneration only ever
+rewrites rounds still marked **Upcoming**. See
+`regenerateUpcomingRankingRoundsForEntrants` and
+`calculateDynamicPairingRankingForRound` in
+`src/utils/dynamicPairingSocial.ts`.
+
 ### Admin Skill Review
 
 The moment the last grading round's scores are saved, **Current Round**
@@ -353,17 +413,30 @@ Rest counts are **global across the whole session** — they don't reset
 when a player changes courts, and ranking has no influence on who rests
 (see "Two independent systems" above). A resting player gets no win,
 loss, points, or point differential that round; their existing stats are
-otherwise untouched. Fair-rest selection, in order:
+otherwise untouched.
 
-1. Fewest total rests so far.
-2. Among those tied, whoever has played the most consecutive rounds in a
-   row (they're "due").
-3. Prefer someone who didn't rest last round, where possible.
-4. A deterministic tiebreaker (same stable-hash approach as ranking).
+Every bye/rest decision in the app — individual players and fixed-team
+entrants alike — goes through one shared fairness engine,
+`selectFairByeEntrants` in `src/utils/dynamicPairingSocial.ts`, in this
+order:
+
+1. **Fewest total byes so far.** This is the core rule: nobody gets a 2nd
+   bye until every eligible player/team has had a 1st, nobody gets a 3rd
+   until everyone's had a 2nd, and so on — a "bye cycle." A player/team
+   with 2 byes is never selected while anyone eligible still has 0 or 1.
+2. Among those tied, **longest since their last bye** (never having
+   rested yet counts as longest).
+3. Prefer someone who didn't rest last round, where possible (avoids
+   back-to-back byes).
+4. A deterministic tiebreaker (same stable-hash approach as ranking, not
+   `Math.random()`, so genuinely tied players don't reshuffle on every
+   re-render).
 
 Because rule 1 is reapplied fresh every round, the gap between the
-most- and least-rested player never exceeds 1 — no separate enforcement
-needed. See `selectRestingPlayers` in `src/utils/dynamicPairingSocial.ts`.
+most- and least-rested eligible player/team never exceeds 1 — no separate
+"cycle" bookkeeping needed to enforce that on top. A fixed team's bye
+counts once at the team (entrant) level, not once per player — see "Fixed
+teams" below.
 
 ### Court allocation and balanced partnerships
 
@@ -471,17 +544,20 @@ either way). Once ranking rounds start, generation branches:
   `src/utils/dynamicPairingSocial.ts`.
 
 Rest selection also branches the same way: with no fixed teams, nothing
-changes. With a fixed team, `selectRestingEntrants` selects whole entrants
-(a team's physical footprint is 2, an individual's is 1) in the same
-fairness order as always (fewest total rests → most consecutive rounds
-played → didn't rest last round → stable tiebreak) to fill each court's
-capacity. Because entrant size varies, a single fairness-ordered greedy
-pass can occasionally leave one physical slot unfilled for a round (e.g.
-exactly one slot of capacity remains and every not-yet-placed entrant is a
-2-player team) — this is accepted rather than solved with a full
-bin-packing search, since filling every last slot would sometimes mean
-resting a *fairer* entrant to make room for a worse-fitting one, which
-would undermine rest fairness itself. See "Current limitations" below.
+changes. With a fixed team, the same `selectFairByeEntrants` engine (see
+"Rest management" above) selects whole entrants — a team's physical
+footprint is 2, an individual's is 1 — in the exact same fairness order,
+resting the lowest-bye-count entrants first until enough physical players
+are sitting out. Because entrant size varies, this can occasionally rest
+one physical player *more* than the strict minimum (e.g. the next
+fairest entrant in line is a 2-player team but only 1 physical slot of
+rest is actually needed) — this is accepted rather than solved with a
+full bin-packing search, since filling every last court slot exactly
+would sometimes mean skipping over a fairer entrant to rest a
+worse-fitting one instead, which would undermine rest fairness itself.
+When this happens, the round's **bye fairness note** (visible on Current
+Round/All Rounds) says so explicitly rather than leaving it looking like
+an unexplained anomaly. See "Current limitations" below.
 
 ### Court movement limit
 
@@ -521,15 +597,18 @@ Rounds/Leaderboard pair):
 
 - **Rounds** — the familiar **Current Round** / **All Rounds** toggle.
   Current Round shows the round number, a Random Grading/Dynamic Pairing
-  phase badge, every court's Team 1 vs. Team 2 with score entry, who's
-  resting, and a button to advance (its label adapts — "Continue to Round
-  N" while activating a pre-generated grading round, "Continue to Admin
-  Skill Review" after the last one, "Generate Next Round" from Round 4
-  on). All Rounds is the read-only history, same spirit as the standard
-  modes' All Rounds — but for Dynamic Pairing Social, it shows all 3 (or
-  however many `gradingRounds` is set to) grading rounds immediately after
-  Start Matches, including the ones that haven't been played yet (badged
-  **Upcoming**, matchups visible, no scores). Once grading finishes,
+  phase badge, a **pairing basis** note, every court's Team 1 vs. Team 2
+  with score entry, who's resting (plus a bye fairness note), and a button
+  to advance (its label adapts — "Continue to Round N" while activating a
+  pre-generated round, "Continue to Admin Skill Review" after the last
+  grading round, "Generate Next Round" only when no round is already
+  pre-generated ahead). All Rounds is the read-only history, same spirit
+  as the standard modes' All Rounds — but for Dynamic Pairing Social, it
+  shows all 3 (or however many `gradingRounds` is set to) grading rounds
+  immediately after Start Matches, *and* — once dynamic pairing starts —
+  a look-ahead window of predetermined future rounds (see "Predetermined
+  rounds and ranking lag" above), all badged **Upcoming** with matchups
+  already visible and no scores yet. Once grading finishes,
   Current Round is temporarily replaced by **Admin Skill Review** — see
   above — until the organiser confirms it.
 - **Rankings** — every field from "Ranking metrics" above, recalculated
@@ -596,10 +675,11 @@ it's a full wipe, not a "new round, same roster" reset.
   with fixed teams" above); the ad hoc pairing of individual entrants into
   temporary *ranking-round* (Round 4+) sides has no repeat-partner
   optimisation pass — grading rounds are different, see below; and
-  entrant-level rest selection can rarely leave one physical court slot
-  unfilled for a round rather than resting a fairer entrant to make room —
-  see "Round generation with fixed teams" above for why each of these is a
-  deliberate scope decision, not an oversight.
+  entrant-level rest selection can rarely rest one physical player more
+  than the strict minimum (and correspondingly leave one court slot unused
+  that round) rather than skip over a fairer entrant to make a better-
+  fitting court — see "Round generation with fixed teams" above for why
+  each of these is a deliberate scope decision, not an oversight.
 - **Grading round rotation is a bounded random search, not an exact
   solver** — a fixed number of random schedule attempts, keeping the best
   one found (see "Grading rounds are pre-generated up front" above) — so a
@@ -1342,14 +1422,15 @@ takes effect from the next round instead, same as everywhere else. Future
 Pairing Social's Resting Players tab) applies from the *next* round by
 default — completed and locked rounds are never touched, and the current
 round only changes if you explicitly confirm regenerating it (only
-possible while it still has no scores entered). Standard Social Play
-regenerates its entire pre-generated **Upcoming** tail against the new
-court count and current player pool; Dynamic Pairing Social only ever has
-to regenerate the still-upcoming pre-generated grading rounds (Rounds 1-3)
-this way — Round 4 onward is already generated one round at a time, so a
-court-count change just takes effect the next time you generate a round,
-with nothing to regenerate. Either way, a small notice — *"Future rounds
-were regenerated due to player/court changes"* — confirms what happened.
+possible while it still has no scores entered). Standard Social Play and
+Dynamic Pairing Social both regenerate their entire pre-generated
+**Upcoming** tail against the new court count and current player pool —
+for Dynamic Pairing Social that's whichever look-ahead window currently
+exists: the pre-generated grading rounds while still mid-grading, or the
+ranking-lag predetermined window (see "Predetermined rounds and ranking
+lag" above) once dynamic pairing has started. Either way, a small notice
+— *"Future rounds were regenerated due to player/court changes"* —
+confirms what happened.
 
 ### King Court is the most manual of the three, by design
 
@@ -2109,16 +2190,24 @@ src/
                              (isCourtFull), and All Rounds game status
                              (getKingCourtGameStatus) (5-Player King Court Mode)
   utils/dynamicPairingSocial.ts
-                             Pure logic, entirely self-contained: per-game stats and
-                             ranking (calculateDynamicPairingStats, calculatePlayerRankings,
-                             sortPlayersByRanking, getPlayerHeadToHead), fair rest
-                             selection (selectRestingPlayers) kept deliberately
-                             independent of ranking, court allocation
-                             (allocatePlayersToCourts, applyCourtMovementLimit), balanced
-                             partnerships (createBalancedPartnerships,
-                             scorePartnershipOption), and the round-generation/scoring
-                             entry points (generateDynamicPairingRound,
-                             generateInitialGradingRounds,
+                             Pure logic, entirely self-contained: per-game/per-entrant
+                             stats and ranking (calculateDynamicPairingStats,
+                             calculatePlayerRankings/calculateEntrantRankings,
+                             sortPlayersByRanking/sortEntrantsByRanking,
+                             getPlayerHeadToHead/getEntrantHeadToHead), the one shared
+                             fair-bye engine every rest decision routes through
+                             (selectFairByeEntrants, wrapped by selectRestingPlayers/
+                             selectRestingEntrants, plus computeByeFairnessNote) kept
+                             deliberately independent of ranking, the ranking-lag helper
+                             predetermined rounds are built from
+                             (calculateDynamicPairingRankingForRound, rankingBasisLabel),
+                             court allocation (allocatePlayersToCourts,
+                             applyCourtMovementLimit), balanced partnerships
+                             (createBalancedPartnerships, scorePartnershipOption), the
+                             round-generation/scoring entry points
+                             (generateDynamicPairingRoundForEntrants,
+                             generateInitialGradingRoundsForEntrants,
+                             regenerateUpcomingRankingRoundsForEntrants,
                              processDynamicPairingScore, lockCompletedRound), and the
                              derived status/label helpers (isAwaitingSkillReview,
                              playedDynamicPairingRounds, roundStatusLabel,

@@ -24,7 +24,8 @@ export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairin
         <h2>{settings.sessionName.trim() || 'Dynamic Pairing Social Session'}</h2>
         <p className="hint">
           {settings.numberOfCourts} court{settings.numberOfCourts === 1 ? '' : 's'} · {settings.gradingRounds}{' '}
-          grading round{settings.gradingRounds === 1 ? '' : 's'} ·{' '}
+          grading round{settings.gradingRounds === 1 ? '' : 's'} · Ranking lag: {settings.rankingLagRounds}{' '}
+          round{settings.rankingLagRounds === 1 ? '' : 's'} ·{' '}
           {settings.gameFormat === 'timed'
             ? `${gameFormatLabel('timed')}${settings.gameDurationMinutes ? ` (${settings.gameDurationMinutes} min)` : ''}`
             : `${gameFormatLabel('first-to-score')}${settings.winningScore ? ` (to ${settings.winningScore})` : ''}`}{' '}
