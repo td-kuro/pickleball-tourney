@@ -25,13 +25,26 @@
 //   cycle generation until explicitly set back to 'available'. Distinct
 //   labels for the organiser's benefit (why they're out); behaviourally
 //   identical — all three are simply "not available", same as 'late'.
+// - 'new-joiner': a player added mid-session (see addPlayerMidSession in
+//   usePlayers.ts) who hasn't reached their `effectiveFromRound` yet —
+//   excluded from round/cycle generation exactly like 'unavailable' (see
+//   isPlayerAvailableForScheduling), except it auto-reverts to 'available'
+//   the moment a round/cycle numbered >= effectiveFromRound becomes current
+//   (see activateDueNewJoiners in utils/tournament.ts), the same
+//   "system-driven, not organiser-driven" auto-revert pattern
+//   'resting-this-round' uses. Distinct from plain 'unavailable' so the UI
+//   can badge them "New" rather than implying something is wrong. A
+//   mid-session addition that should play *immediately* (current round is
+//   safe to fold them into) skips this status entirely and is set straight
+//   to 'available' — see the "Current round join" flow.
 export type PlayerAvailabilityStatus =
   | 'available'
   | 'resting-this-round'
   | 'late'
   | 'left-early'
   | 'injured'
-  | 'unavailable';
+  | 'unavailable'
+  | 'new-joiner';
 
 export interface Player {
   id: string;
@@ -39,9 +52,11 @@ export interface Player {
   // Optional: a player can be added without a rating ("Unrated"). Used for
   // leaderboard sort tie-breaking only when present.
   rating?: number;
-  // Dynamic Pairing Social only: an organiser-assigned starting rank (1 =
-  // strongest), used only as a ranking tiebreaker — grading rounds are
-  // randomized regardless of seed (see generateDynamicPairingRound).
+  // An organiser-assigned starting rank (1 = strongest). Originally a
+  // Dynamic Pairing Social-only field (still its main consumer — see
+  // generateDynamicPairingRound), but the mid-session Add Player flow
+  // offers it for every mode now, so it's read generically here; modes
+  // that don't rank by seed simply never read it, same as skillLevel below.
   startingSeed?: number;
   // Dynamic Pairing Social only: an organiser-assigned rank (1 = strongest)
   // set *after* grading rounds finish, once the organiser has actually seen
@@ -51,6 +66,26 @@ export interface Player {
   skillLevel?: number;
   // Mid-session availability — see PlayerAvailabilityStatus above.
   availabilityStatus?: PlayerAvailabilityStatus;
+  // --- Mid-session addition metadata (see usePlayers.addPlayerMidSession) —
+  // all absent for every player added the normal way (Setup-time roster
+  // entry), so existing rosters/localStorage need no migration.
+  // Freeform organiser note (e.g. "sub for Alex", "showed up late") —
+  // display-only, never read by any scheduling/ranking logic.
+  note?: string;
+  // The round/cycle number that was current at the moment this player was
+  // added — an audit fact, distinct from effectiveFromRound below (when
+  // they were added vs. when they actually become schedulable).
+  addedAtRound?: number;
+  // The first round/cycle number this player is schedulable from. Only
+  // meaningful while availabilityStatus is 'new-joiner' — see
+  // activateDueNewJoiners. Absent for a player added straight into
+  // 'available' (joined the current round immediately) or 'unavailable'
+  // (organiser will flip them available manually, whenever that is).
+  effectiveFromRound?: number;
+  // True for any player added via the mid-session Add Player flow, for the
+  // rest of the session — a permanent audit marker, unlike availabilityStatus
+  // (which changes) or effectiveFromRound (only meaningful until reached).
+  addedMidSession?: boolean;
 }
 
 // One mid-session change worth surfacing back to the organiser — a light,
@@ -67,7 +102,8 @@ export type SessionAdjustmentType =
   | 'player-swapped'
   | 'court-count-changed'
   | 'future-rounds-regenerated'
-  | 'team-split';
+  | 'team-split'
+  | 'player-added-mid-session';
 
 export interface SessionAdjustment {
   id: string;
@@ -81,6 +117,42 @@ export interface SessionAdjustment {
   newValue?: string;
   timestamp: number;
   note?: string;
+  // 'player-added-mid-session' only: the round/cycle number the added
+  // player actually becomes schedulable from — see Player.effectiveFromRound.
+  // Absent when they joined the current round immediately (nothing to wait
+  // for).
+  effectiveFromRound?: number;
+}
+
+// The organiser's requested timing for a mid-session Add Player action —
+// see AddPlayerMidSessionModal and each mode's own addPlayerMidSession-style
+// orchestration function. 'current': join the active round/cycle right now
+// if it's safe (see canRegenerateRoundInPlace in utils/tournament.ts) —
+// falls back to 'next' when it isn't. 'next' (the default): become
+// schedulable from the round/cycle after whichever is current. 'unavailable':
+// added to the roster but excluded from scheduling until the organiser
+// explicitly makes them available later.
+export type MidSessionJoinTiming = 'current' | 'next' | 'unavailable';
+
+// Common result shape every mode's addPlayerMidSession-style function
+// returns, so AddPlayerMidSessionModal can show the right confirmation
+// message (see section 12's example copy) without knowing which mode it's
+// talking to.
+export interface AddPlayerMidSessionResult {
+  ok: boolean;
+  // Set when ok is false (a hard failure — e.g. late joiners disabled), or
+  // set alongside ok: true when the requested timing wasn't honoured
+  // exactly (e.g. "Join current round" fell back to next round because the
+  // current round already had a score entered).
+  reason?: string;
+  // True if the new player is actually playing or resting in the round/
+  // cycle that's live right now.
+  joinedCurrentRound?: boolean;
+  // Only meaningful alongside joinedCurrentRound: true — they joined the
+  // current round's bye/resting list rather than an active court.
+  restingInCurrentRound?: boolean;
+  // Set when they're waiting for a future round/cycle instead.
+  effectiveFromRound?: number;
 }
 
 export type MatchType = 'singles' | 'doubles';
@@ -242,6 +314,13 @@ export interface TournamentSettings {
   // rationale as socialScoringMode above) so components don't need an
   // optional check. See SocialFormat.
   socialFormat: SocialFormat;
+  // Tournament Mode + Leaderboard format only — ignored elsewhere, same
+  // rationale as socialScoringMode above. Gates the mid-session Add Player
+  // action for that one format (see canAddLateJoiner in utils/tournament.ts);
+  // Standard Social Play and every other Social format always allow it, so
+  // they don't need a setting for it. Default true — casual leaderboard
+  // tournaments generally want to let stragglers join in.
+  allowLateJoiners: boolean;
 }
 
 // A fixed competitor for the whole tournament/session (unlike the ad-hoc

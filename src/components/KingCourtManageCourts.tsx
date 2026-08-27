@@ -1,10 +1,19 @@
 import { useState } from 'react';
-import type { KingCourtCycle, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
+import type {
+  AddPlayerMidSessionResult,
+  KingCourtCycle,
+  KingCourtPlayerAssignment,
+  MidSessionJoinTiming,
+  Player,
+  PlayerAvailabilityStatus,
+  SessionAdjustment,
+} from '../types';
 // canIncreaseCourts is pure arithmetic, no Player/Round coupling — see
 // DynamicPairingRestingPlayers' identical import for why sharing just this
 // one function doesn't pull Standard Social Play state into King Court.
 import { availabilityStatusLabel, canIncreaseCourts, isPlayerAvailableForScheduling } from '../utils/tournament';
 import { availableSubstitutes, playerHasRemainingGamesOnCourt } from '../utils/kingCourt';
+import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
 import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 
@@ -15,9 +24,15 @@ interface KingCourtManageCourtsProps {
   currentCycle: KingCourtCycle;
   numberOfCourts: number;
   sessionAdjustments: SessionAdjustment[];
+  // Staged placements for whichever waiting player(s) the organiser has
+  // already seated onto a court for the *next* cycle — see
+  // useKingCourt.assignPlayerToCourt's second-life comment.
+  nextCycleStaging: KingCourtPlayerAssignment[];
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
   onChangeCourts: (newCourts: number) => void;
+  onStageForNextCycle: (playerId: string, courtNumber: number | null) => void;
+  onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
   confirmError: string | null;
 }
 
@@ -38,9 +53,12 @@ export function KingCourtManageCourts({
   currentCycle,
   numberOfCourts,
   sessionAdjustments,
+  nextCycleStaging,
   onSetAvailability,
   onSubstitute,
   onChangeCourts,
+  onStageForNextCycle,
+  onAddPlayerMidSession,
   confirmError,
 }: KingCourtManageCourtsProps) {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
@@ -87,12 +105,18 @@ export function KingCourtManageCourts({
     <>
       {confirmError && <p className="hint error">{confirmError}</p>}
 
-      {lastNotice && (lastNotice.type === 'player-swapped' || lastNotice.type === 'court-count-changed') && !noticeDismissed && (
+      {lastNotice &&
+        (lastNotice.type === 'player-swapped' ||
+          lastNotice.type === 'court-count-changed' ||
+          lastNotice.type === 'player-added-mid-session') &&
+        !noticeDismissed && (
         <div className="session-adjustment-notice">
           <span className="hint">
             {lastNotice.type === 'player-swapped'
               ? 'A player substitution was made this cycle.'
-              : `Court count changed to ${lastNotice.newValue} — takes effect at the next cycle boundary.`}
+              : lastNotice.type === 'player-added-mid-session'
+                ? (lastNotice.note ?? 'A player was added mid-session.')
+                : `Court count changed to ${lastNotice.newValue} — takes effect at the next cycle boundary.`}
           </span>
           <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
             Dismiss
@@ -131,6 +155,24 @@ export function KingCourtManageCourts({
         )}
 
         <SubstituteForm cycle={currentCycle} nameById={nameById} substitutes={substitutes} onSubstitute={onSubstitute} />
+
+        <StageForNextCycleForm
+          numberOfCourts={numberOfCourts}
+          waitingPlayers={substitutes.filter((p) => !nextCycleStaging.some((a) => a.playerId === p.id))}
+          staged={nextCycleStaging}
+          nameById={nameById}
+          onStage={onStageForNextCycle}
+        />
+
+        <div className="form-row">
+          <span>Add Player Mid-Session</span>
+          <p className="hint">
+            A new player joins as a waiting substitute right away (see "Substitute a Player This Cycle" above), or can be
+            staged onto a court for the next cycle below. King Court never folds a new player into the *current* cycle's
+            already-generated 5-game rotation automatically — see README's "King Court is the most manual of the three".
+          </p>
+          <AddPlayerMidSessionButton onAdd={onAddPlayerMidSession} offerCurrentRoundJoin={false} unitLabel="cycle" />
+        </div>
       </section>
 
       <PlayerAvailabilityControls players={players} onSetStatus={onSetAvailability} statusLabel={availabilityStatusLabel} />
@@ -209,6 +251,84 @@ function SubstituteForm({ cycle, nameById, substitutes, onSubstitute }: Substitu
           <div className="form-actions">
             <button type="button" className="secondary" onClick={handleSubstitute}>
               Substitute
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+interface StageForNextCycleFormProps {
+  numberOfCourts: number;
+  waitingPlayers: Player[];
+  staged: KingCourtPlayerAssignment[];
+  nameById: Map<string, string>;
+  onStage: (playerId: string, courtNumber: number | null) => void;
+}
+
+// "Add Waiting Player to Next Cycle" — seats a waiting player (see
+// availableSubstitutes) onto a specific court for whenever the *next*
+// cycle starts, rather than substituting them into the current one. Real
+// capacity is only fully validated at confirm time (a new/short court's
+// true next-cycle headcount also depends on the movement preview, which
+// this form can't see) — see confirmMovementAndAdvance and
+// validateNextCycleAssignments, whose error surfaces above this section
+// if the placement doesn't work out.
+function StageForNextCycleForm({ numberOfCourts, waitingPlayers, staged, nameById, onStage }: StageForNextCycleFormProps) {
+  const courtNumbers = Array.from({ length: numberOfCourts }, (_, i) => i + 1);
+  const [playerId, setPlayerId] = useState(waitingPlayers[0]?.id ?? '');
+  const [courtNumber, setCourtNumber] = useState(courtNumbers[0] ?? 1);
+
+  function handleStage() {
+    if (!playerId) return;
+    onStage(playerId, courtNumber);
+  }
+
+  return (
+    <div className="form-row">
+      <span>Add Waiting Player to Next Cycle</span>
+      {staged.length > 0 && (
+        <ul className="bye-list">
+          {staged.map((assignment) => (
+            <li key={assignment.playerId} className="bye-chip">
+              {nameById.get(assignment.playerId) ?? 'Unknown player'} → Court {assignment.courtNumber}{' '}
+              <button type="button" className="secondary" onClick={() => onStage(assignment.playerId, null)}>
+                Remove
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {waitingPlayers.length === 0 ? (
+        <p className="hint">No waiting players to place right now.</p>
+      ) : (
+        <>
+          <div className="timing-grid">
+            <label className="timing-field">
+              Waiting player
+              <select value={playerId} onChange={(event) => setPlayerId(event.target.value)}>
+                {waitingPlayers.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="timing-field">
+              Court (next cycle)
+              <select value={courtNumber} onChange={(event) => setCourtNumber(Number(event.target.value))}>
+                {courtNumbers.map((court) => (
+                  <option key={court} value={court}>
+                    Court {court}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="secondary" onClick={handleStage}>
+              Stage for Next Cycle
             </button>
           </div>
         </>

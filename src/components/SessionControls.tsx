@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import type { Player, PlayerAvailabilityStatus, Round, SessionAdjustment, Team } from '../types';
+import type { AddPlayerMidSessionResult, MidSessionJoinTiming, Player, PlayerAvailabilityStatus, Round, SessionAdjustment, Team } from '../types';
 import { availabilityStatusLabel, canIncreaseCourts, countAvailableForScheduling, isFixedTeamSide } from '../utils/tournament';
+import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
 import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
@@ -22,6 +23,7 @@ interface SessionControlsProps {
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onChangeCourts: (newCourts: number, regenerateCurrent: boolean) => void;
   onSwap: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
+  onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
 }
 
 // Organiser control area for a live Standard Social Play session — see
@@ -42,6 +44,7 @@ export function SessionControls({
   onSetAvailability,
   onChangeCourts,
   onSwap,
+  onAddPlayerMidSession,
 }: SessionControlsProps) {
   const [pendingCourts, setPendingCourts] = useState(courts);
   const [swapOpen, setSwapOpen] = useState(false);
@@ -95,9 +98,12 @@ export function SessionControls({
 
   return (
     <>
-      {lastNotice?.type === 'future-rounds-regenerated' && !noticeDismissed && (
+      {(lastNotice?.type === 'future-rounds-regenerated' || lastNotice?.type === 'player-added-mid-session') &&
+        !noticeDismissed && (
         <div className="session-adjustment-notice">
-          <span className="hint">Future rounds were regenerated due to player/court changes.</span>
+          <span className="hint">
+            {lastNotice.note ?? 'Future rounds were regenerated due to player/court changes.'}
+          </span>
           <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
             Dismiss
           </button>
@@ -142,6 +148,7 @@ export function SessionControls({
           <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>
             Swap Active Player with Bye Player
           </button>
+          <AddPlayerMidSessionButton onAdd={onAddPlayerMidSession} offerCurrentRoundJoin={!!currentRound} />
         </div>
       </section>
 

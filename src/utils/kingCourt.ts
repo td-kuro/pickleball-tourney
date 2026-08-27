@@ -15,7 +15,7 @@ import type {
   Player,
   RoundStatus,
 } from '../types';
-import { isPlayerAvailableForScheduling } from './tournament';
+import { isPlayerEligibleForSwap } from './tournament';
 
 // --- The fixed 5-game rotation --------------------------------------------
 //
@@ -443,9 +443,14 @@ export function playerHasRemainingGamesOnCourt(cycle: KingCourtCycle, courtNumbe
 // "waiting" player only exists if the roster has more people than the
 // courts currently seat. Matches the spec's own fallback: "if no
 // replacement exists, organiser must manually resolve."
+// isPlayerEligibleForSwap (not isPlayerAvailableForScheduling) deliberately
+// — a mid-session-added 'new-joiner' waiting for a future cycle is still a
+// valid substitute *right now*, since substituting them in is an explicit
+// organiser action, not automatic cycle generation. See that function's
+// comment in utils/tournament.ts.
 export function availableSubstitutes(players: Player[], cycle: KingCourtCycle): Player[] {
   const onCourtIds = new Set(cycle.courts.flatMap((c) => c.playerIds));
-  return players.filter((p) => !onCourtIds.has(p.id) && isPlayerAvailableForScheduling(p));
+  return players.filter((p) => !onCourtIds.has(p.id) && isPlayerEligibleForSwap(p));
 }
 
 // Manual, explicit substitution within the *current* cycle only — replaces

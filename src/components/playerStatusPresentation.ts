@@ -11,6 +11,7 @@ export const STATUS_BADGE_CLASS: Record<PlayerAvailabilityStatus, string> = {
   'left-early': 'status-badge status-badge-danger',
   injured: 'status-badge status-badge-danger',
   unavailable: 'status-badge',
+  'new-joiner': 'status-badge status-badge-new',
 };
 
 export const DESTRUCTIVE_CONFIRMATIONS: Partial<Record<PlayerAvailabilityStatus, (name: string) => string>> = {

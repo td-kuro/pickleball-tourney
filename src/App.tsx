@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
-import type { PlayerAvailabilityStatus } from './types';
+import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerAvailabilityStatus } from './types';
+import { AddPlayerMidSessionButton } from './components/AddPlayerMidSessionModal';
 import { CourtSeeding } from './components/CourtSeeding';
 import { DynamicPairingRankings } from './components/DynamicPairingRankings';
 import { DynamicPairingRestingPlayers } from './components/DynamicPairingRestingPlayers';
@@ -37,7 +38,14 @@ import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
-import { canGenerateRound, playersNeededPerMatch, revertRestingPlayers } from './utils/tournament';
+import {
+  activateDueNewJoiners,
+  canAddLateJoiner,
+  canGenerateRound,
+  canRegenerateRoundInPlace,
+  playersNeededPerMatch,
+  revertRestingPlayers,
+} from './utils/tournament';
 
 type View =
   | 'setup'
@@ -65,6 +73,7 @@ function App() {
     addPlayersBulk,
     setPlayersBulk,
     addExistingPlayers,
+    addPlayerMidSession,
     updatePlayer,
     setAvailabilityStatus,
     removePlayer,
@@ -105,6 +114,7 @@ function App() {
     sessionAdjustments,
     regenerateFutureRounds,
     regenerateCurrentRound,
+    recordPlayerAddedMidSession,
     changeCourtCount,
     swapPlayerInCurrentRound,
   } = useTournament();
@@ -274,6 +284,103 @@ function App() {
 
   function handleSwapPlayer(activePlayerId: string, byePlayerId: string) {
     return swapPlayerInCurrentRound(activePlayerId, byePlayerId, teams);
+  }
+
+  // "Add Player Mid-Session" for Standard Social Play + Tournament
+  // Leaderboard (the two formats sharing useTournament/usePlayers — see
+  // README's "Mid-session player additions"). `players` in this closure is
+  // this render's snapshot; the newly created player is appended to a local
+  // copy rather than re-read from state, same pattern handleSetPlayerAvailability
+  // already uses, since usePlayers.addPlayerMidSession's setPlayers call
+  // won't be reflected in `players` until the next render.
+  function handleAddPlayerMidSession(
+    fields: { name: string; rating?: number; startingSeed?: number; note?: string },
+    joinTiming: MidSessionJoinTiming,
+  ): AddPlayerMidSessionResult {
+    if (fields.name.trim() === '') return { ok: false, reason: 'Enter a name before adding this player.' };
+    const lateJoinCheck = canAddLateJoiner(settings);
+    if (!lateJoinCheck.ok) return lateJoinCheck;
+
+    const currentRoundEntity = rounds.find((round) => round.status === 'current');
+    const currentRoundNumber = currentRoundEntity?.roundNumber;
+
+    if (joinTiming === 'unavailable') {
+      const player = addPlayerMidSession({ ...fields, availabilityStatus: 'unavailable', addedAtRound: currentRoundNumber });
+      recordPlayerAddedMidSession(player, false, undefined);
+      return { ok: true };
+    }
+
+    if (joinTiming === 'current' && canRegenerateRoundInPlace(currentRoundEntity)) {
+      const player = addPlayerMidSession({ ...fields, availabilityStatus: 'available', addedAtRound: currentRoundNumber });
+      const freshCurrent = regenerateCurrentRound([...players, player], teams, teamPlayers);
+      if (freshCurrent) {
+        const resting = freshCurrent.byePlayerIds.includes(player.id);
+        recordPlayerAddedMidSession(player, true, undefined);
+        return { ok: true, joinedCurrentRound: true, restingInCurrentRound: resting };
+      }
+    }
+
+    const effectiveFromRound = (currentRoundNumber ?? 0) + 1;
+    const player = addPlayerMidSession({
+      ...fields,
+      availabilityStatus: 'new-joiner',
+      addedAtRound: currentRoundNumber,
+      effectiveFromRound,
+    });
+    regenerateFutureRounds([...players, player], teams, teamPlayers);
+    recordPlayerAddedMidSession(player, false, effectiveFromRound);
+    return {
+      ok: true,
+      effectiveFromRound,
+      reason:
+        joinTiming === 'current' ? 'Current round cannot be safely changed. Player will join from the next round.' : undefined,
+    };
+  }
+
+  // "Add Player Mid-Session" for King Court. 'current' is never actually
+  // sent here (KingCourtManageCourts' AddPlayerMidSessionButton is given
+  // offerCurrentRoundJoin={false} — see its own comment on why: the
+  // current cycle's 5-game rotation is never auto-regenerated, only
+  // substituted into, via the separate "Substitute a Player This Cycle"
+  // form), but is still handled the same as 'next' defensively rather than
+  // silently doing nothing if that ever changes.
+  function handleAddPlayerMidSessionKingCourt(
+    fields: { name: string; rating?: number; startingSeed?: number; note?: string },
+    joinTiming: MidSessionJoinTiming,
+  ): AddPlayerMidSessionResult {
+    if (fields.name.trim() === '') return { ok: false, reason: 'Enter a name before adding this player.' };
+    const currentCycleNumber = kingCourt.currentCycle?.cycleNumber;
+
+    if (joinTiming === 'unavailable') {
+      const player = addPlayerMidSession({ ...fields, availabilityStatus: 'unavailable', addedAtRound: currentCycleNumber });
+      kingCourt.recordPlayerAddedMidSession(player, undefined);
+      return { ok: true };
+    }
+
+    const effectiveFromCycle = (currentCycleNumber ?? 0) + 1;
+    const player = addPlayerMidSession({
+      ...fields,
+      availabilityStatus: 'new-joiner',
+      addedAtRound: currentCycleNumber,
+      effectiveFromRound: effectiveFromCycle,
+    });
+    kingCourt.recordPlayerAddedMidSession(player, effectiveFromCycle);
+    return { ok: true, effectiveFromRound: effectiveFromCycle };
+  }
+
+  // "Add Player Mid-Session" for Pools & Knockout — singles only (see
+  // PoolsKnockoutPage's own comment on why Doubles is blocked before this
+  // is ever called). `joinTiming` is accepted for signature compatibility
+  // with the shared modal but unused — Pools & Knockout's pool matches
+  // aren't scheduled into rounds at all (see poolsKnockout.ts), so "current
+  // round vs. next round" doesn't apply; PoolsKnockoutPage passes
+  // showJoinTiming={false} accordingly.
+  function handleAddPlayerMidSessionPoolsKnockout(fields: {
+    name: string;
+    rating?: number;
+  }): AddPlayerMidSessionResult {
+    if (fields.name.trim() === '') return { ok: false, reason: 'Enter a name before adding this player.' };
+    return poolsKnockout.addSinglesTeamMidSession(fields.name, fields.rating, settings);
   }
 
   function handleReset() {
@@ -629,18 +736,27 @@ function App() {
           cycles={kingCourt.cycles}
           currentCycle={kingCourt.currentCycle}
           sessionAdjustments={kingCourt.sessionAdjustments}
+          nextCycleStaging={kingCourt.assignments}
           confirmError={kcConfirmError}
           onSetGameScore={kingCourt.setGameScore}
           onAdvanceGame={kingCourt.advanceGame}
           onSetManualTiebreakOrder={kingCourt.setManualTiebreakOrder}
           onSetManualMovementOverride={kingCourt.setManualMovementOverride}
           onConfirmMovement={() => {
-            const result = kingCourt.confirmMovementAndAdvance(players);
+            // Any mid-session-added 'new-joiner' whose effectiveFromRound
+            // (cycle number) has now arrived becomes 'available' the moment
+            // the next cycle actually starts — see activateDueNewJoiners.
+            const upcomingCycleNumber = (kingCourt.currentCycle?.cycleNumber ?? 0) + 1;
+            const updatedPlayers = activateDueNewJoiners(players, upcomingCycleNumber);
+            if (updatedPlayers !== players) setPlayersBulk(updatedPlayers);
+            const result = kingCourt.confirmMovementAndAdvance(updatedPlayers);
             setKcConfirmError(result.ok ? null : result.reason);
           }}
           onSetAvailability={setAvailabilityStatus}
           onSubstitute={kingCourt.substitutePlayer}
           onChangeCourts={kingCourt.changeCourtsSession}
+          onStageForNextCycle={kingCourt.assignPlayerToCourt}
+          onAddPlayerMidSession={handleAddPlayerMidSessionKingCourt}
         />
       )}
 
@@ -682,6 +798,7 @@ function App() {
           onSetAvailability={dynamicPairing.setAvailabilityStatus}
           onChangeCourts={dynamicPairing.changeCourtCount}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
+          onAddPlayerMidSession={dynamicPairing.addPlayerMidSession}
         />
       )}
 
@@ -733,10 +850,12 @@ function App() {
             pools={poolsKnockout.pools}
             bracket={poolsKnockout.bracket}
             stage={poolsKnockout.stage}
+            matchType={settings.matchType}
             teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
             onSetPoolMatchScore={poolsKnockout.setPoolMatchScore}
             onAdvanceToKnockout={() => poolsKnockout.advanceToKnockout(settings.poolKnockoutSettings.teamsAdvancingPerPool)}
             onSetKnockoutScore={poolsKnockout.setKnockoutMatchScore}
+            onAddPlayerMidSession={handleAddPlayerMidSessionPoolsKnockout}
           />
         ) : (
           <>
@@ -748,13 +867,15 @@ function App() {
               onNextRound={() => {
                 // "This round" is ending — resting-this-round players are
                 // available again starting now (see revertRestingPlayers'
-                // file comment). Computed and applied before generating so
-                // the new round's scheduling sees it immediately, not one
-                // round late. A no-op in Tournament Mode, which never sets
-                // this status.
-                const revertedPlayers = revertRestingPlayers(players);
-                if (revertedPlayers !== players) setPlayersBulk(revertedPlayers);
-                nextRound(revertedPlayers, teams, teamPlayers);
+                // file comment), and any mid-session-added 'new-joiner'
+                // whose effectiveFromRound has now arrived becomes
+                // 'available' too (see activateDueNewJoiners). Computed and
+                // applied before generating so the new round's scheduling
+                // sees both immediately, not one round late.
+                const upcomingRoundNumber = (rounds.find((round) => round.status === 'current')?.roundNumber ?? 0) + 1;
+                const updatedPlayers = activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber);
+                if (updatedPlayers !== players) setPlayersBulk(updatedPlayers);
+                nextRound(updatedPlayers, teams, teamPlayers);
               }}
               onFinishSession={handleFinishSession}
               onSetScore={setMatchScore}
@@ -774,7 +895,26 @@ function App() {
                 onSetAvailability={handleSetPlayerAvailability}
                 onChangeCourts={handleChangeCourts}
                 onSwap={handleSwapPlayer}
+                onAddPlayerMidSession={handleAddPlayerMidSession}
               />
+            )}
+            {/* Tournament Leaderboard: deliberately just the one action
+                (not the full Session Controls — availability/swap/court
+                changes were never wired up for Tournament Mode and stay
+                out of scope here) — see canAddLateJoiner for the "Allow
+                late joiners" gate. */}
+            {settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && (
+              <section className="card">
+                <h2>Session Controls</h2>
+                {!settings.allowLateJoiners ? (
+                  <p className="hint error">Late joiners are disabled for this tournament.</p>
+                ) : (
+                  <AddPlayerMidSessionButton
+                    onAdd={handleAddPlayerMidSession}
+                    offerCurrentRoundJoin={!!rounds.find((round) => round.status === 'current')}
+                  />
+                )}
+              </section>
             )}
           </>
         ))}

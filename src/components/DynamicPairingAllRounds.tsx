@@ -37,6 +37,11 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
     return ids.map((id) => playerNameById.get(id) ?? 'Unknown player').join(', ');
   }
 
+  // Mid-session Add Player: see AllRoundsView's identical helper.
+  function joiningPlayerNames(roundNumber: number): string[] {
+    return players.filter((p) => p.effectiveFromRound === roundNumber).map((p) => p.name);
+  }
+
   // A side counts as a fixed team when it's backed by exactly one entrant
   // (see entrantIdsForSide) — two players sharing one entrant id, as
   // opposed to two individuals temporarily paired up.
@@ -97,6 +102,11 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                   Rotation note: {round.rotationNote ?? 'No repeat opponents.'}
                 </p>
               )}
+              {joiningPlayerNames(round.roundNumber).map((name) => (
+                <p key={name} className="all-rounds-byes">
+                  Note: {name} joins from this round
+                </p>
+              ))}
             </div>
           ))}
       </div>

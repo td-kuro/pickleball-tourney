@@ -42,7 +42,15 @@ export function Leaderboard({ players, rounds }: LeaderboardProps) {
             {rows.map(({ player, stats, rank }) => (
               <tr key={player.id} className={rank === 1 ? 'leaderboard-top' : undefined}>
                 <td>{rank}</td>
-                <td>{player.name}</td>
+                <td>
+                  {player.name}
+                  {player.addedMidSession && stats.matchesPlayed === 0 && (
+                    <span className="status-badge status-badge-new" title="Added mid-tournament — no completed stats yet">
+                      {' '}
+                      New
+                    </span>
+                  )}
+                </td>
                 <td>{player.rating != null ? player.rating : <span className="unrated">Unrated</span>}</td>
                 <td>{stats.pointsFor}</td>
                 <td>{stats.pointsAgainst}</td>

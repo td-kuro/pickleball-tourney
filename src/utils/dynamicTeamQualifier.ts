@@ -21,6 +21,7 @@
 import type {
   DynamicTeam,
   DynamicTeamQualifierSettings,
+  DynamicTeamQualifierStage,
   MedalBracket,
   MedalBracketMatch,
   MedalBracketMatchLabel,
@@ -722,6 +723,31 @@ export type StartQualifyingResult =
 // front, and generates Round 1's pairings immediately (Rounds 2+ stay
 // 'upcoming' with just their resting teams known, since their pairings
 // depend on results that don't exist yet).
+// --- Mid-session team additions -------------------------------------------
+// See README's "Mid-session player and court changes". Dynamic Team
+// Qualifier is deliberately the most restrictive mode here — its entire
+// rest schedule (generateRestSchedule, above) is generated once, up front,
+// for a fixed roster size/qualifyingRounds/numberOfCourts, and every
+// qualifying round's pairing depends on that schedule staying exactly as
+// generated (see generateQualifyingPairings). Splicing in a team after the
+// fact would need the whole schedule regenerated — which would silently
+// invalidate every rest assignment already relied on for rounds played so
+// far. No such regeneration is implemented; this only ever validates and
+// explains why, per the design brief's explicit instruction not to force
+// unsafe late joining here. Before qualifying starts (stage === 'setup'),
+// adding a team needs no special handling at all — it's just the normal
+// DynamicTeamRoster/addTeamsBulk flow.
+export function canAddTeamMidSession(stage: DynamicTeamQualifierStage): { ok: true } | { ok: false; reason: string } {
+  if (stage !== 'setup') {
+    return {
+      ok: false,
+      reason:
+        'Dynamic Team Qualifier uses a locked team list. Late joining is not supported after qualifying starts unless a director override is implemented.',
+    };
+  }
+  return { ok: true };
+}
+
 export function lockRosterAndStartQualifying(
   teams: DynamicTeam[],
   settings: DynamicTeamQualifierSettings,

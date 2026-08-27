@@ -39,6 +39,14 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
   const fixedTeamNameByKey = new Map(teams.map((team) => [teamKey(team.playerIds), team.name]));
   const showScoring = isScoringEnabled(settings);
 
+  // Mid-session Add Player: the round a 'new-joiner' becomes eligible from
+  // — see Player.effectiveFromRound — is worth calling out here even
+  // though it's an 'upcoming' round like any other, since the organiser
+  // should see *why* a name that wasn't there before now is.
+  function joiningPlayerNames(roundNumber: number): string[] {
+    return players.filter((p) => p.effectiveFromRound === roundNumber).map((p) => p.name);
+  }
+
   function teamLabel(playerIds: string[]) {
     const fixedName = playerIds.length === 2 ? fixedTeamNameByKey.get(teamKey(playerIds)) : undefined;
     if (fixedName) return `${fixedName} (Fixed Team)`;
@@ -96,6 +104,11 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
             <p className="all-rounds-byes">
               {round.byePlayerIds.length > 0 ? `Bye: ${byeLabel(round.byePlayerIds)}` : 'Everyone played this round.'}
             </p>
+            {joiningPlayerNames(round.roundNumber).map((name) => (
+              <p key={name} className="all-rounds-byes">
+                Note: {name} joins from this round
+              </p>
+            ))}
           </div>
         ))}
       </div>

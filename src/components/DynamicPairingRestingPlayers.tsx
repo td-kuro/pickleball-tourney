@@ -1,5 +1,13 @@
 import { useState } from 'react';
-import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
+import type {
+  AddPlayerMidSessionResult,
+  DynamicPairingRound,
+  DynamicPairingTeam,
+  MidSessionJoinTiming,
+  Player,
+  PlayerAvailabilityStatus,
+  SessionAdjustment,
+} from '../types';
 import {
   calculateDynamicPairingStats,
   dynamicPairingAvailabilityLabel,
@@ -13,6 +21,7 @@ import {
 // see utils/tournament.ts's file comment on why this one function is
 // shared rather than duplicated.
 import { canIncreaseCourts } from '../utils/tournament';
+import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
 import { CourtSelector } from './CourtSelector';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
@@ -29,6 +38,7 @@ interface DynamicPairingRestingPlayersProps {
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onChangeCourts: (newCourts: number) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
+  onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
 }
 
 // Rest fairness at a glance — see selectRestingPlayers in
@@ -53,6 +63,7 @@ export function DynamicPairingRestingPlayers({
   onSetAvailability,
   onChangeCourts,
   onSwap,
+  onAddPlayerMidSession,
 }: DynamicPairingRestingPlayersProps) {
   const [pendingCourts, setPendingCourts] = useState(numberOfCourts);
   const [swapOpen, setSwapOpen] = useState(false);
@@ -120,7 +131,8 @@ export function DynamicPairingRestingPlayers({
 
   return (
     <>
-      {lastNotice?.type === 'future-rounds-regenerated' && !noticeDismissed && (
+      {(lastNotice?.type === 'future-rounds-regenerated' || lastNotice?.type === 'player-added-mid-session') &&
+        !noticeDismissed && (
         <div className="session-adjustment-notice">
           <span className="hint">{lastNotice.note ?? 'Future rounds were regenerated due to player/court changes.'}</span>
           <button type="button" className="secondary" onClick={() => setNoticeDismissed(true)}>
@@ -153,6 +165,11 @@ export function DynamicPairingRestingPlayers({
           <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>
             Swap Active Player with Resting Player
           </button>
+          <AddPlayerMidSessionButton
+            onAdd={onAddPlayerMidSession}
+            offerCurrentRoundJoin={!!currentRound}
+            restingListLabel="resting list"
+          />
         </div>
       </section>
 

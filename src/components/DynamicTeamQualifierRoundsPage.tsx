@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { DynamicTeam, DynamicTeamQualifierStage, MedalBracket, QualifyingRound, RestAssignment } from '../types';
+import { canAddTeamMidSession } from '../utils/dynamicTeamQualifier';
 import { DynamicTeamQualifierAllRounds } from './DynamicTeamQualifierAllRounds';
 import { DynamicTeamQualifierCurrentRound } from './DynamicTeamQualifierCurrentRound';
 
@@ -33,9 +34,22 @@ export function DynamicTeamQualifierRoundsPage({
   onGenerateMedalBracket,
 }: DynamicTeamQualifierRoundsPageProps) {
   const [subView, setSubView] = useState<RoundsSubView>('current');
+  // Always false here — this page only ever renders once qualifying has
+  // started (see App.tsx), so canAddTeamMidSession's stage check always
+  // fails; surfaced anyway so the "why" is visible without the organiser
+  // having to go looking for a disabled action that doesn't exist yet. See
+  // that function's comment for why no add-mid-qualifying flow is built.
+  const addTeamCheck = canAddTeamMidSession(stage);
 
   return (
     <>
+      {!addTeamCheck.ok && (
+        <section className="card">
+          <h2>Session Controls</h2>
+          <p className="hint error">{addTeamCheck.reason}</p>
+        </section>
+      )}
+
       <div className="rounds-subnav">
         <div className="toggle-group rounds-toggle" role="group" aria-label="Rounds view">
           <button type="button" className={subView === 'current' ? 'toggle-option active' : 'toggle-option'} onClick={() => setSubView('current')}>

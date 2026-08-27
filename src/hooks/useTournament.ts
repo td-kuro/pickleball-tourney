@@ -3,6 +3,7 @@ import { generateLeaderboardRound } from '../utils/pairing';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
 import {
   calculateSessionPlan,
+  canRegenerateRoundInPlace,
   canSwapPlayerInRound,
   DEFAULT_SESSION_TIMING,
   filterSchedulableRoster,
@@ -31,6 +32,7 @@ const defaultSettings: TournamentSettings = {
   poolKnockoutSettings: DEFAULT_POOL_KNOCKOUT_SETTINGS,
   pairingStyle: 'balanced',
   socialFormat: 'standard-social',
+  allowLateJoiners: true,
 };
 
 // Backfills `status` for rounds saved by a version of the app from before
@@ -61,6 +63,7 @@ export function useTournament() {
     poolKnockoutSettings: storedSettings.poolKnockoutSettings ?? DEFAULT_POOL_KNOCKOUT_SETTINGS,
     pairingStyle: storedSettings.pairingStyle ?? 'balanced',
     socialFormat: storedSettings.socialFormat ?? 'standard-social',
+    allowLateJoiners: storedSettings.allowLateJoiners ?? true,
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
@@ -101,7 +104,10 @@ export function useTournament() {
   ): Round {
     const pairingStyle =
       withSettings.playMode === 'tournament' && withSettings.tournamentFormat === 'leaderboard' ? withSettings.pairingStyle : 'balanced';
-    const { availablePlayers, availableTeams, availableTeamPlayers } = filterSchedulableRoster(players, teams, teamPlayers);
+    // roundNumber threaded through so a mid-session-added player's
+    // effectiveFromRound is honoured exactly at (and after) that round —
+    // see isPlayerAvailableForScheduling.
+    const { availablePlayers, availableTeams, availableTeamPlayers } = filterSchedulableRoster(players, teams, teamPlayers, roundNumber);
     return generateLeaderboardRound(
       availablePlayers,
       availableTeams,
@@ -222,18 +228,26 @@ export function useTournament() {
     );
   }
 
-  // --- Mid-session player/court changes (Social Play only in practice) ----
+  // --- Mid-session player/court changes ------------------------------------
   // See README's "Mid-session player and court changes" for the full
   // behaviour writeup. Only ever regenerates rounds still 'upcoming' —
   // 'completed' and 'current' rounds are never silently rewritten, matching
   // every other mode's "lock what's already been played" rule.
+  //
+  // Both functions below are natural no-ops in Tournament Mode (there's
+  // never a pre-generated 'upcoming' tail there — see nextRound/startSession
+  // — so `upcomingCount` is always 0), rather than being gated on
+  // `settings.playMode === 'social'` explicitly as earlier versions did —
+  // removing that gate is what lets regenerateCurrentRound also serve
+  // Tournament Leaderboard's "Join current round" mid-session-add path (see
+  // canRegenerateRoundInPlace in utils/tournament.ts), which needs no
+  // upcoming-tail concept at all.
 
   // Regenerates every 'upcoming' round (keeping 'completed'/'current'
-  // exactly as they are) — called after a player's availability changes or
-  // the court count changes, so future rounds actually reflect the new
-  // state.
+  // exactly as they are) — called after a player's availability changes,
+  // the court count changes, or a new player is added, so future rounds
+  // actually reflect the new state.
   function regenerateFutureRounds(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
-    if (settings.playMode !== 'social') return;
     const kept = rounds.filter((round) => round.status !== 'upcoming');
     const upcomingCount = rounds.length - kept.length;
     if (upcomingCount === 0) return;
@@ -244,22 +258,45 @@ export function useTournament() {
 
   // Regenerates the *current* round itself (in place — same roundNumber),
   // then the upcoming tail after it — only when the organiser explicitly
-  // asks for it and it hasn't been scored yet. Used when a mid-round change
-  // (a player leaving, a court count change) should apply immediately
-  // rather than from next round.
-  function regenerateCurrentRound(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
-    if (settings.playMode !== 'social') return;
+  // asks for it and it hasn't been scored yet (see canRegenerateRoundInPlace).
+  // Used when a mid-round change (a player leaving, a court count change, a
+  // new player joining) should apply immediately rather than from next
+  // round.
+  // Returns the freshly-rebuilt current round (or null if it refused to run
+  // — no current round, or one already scored) so a caller like the
+  // mid-session Add Player flow can inspect it immediately (e.g. did the
+  // new player end up on the bye list?) without waiting for a re-render.
+  function regenerateCurrentRound(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []): Round | null {
     const currentIndex = rounds.findIndex((round) => round.status === 'current');
-    if (currentIndex === -1) return;
+    if (currentIndex === -1) return null;
     const current = rounds[currentIndex];
-    const hasAnyScore = current.matches.some((match) => match.scoreA != null || match.scoreB != null);
-    if (hasAnyScore) return;
+    if (!canRegenerateRoundInPlace(current)) return null;
 
     const before = rounds.slice(0, currentIndex);
     const freshCurrent = generateRoundWith(settings, players, teams, teamPlayers, current.roundNumber, before, 'current');
     const upcomingCount = rounds.filter((round) => round.status === 'upcoming').length;
     setRounds(buildUpcomingTail(settings, [...before, freshCurrent], upcomingCount, players, teams, teamPlayers));
     logAdjustment('future-rounds-regenerated');
+    return freshCurrent;
+  }
+
+  // Records a mid-session Add Player action in the adjustment log — called
+  // by App.tsx's orchestration right after usePlayers.addPlayerMidSession
+  // and whichever regeneration (current round, or future rounds) applies.
+  // A thin logging-only function (not the add itself — that's
+  // usePlayers.addPlayerMidSession, since `players` is owned by that hook,
+  // not this one) so App.tsx can sequence "add, then regenerate, then log"
+  // in one place per mode without duplicating the note-wording logic here.
+  function recordPlayerAddedMidSession(player: Player, joinedCurrentRound: boolean, effectiveFromRound: number | undefined) {
+    const currentRoundNumber = rounds.find((r) => r.status === 'current')?.roundNumber;
+    logAdjustment('player-added-mid-session', {
+      playerIds: [player.id],
+      roundNumber: currentRoundNumber,
+      effectiveFromRound,
+      note: joinedCurrentRound
+        ? `${player.name} added to the current round.`
+        : `${player.name} added mid-session. Effective from Round ${effectiveFromRound}.`,
+    });
   }
 
   // "Change Courts": updates the court count, then always regenerates the
@@ -337,6 +374,7 @@ export function useTournament() {
     sessionAdjustments,
     regenerateFutureRounds,
     regenerateCurrentRound,
+    recordPlayerAddedMidSession,
     changeCourtCount,
     swapPlayerInCurrentRound,
   };

@@ -17,6 +17,7 @@ import type {
   PoolStanding,
   Team,
   TournamentSettings,
+  TournamentStage,
 } from '../types';
 
 export const DEFAULT_POOL_KNOCKOUT_SETTINGS: PoolKnockoutSettings = {
@@ -205,6 +206,50 @@ export function generatePoolMatches(teamIds: string[], timesEachTeamPlays: numbe
     }
   }
   return matches;
+}
+
+// --- Mid-session team additions ------------------------------------------
+// See README's "Mid-session player and court changes" — Pools & Knockout is
+// deliberately the most restrictive Tournament format here, since its pool
+// schedule and knockout bracket are both structurally fixed once generated
+// (see assignPools/buildKnockoutBracket).
+
+export function canAddTeamMidSession(stage: TournamentStage): { ok: true } | { ok: false; reason: string } {
+  if (stage === 'knockout-stage' || stage === 'complete') {
+    return { ok: false, reason: 'Knockout stage has already started. Late joiners are not supported.' };
+  }
+  return { ok: true };
+}
+
+// Adds `newTeam` to one pool's roster and schedules fresh matches against
+// every team already in that pool (`timesEachTeamPlays` times each) —
+// deliberately additive only: every existing match (played or not) is left
+// exactly as it was, at exactly the court number it already had, so a
+// completed pool match can never be touched by this. This is the whole
+// reason it's a plain append rather than calling generatePoolMatches again
+// from scratch, which would rebuild (and likely renumber) the pool's
+// entire match list.
+export function addTeamToPool(pool: Pool, newTeam: Team, timesEachTeamPlays: number, courts: number): Pool {
+  const newMatches: PoolMatch[] = [];
+  for (let rep = 0; rep < timesEachTeamPlays; rep++) {
+    for (const existingTeamId of pool.teamIds) {
+      newMatches.push({
+        id: makeId('poolmatch'),
+        court: ((pool.matches.length + newMatches.length) % courts) + 1,
+        teamAId: existingTeamId,
+        teamBId: newTeam.id,
+      });
+    }
+  }
+  return { ...pool, teamIds: [...pool.teamIds, newTeam.id], matches: [...pool.matches, ...newMatches] };
+}
+
+// Which pool a mid-session addition defaults into — whichever currently has
+// the fewest teams, so a routine addition doesn't require the organiser to
+// hand-pick a pool; ties break toward the lowest-indexed pool (array
+// order, i.e. "Pool A" before "Pool B").
+export function smallestPool(pools: Pool[]): Pool | undefined {
+  return [...pools].sort((a, b) => a.teamIds.length - b.teamIds.length)[0];
 }
 
 export function isPoolComplete(pool: Pool): boolean {

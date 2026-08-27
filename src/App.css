@@ -891,6 +891,14 @@ button.danger:hover:not(:disabled) {
   color: #c0392b;
 }
 
+/* A mid-session-added player who hasn't reached their effective round yet
+   (or has no completed stats to rank by) — see PlayerActionMenu,
+   playerStatusPresentation.ts, and the Rankings/Leaderboard "New" badge. */
+.status-badge-new {
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+}
+
 .all-rounds-entry-heading {
   display: flex;
   align-items: center;

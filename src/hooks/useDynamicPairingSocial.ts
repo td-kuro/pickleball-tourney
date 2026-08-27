@@ -1,7 +1,9 @@
 import type {
+  AddPlayerMidSessionResult,
   DynamicPairingRound,
   DynamicPairingSettings,
   DynamicPairingTeam,
+  MidSessionJoinTiming,
   Player,
   PlayerAvailabilityStatus,
   SessionAdjustment,
@@ -17,14 +19,16 @@ import {
   isGradingPhaseComplete,
   lockCompletedRound,
   processDynamicPairingScore,
+  regenerateCurrentDynamicPairingRound,
   regenerateUpcomingRankingRoundsForEntrants,
   regenerateUpcomingRoundsForEntrants,
   swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
-// Pure array transform with no round/state coupling, so importing it here
-// doesn't pull Standard Social Play state into this mode — same reasoning
-// DynamicPairingRestingPlayers already applies to canIncreaseCourts.
-import { revertRestingPlayers } from '../utils/tournament';
+// Pure array transforms with no round/state coupling, so importing them
+// here doesn't pull Standard Social Play state into this mode — same
+// reasoning DynamicPairingRestingPlayers already applies to
+// canIncreaseCourts.
+import { activateDueNewJoiners, revertRestingPlayers } from '../utils/tournament';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:dp:settings';
@@ -191,6 +195,81 @@ export function useDynamicPairingSocial() {
     return { ok: true as const };
   }
 
+  // "Add Player Mid-Session" — see AddPlayerMidSessionModal and README's
+  // "Mid-session player additions". Always an individual entrant to start
+  // (never auto-assigned into a fixed team — see the design brief's "only
+  // if it does not break completed history", which the organiser decides
+  // explicitly via Setup's existing Make Team flow, not this one). Neutral
+  // stats need no special handling here — see usePlayers.addPlayerMidSession's
+  // comment on why every stats helper already derives all-zero stats for a
+  // player with no rounds in their history.
+  function addPlayerMidSession(
+    fields: { name: string; rating?: number; startingSeed?: number; note?: string },
+    joinTiming: MidSessionJoinTiming,
+  ): AddPlayerMidSessionResult {
+    if (fields.name.trim() === '') return { ok: false, reason: 'Enter a name before adding this player.' };
+    const currentRoundNumber = currentRound?.roundNumber;
+    const base = {
+      id: makePlayerId(),
+      name: fields.name,
+      rating: fields.rating,
+      startingSeed: fields.startingSeed,
+      note: fields.note,
+      addedAtRound: currentRoundNumber,
+      addedMidSession: true,
+    };
+
+    if (joinTiming === 'unavailable') {
+      const player: Player = { ...base, availabilityStatus: 'unavailable' };
+      setPlayers([...players, player]);
+      logAdjustment('player-added-mid-session', {
+        playerIds: [player.id],
+        roundNumber: currentRoundNumber,
+        note: `${player.name} added mid-session as unavailable.`,
+      });
+      return { ok: true };
+    }
+
+    // "Join current round if possible" — only attempted while a current
+    // round actually exists; falls through to the "next round" path below
+    // when regenerateCurrentDynamicPairingRound refuses (already scored).
+    if (joinTiming === 'current' && currentRound) {
+      const draftPlayer: Player = { ...base, availabilityStatus: 'available' };
+      const draftPlayers = [...players, draftPlayer];
+      const regenerated = regenerateCurrentDynamicPairingRound(draftPlayers, teams, settings, rounds);
+      if (regenerated) {
+        setPlayers(draftPlayers);
+        setRounds(regenerated);
+        const newCurrent = regenerated.find((r) => r.status === 'current');
+        const resting = newCurrent?.restingPlayerIds.includes(draftPlayer.id) ?? false;
+        logAdjustment('player-added-mid-session', {
+          playerIds: [draftPlayer.id],
+          roundNumber: currentRoundNumber,
+          note: `${draftPlayer.name} added to the current round${resting ? "'s bye list" : ''}.`,
+        });
+        return { ok: true, joinedCurrentRound: true, restingInCurrentRound: resting };
+      }
+    }
+
+    const effectiveFromRound = (currentRoundNumber ?? 0) + 1;
+    const player: Player = { ...base, availabilityStatus: 'new-joiner', effectiveFromRound };
+    const updatedPlayers = [...players, player];
+    setPlayers(updatedPlayers);
+    setRounds(regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds));
+    logAdjustment('player-added-mid-session', {
+      playerIds: [player.id],
+      roundNumber: currentRoundNumber,
+      effectiveFromRound,
+      note: `${player.name} added mid-session. Effective from Round ${effectiveFromRound}.`,
+    });
+    return {
+      ok: true,
+      effectiveFromRound,
+      reason:
+        joinTiming === 'current' ? 'Current round cannot be safely changed. Player will join from the next round.' : undefined,
+    };
+  }
+
   // Removing a player who's on a fixed team also dissolves that team (its
   // other member reverts to an individual entrant) — a team can never
   // reference a player id that no longer exists.
@@ -289,11 +368,14 @@ export function useDynamicPairingSocial() {
     // "This round" is ending — resting-this-round players are available
     // again starting now, same as Standard Social Play's nextRound. Every
     // other non-'available' status (late/unavailable/injured/left-early)
-    // is untouched.
-    const revertedPlayers = revertRestingPlayers(players);
-    if (revertedPlayers !== players) setPlayers(revertedPlayers);
+    // is untouched. A mid-session-added 'new-joiner' whose effectiveFromRound
+    // has now arrived becomes 'available' at the same moment — see
+    // activateDueNewJoiners.
+    const upcomingRoundNumber = currentRound.roundNumber + 1;
+    const updatedPlayers = activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber);
+    if (updatedPlayers !== players) setPlayers(updatedPlayers);
 
-    const check = canGenerateDynamicPairingRound(revertedPlayers, settings, currentRound);
+    const check = canGenerateDynamicPairingRound(updatedPlayers, settings, currentRound);
     if (!check.ok) return;
 
     const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
@@ -313,9 +395,9 @@ export function useDynamicPairingSocial() {
     // look-ahead window exists at all.
     const activated: DynamicPairingRound[] = upcoming
       ? locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r))
-      : [...locked, generateDynamicPairingRoundForEntrants(revertedPlayers, teams, settings, locked)];
+      : [...locked, generateDynamicPairingRoundForEntrants(updatedPlayers, teams, settings, locked)];
 
-    const regenerated = regenerateUpcomingRankingRoundsForEntrants(revertedPlayers, teams, settings, activated);
+    const regenerated = regenerateUpcomingRankingRoundsForEntrants(updatedPlayers, teams, settings, activated);
     setRounds(regenerated);
     if (regenerated.some((r) => r.status === 'upcoming')) {
       logAdjustment('future-rounds-regenerated', {
@@ -364,6 +446,7 @@ export function useDynamicPairingSocial() {
     updateSettings,
     players,
     addPlayersBulk,
+    addPlayerMidSession,
     updatePlayer,
     updatePlayerSkillLevel,
     setAvailabilityStatus,

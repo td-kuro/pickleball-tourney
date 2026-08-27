@@ -1,13 +1,20 @@
 import type { KnockoutBracket, Player, Pool, Team, TournamentSettings, TournamentStage } from '../types';
 import {
+  addTeamToPool,
   assignPools,
   buildKnockoutBracket,
+  canAddTeamMidSession,
   formTeams,
   generatePoolMatches,
   isKnockoutComplete,
   recordKnockoutScore,
+  smallestPool,
 } from '../utils/poolsKnockout';
 import { useLocalStorage } from './useLocalStorage';
+
+function makeTeamId(): string {
+  return `pk-team-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+}
 
 const TEAMS_KEY = 'pickleball-tourney:pk:teams';
 const POOLS_KEY = 'pickleball-tourney:pk:pools';
@@ -43,6 +50,37 @@ export function usePoolsKnockout() {
     setPools(newPools);
     setBracket(null);
     setStage('pool-stage');
+  }
+
+  // "Add Player Mid-Session" for Pools & Knockout, singles only — see
+  // README's "Pools & Knockout mid-session additions". Doubles needs a
+  // complete 2-player team, which the shared single-player Add Player
+  // modal can't form on its own; the organiser adds a fixed team from
+  // Setup instead for that case (see App.tsx's handleAddPlayerMidSessionPoolsKnockout,
+  // which returns a clear explanatory reason rather than calling this).
+  // Auto-assigns into whichever pool is currently smallest — see
+  // smallestPool — since there's no pool-picker in the shared modal.
+  function addSinglesTeamMidSession(
+    name: string,
+    rating: number | undefined,
+    settings: TournamentSettings,
+  ): { ok: true } | { ok: false; reason: string } {
+    const check = canAddTeamMidSession(stage);
+    if (!check.ok) return check;
+    if (stage === 'setup') {
+      return { ok: false, reason: 'Pool stage has not started yet — add this player from the Setup screen instead.' };
+    }
+    const pool = smallestPool(pools);
+    if (!pool) return { ok: false, reason: 'No pool exists to add this player to.' };
+
+    const newTeam: Team = { id: makeTeamId(), name, playerIds: [makeTeamId()], rating, isFixedTeam: false };
+    setTeams([...teams, newTeam]);
+    setPools(
+      pools.map((p) =>
+        p.id === pool.id ? addTeamToPool(p, newTeam, settings.poolKnockoutSettings.timesEachTeamPlays, settings.courts) : p,
+      ),
+    );
+    return { ok: true };
   }
 
   function setPoolMatchScore(poolId: string, matchId: string, scoreA: number, scoreB: number) {
@@ -88,6 +126,7 @@ export function usePoolsKnockout() {
     setPoolMatchScore,
     advanceToKnockout,
     setKnockoutMatchScore,
+    addSinglesTeamMidSession,
     resetPoolsKnockout,
   };
 }

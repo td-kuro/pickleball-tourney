@@ -1353,7 +1353,10 @@ early, gets injured, or wants to sit out a round; a court frees up or
 becomes unavailable. All three Social Play modes (**Standard Social
 Play**, **Dynamic Pairing Social**, **5-Player King Court**) let the
 organiser handle this live, without losing a player's completed stats or
-history. Tournament Mode doesn't have this — it's Social Play only.
+history. Tournament Mode doesn't have most of this (availability/swap/
+court-count controls are Social Play only) — except **adding a brand-new
+player mid-tournament**, which Tournament Leaderboard also supports; see
+below.
 
 ### Clicking a player's name in Current Round
 
@@ -1373,7 +1376,10 @@ Controls/availability list further down the page (which still work too).
 ### Player availability
 
 Every player has a status: **Available**, **Resting This Round**,
-**Late**, **Left Early**, **Injured**, or **Unavailable**. Setting
+**Late**, **Left Early**, **Injured**, **Unavailable**, or **New** (a
+mid-session addition waiting for its effective round — see "Adding a
+player mid-session" below; auto-reverts to Available the moment that
+round arrives, same spirit as Resting This Round). Setting
 anything other than Available or Resting This Round excludes that player
 from every future round/cycle generated from that point on — but never
 deletes them, never touches their already-completed stats, and never
@@ -1415,6 +1421,63 @@ change."* Confirm to have the current round reshuffle around the change
 immediately (only offered while it still has no scores); decline and it
 takes effect from the next round instead, same as everywhere else. Future
 **Upcoming** rounds update either way, with the usual notice.
+
+### Adding a player mid-session
+
+**Add Player Mid-Session** (Session Controls / Resting Players / Manage
+Courts & Players — wherever a mode's other mid-session actions already
+live) adds a brand-new player without touching anything already played.
+Enter a name and optionally a rating, seed, and note, then choose **Join
+timing**:
+
+- **Join current round if possible** — folds them into the *live* round
+  right now (a bye/resting slot, or an active court, whichever the normal
+  fair-rotation/pairing logic produces once they're added to the roster)
+  by rebuilding that one round in place. Only actually happens if the
+  current round has no score entered anywhere yet; otherwise this silently
+  falls back to the next option instead, with a message explaining why.
+- **Join from next round** (the default) — becomes schedulable starting
+  from the round after whichever is current. Shows up under **All
+  Rounds** on that round with a *"Note: &lt;name&gt; joins from this
+  round"* callout, and every future **Upcoming** round is rebuilt to
+  include them in fair rotation from there on.
+- **Add as unavailable for now** — added to the roster but excluded from
+  scheduling entirely until the organiser explicitly makes them available
+  later (same as marking any player Unavailable).
+
+**Neutral stats, for free:** every stats/ranking calculation in this app
+(`computePlayerStats`, `computeTeamStats`, `calculateDynamicPairingStats`,
+King Court's `computeKingCourtPlayerStats`, ...) is *derived fresh from
+rounds actually played* rather than stored per-player — see each mode's own
+"single source of truth" comments. A player who's never appeared in a
+round simply has no history to derive from, so they start at zero games/
+wins/losses/points with no separate "neutral stats" bookkeeping needed, and
+nothing can accidentally backdate them into rounds that happened before
+they existed. Rankings/Leaderboard badge them **New** (no completed
+results yet) until they've actually played a game.
+
+**Fair from the start, not held back:** a mid-session addition's bye/rest
+count starts at the same zero every player's does — see "Rest management"
+above — which means the fair-rotation algorithm naturally treats them as
+"most due" for exactly one rest soon after joining, then they're on equal
+footing with everyone else. No separate "starting bye offset" is needed or
+applied.
+
+**A new player never silently rewrites history**: adding one only ever
+touches the current round (and only when explicitly requested and safe —
+see above) and still-**Upcoming** rounds. Completed and locked rounds are
+always untouched, matching every other mid-session change in this section.
+
+#### Per-mode support
+
+| Mode | Join current round | Join from next round | Notes |
+| --- | --- | --- | --- |
+| Standard Social Play | ✅ | ✅ | Full support — the whole session's rounds are pre-generated, so "next round" rebuilds the existing Upcoming tail. |
+| Tournament Leaderboard | ✅ | ✅ | Gated by the **Allow late joiners** setting (Setup → Tournament, default on). Rounds generate one at a time here, so "next round" just means the new player is included the next time you click Next Round. |
+| Dynamic Pairing Social | ✅ | ✅ | Joins as an individual entrant with neutral stats; ranking places them via seed/rating if given, otherwise baseline — never above anyone with real results unless their seed/rating says so. Opponent/partner history starts empty. |
+| 5-Player King Court | Only via **Substitute a Player This Cycle** (a waiting new-joiner is a valid substitute immediately) | ✅ — via **Add Waiting Player to Next Cycle**, which manually seats them onto a specific court before the next cycle starts | The current cycle's 5-game rotation is never auto-regenerated (see "King Court is the most manual of the three" below) — a new player either substitutes in explicitly, or waits. **Move Players & Start Next Cycle** still refuses to proceed unless every resulting court has exactly 5. |
+| Pools & Knockout | — (no "current round" concept — pool matches aren't scheduled into rounds) | ✅ for Singles only, while pool stage is running | Adds a new one-player team, scheduled against every existing team in whichever pool is currently smallest — purely additive, never touches an existing match. Doubles needs a real 2-player team (add a Fixed Team from Setup instead). Blocked once knockout stage starts. |
+| Dynamic Team Qualifier | — | Only before qualifying starts (stage `setup`) — plain team registration, nothing special | The whole rest schedule is generated once, up front, for a fixed team count; splicing a team in afterward would invalidate rest assignments already relied on for rounds played so far. Blocked with a clear message once qualifying has started — no director-override flow is implemented. |
 
 ### Changing the number of courts mid-session
 

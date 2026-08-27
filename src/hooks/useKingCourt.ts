@@ -45,6 +45,22 @@ export function useKingCourt() {
     ]);
   }
 
+  // Records a mid-session Add Player action — see App.tsx's
+  // handleAddPlayerMidSessionKingCourt, which does the actual roster add
+  // (via usePlayers.addPlayerMidSession, since King Court reuses that
+  // roster directly rather than owning its own).
+  function recordPlayerAddedMidSession(player: Player, effectiveFromCycle: number | undefined) {
+    logAdjustment('player-added-mid-session', {
+      playerIds: [player.id],
+      cycleNumber: currentCycle?.cycleNumber ?? undefined,
+      effectiveFromRound: effectiveFromCycle,
+      note:
+        effectiveFromCycle != null
+          ? `${player.name} added mid-session. Effective from Cycle ${effectiveFromCycle}.`
+          : `${player.name} added mid-session as unavailable.`,
+    });
+  }
+
   // Mid-session "Change Courts" — a thin wrapper over the plain
   // setNumberOfCourts setter (still used as-is by pre-session Setup, which
   // shouldn't log a session adjustment) that also records the change. Takes
@@ -60,6 +76,13 @@ export function useKingCourt() {
   }
 
   // --- Seeding (pre-Cycle-1) ----------------------------------------------
+  // `assignments` has a second life once a session is under way: Manage
+  // Courts / Players' "Add Waiting Player to Next Cycle" form calls this
+  // same function to stage a mid-session-added player onto a court for
+  // whenever the next cycle starts — see confirmMovementAndAdvance, which
+  // merges `assignments` into that cycle's real seating and clears it
+  // once consumed. Safe to reuse: nothing else reads `assignments` after
+  // Cycle 1 begins.
 
   // Backstop against a full court even if a caller skips CourtSeeding's own
   // isCourtFull check (which is what actually shows the organiser the
@@ -218,7 +241,18 @@ export function useKingCourt() {
     }
 
     const allMovements = currentCycle.courts.flatMap((court) => court.movementPreview);
-    const nextAssignments = applyCourtMovement(allMovements);
+    const movedAssignments = applyCourtMovement(allMovements);
+    // `assignments` is reused here as a staging area for mid-session-added
+    // "waiting" players the organiser has manually seated onto a court for
+    // the *next* cycle (see assignPlayerToCourt / the Manage Courts screen's
+    // "Add Waiting Player to Next Cycle" form) — the same state CourtSeeding
+    // uses pre-Cycle-1, since nothing else reads it once Cycle 1 starts. A
+    // mover's own entry (if a stale one lingers) never overrides their
+    // computed movement destination.
+    const movedIds = new Set(movedAssignments.map((a) => a.playerId));
+    const manualAdditions = assignments.filter((a) => !movedIds.has(a.playerId));
+    const nextAssignments = [...movedAssignments, ...manualAdditions];
+
     const check = validateNextCycleAssignments(nextAssignments, numberOfCourts);
     if (!check.ok) return check;
 
@@ -227,6 +261,7 @@ export function useKingCourt() {
     const nextCycle = generateNextKingCourtCycle(nextAssignments, players, currentCycle.cycleNumber + 1, partnerHistory);
 
     setCycles([...completed, nextCycle]);
+    setAssignments([]); // consumed — fresh staging area for the next cycle's manual additions
     return { ok: true };
   }
 
@@ -269,6 +304,7 @@ export function useKingCourt() {
     setManualTiebreakOrder,
     setManualMovementOverride,
     confirmMovementAndAdvance,
+    recordPlayerAddedMidSession,
     resetKingCourt,
   };
 }

@@ -1,5 +1,14 @@
 import { useState } from 'react';
-import type { KingCourtCycle, Player, PlayerAvailabilityStatus, SessionAdjustment } from '../types';
+import type {
+  AddPlayerMidSessionResult,
+  KingCourtCycle,
+  KingCourtPlayerAssignment,
+  MidSessionJoinTiming,
+  Player,
+  PlayerAvailabilityStatus,
+  SessionAdjustment,
+} from '../types';
+import type { AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
 import { KingCourtAllRoundsView } from './KingCourtAllRoundsView';
 import { KingCourtManageCourts } from './KingCourtManageCourts';
 import { KingCourtView } from './KingCourtView';
@@ -12,6 +21,7 @@ interface KingCourtRoundsPageProps {
   cycles: KingCourtCycle[];
   currentCycle: KingCourtCycle;
   sessionAdjustments: SessionAdjustment[];
+  nextCycleStaging: KingCourtPlayerAssignment[];
   confirmError: string | null;
   onSetGameScore: (courtNumber: number, gameNumber: number, team1Score: number, team2Score: number) => void;
   onAdvanceGame: () => void;
@@ -21,6 +31,8 @@ interface KingCourtRoundsPageProps {
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
   onChangeCourts: (newCourts: number) => void;
+  onStageForNextCycle: (playerId: string, courtNumber: number | null) => void;
+  onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
 }
 
 // Parent for King Court's "Rounds" tab: a Current Round / All Rounds
@@ -36,6 +48,7 @@ export function KingCourtRoundsPage({
   cycles,
   currentCycle,
   sessionAdjustments,
+  nextCycleStaging,
   confirmError,
   onSetGameScore,
   onAdvanceGame,
@@ -45,6 +58,8 @@ export function KingCourtRoundsPage({
   onSetAvailability,
   onSubstitute,
   onChangeCourts,
+  onStageForNextCycle,
+  onAddPlayerMidSession,
 }: KingCourtRoundsPageProps) {
   const [subView, setSubView] = useState<KingCourtRoundsSubView>('current');
 
@@ -88,9 +103,12 @@ export function KingCourtRoundsPage({
             currentCycle={currentCycle}
             numberOfCourts={numberOfCourts}
             sessionAdjustments={sessionAdjustments}
+            nextCycleStaging={nextCycleStaging}
             onSetAvailability={onSetAvailability}
             onSubstitute={onSubstitute}
             onChangeCourts={onChangeCourts}
+            onStageForNextCycle={onStageForNextCycle}
+            onAddPlayerMidSession={onAddPlayerMidSession}
             confirmError={confirmError}
           />
         </>

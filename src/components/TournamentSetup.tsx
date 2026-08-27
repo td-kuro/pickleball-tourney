@@ -222,6 +222,24 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
         </div>
       )}
 
+      {!isKingCourt && settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && (
+        <div className="form-row">
+          <span>Allow late joiners</span>
+          <label className="dp-placeholder-toggle">
+            <input
+              type="checkbox"
+              checked={settings.allowLateJoiners}
+              onChange={(event) => onChange({ ...settings, allowLateJoiners: event.target.checked })}
+            />
+            Let the organiser add a player mid-tournament
+          </label>
+          <p className="hint">
+            Default on for casual leaderboard tournaments. Turn off for a strict, roster-locked tournament — the Add
+            Player Mid-Session action is hidden while this is off.
+          </p>
+        </div>
+      )}
+
     </section>
   );
 }

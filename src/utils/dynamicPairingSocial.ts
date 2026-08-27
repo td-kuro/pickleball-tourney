@@ -41,8 +41,21 @@ export function calculateCourtsUsed(availableCourts: number, availablePlayers: n
   return Math.min(Math.max(0, availableCourts), Math.floor(Math.max(0, availablePlayers) / 4));
 }
 
-export function isPlayerAvailable(player: Player): boolean {
-  return (player.availabilityStatus ?? 'available') === 'available';
+// `roundNumber` (the round being generated/checked) is optional — see
+// utils/tournament.ts's isPlayerAvailableForScheduling for why: every
+// existing call site keeps working unchanged when omitted (a 'new-joiner'
+// with no round context is conservatively excluded), and it's threaded
+// through wherever a specific round is actually being built so a
+// mid-session-added player's effectiveFromRound is honoured. Mirrors
+// utils/tournament.ts's function rather than importing it — same
+// deliberate isolation as everything else in this file (see the file
+// header).
+export function isPlayerAvailable(player: Player, roundNumber?: number): boolean {
+  const status = player.availabilityStatus ?? 'available';
+  if (status === 'new-joiner') {
+    return roundNumber != null && player.effectiveFromRound != null && roundNumber >= player.effectiveFromRound;
+  }
+  return status === 'available';
 }
 
 // Shared by DynamicPairingSetup and DynamicPairingRestingPlayers, kept in
@@ -63,6 +76,8 @@ export function dynamicPairingAvailabilityLabel(status: PlayerAvailabilityStatus
       return 'Injured';
     case 'unavailable':
       return 'Unavailable';
+    case 'new-joiner':
+      return 'New';
   }
 }
 
@@ -74,7 +89,8 @@ export function canGenerateDynamicPairingRound(
   if (settings.numberOfCourts < 1) {
     return { ok: false, reason: 'Number of courts must be at least 1.' };
   }
-  const available = players.filter(isPlayerAvailable);
+  const targetRoundNumber = currentRound ? currentRound.roundNumber + 1 : 1;
+  const available = players.filter((p) => isPlayerAvailable(p, targetRoundNumber));
   if (available.length < 4) {
     return { ok: false, reason: 'At least 4 available players are required to create one doubles match.' };
   }
@@ -412,10 +428,14 @@ export function buildDynamicPairingEntrants(players: Player[], teams: DynamicPai
 // A fixed team is only available to play/rest as a unit when *both* of its
 // members are individually available — same rule Standard Social Play's
 // fixed teams follow (see utils/tournament.ts).
-export function isEntrantAvailable(entrant: DynamicPairingEntrant, playersById: Map<string, Player>): boolean {
+export function isEntrantAvailable(
+  entrant: DynamicPairingEntrant,
+  playersById: Map<string, Player>,
+  roundNumber?: number,
+): boolean {
   return entrant.playerIds.every((id) => {
     const player = playersById.get(id);
-    return player != null && isPlayerAvailable(player);
+    return player != null && isPlayerAvailable(player, roundNumber);
   });
 }
 
@@ -907,7 +927,7 @@ export function generateDynamicPairingRound(
   // opponent-rotation avoidance.
   if (phase === 'grading') return generateRotationAwareGradingRound(players, [], settings, priorRounds);
 
-  const availablePlayers = players.filter(isPlayerAvailable);
+  const availablePlayers = players.filter((p) => isPlayerAvailable(p, roundNumber));
   const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePlayers.length);
 
   const stats = calculateDynamicPairingStats(players, priorRounds);
@@ -1212,7 +1232,7 @@ export function generateRotationAwareGradingRound(
   const roundNumber = priorRounds.length + 1;
   const playersById = new Map(players.map((p) => [p.id, p]));
   const entrants = buildDynamicPairingEntrants(players, teams);
-  const eligibleEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById));
+  const eligibleEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById, roundNumber));
   const eligibleEntrantById = new Map(eligibleEntrants.map((e) => [e.id, e]));
   const availablePhysicalCount = eligibleEntrants.reduce((sum, e) => sum + e.playerIds.length, 0);
   const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePhysicalCount);
@@ -1293,7 +1313,7 @@ export function generateDynamicPairingRoundWithTeams(
 
   const playersById = new Map(players.map((p) => [p.id, p]));
   const entrants = buildDynamicPairingEntrants(players, teams);
-  const availableEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById));
+  const availableEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById, roundNumber));
   const availablePhysicalCount = availableEntrants.reduce((sum, e) => sum + e.playerIds.length, 0);
   const courtsUsed = calculateCourtsUsed(settings.numberOfCourts, availablePhysicalCount);
 
@@ -1497,6 +1517,41 @@ export function regenerateUpcomingRoundsForEntrants(
 ): DynamicPairingRound[] {
   const afterGrading = regenerateUpcomingGradingRoundsForEntrants(players, teams, settings, rounds);
   return regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, afterGrading);
+}
+
+// Rebuilds the *current* round itself (same roundNumber, same phase, same
+// 'current' status) against an updated roster — the Dynamic Pairing Social
+// counterpart of useTournament's regenerateCurrentRound — then rebuilds
+// whichever look-ahead window follows it (grading's pre-generated batch, or
+// the ranking-lag window), exactly the same way regenerateUpcomingRoundsForEntrants
+// does. Used for the mid-session Add Player flow's "Join current round"
+// option: a new entrant simply isn't in `players`/`teams` yet when the
+// current round was first generated, so the only way to fold them in is to
+// regenerate it. Returns null (no-op) when there's no current round, or it
+// already has a score entered anywhere — see
+// canRegenerateRoundInPlace in utils/tournament.ts, whose exact rule this
+// mirrors (this file doesn't import that function, to keep this mode's
+// isolation intact — see the file header).
+export function regenerateCurrentDynamicPairingRound(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] | null {
+  const currentIndex = rounds.findIndex((r) => r.status === 'current');
+  if (currentIndex === -1) return null;
+  const current = rounds[currentIndex];
+  const hasAnyScore = current.courts.some((c) => c.score1 != null || c.score2 != null);
+  if (hasAnyScore) return null;
+
+  const before = rounds.slice(0, currentIndex);
+  const after = rounds.slice(currentIndex + 1); // always 'upcoming' pre-generated rounds, if any — discarded and rebuilt below
+  const freshCurrent: DynamicPairingRound = {
+    ...generateDynamicPairingRoundForEntrants(players, teams, settings, before),
+    status: 'current',
+  };
+
+  return regenerateUpcomingRoundsForEntrants(players, teams, settings, [...before, freshCurrent, ...after]);
 }
 
 // `teams` defaults to none, so existing individual-only callers are

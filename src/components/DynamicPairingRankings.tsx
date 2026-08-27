@@ -31,6 +31,16 @@ export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairin
   }
 
   const rows = calculateEntrantRankings(players, teams, playedDynamicPairingRounds(rounds));
+  const playerById = new Map(players.map((p) => [p.id, p]));
+  // "New" badge: added mid-session and hasn't played a single game yet — see
+  // usePlayers.addPlayerMidSession/section 3's "Neutral stats for new
+  // players". A fixed team only badges "New" once every member qualifies —
+  // one already-established player joining a brand-new one still has real
+  // history behind the pairing.
+  function isNewNoStats(playerIds: string[], gamesPlayed: number): boolean {
+    if (gamesPlayed > 0) return false;
+    return playerIds.every((id) => playerById.get(id)?.addedMidSession);
+  }
 
   return (
     <section className="card">
@@ -65,7 +75,15 @@ export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairin
             {rows.map(({ entrant, stats, rank }) => (
               <tr key={entrant.id} className={rank === 1 ? 'leaderboard-top' : undefined}>
                 <td>{rank}</td>
-                <td>{entrant.displayName}</td>
+                <td>
+                  {entrant.displayName}
+                  {isNewNoStats(entrant.playerIds, stats.gamesPlayed) && (
+                    <span className="status-badge status-badge-new" title="Added mid-session — no completed stats yet">
+                      {' '}
+                      New
+                    </span>
+                  )}
+                </td>
                 <td>
                   <span className={entrant.type === 'fixed-team' ? 'participant-badge participant-badge-team' : 'participant-badge participant-badge-player'}>
                     {entrant.type === 'fixed-team' ? 'Fixed Team' : 'Individual'}

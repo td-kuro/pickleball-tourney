@@ -111,6 +111,29 @@ export function isRoundComplete(round: Round): boolean {
   return round.matches.every((match) => match.scoreA != null && match.scoreB != null);
 }
 
+// "Can this round be safely rebuilt in place right now?" — the shared
+// safety bar for every mid-session change that rewrites the *current*
+// round rather than just future ones (a player added mid-session choosing
+// "Join current round", an availability change, a court-count change — see
+// useTournament's regenerateCurrentRound). Deliberately "no score entered
+// anywhere in the round" rather than "not yet complete": a partially-scored
+// round is still live data the organiser has already recorded, and
+// reshuffling courts out from under it would silently discard that.
+export function canRegenerateRoundInPlace(round: Round | undefined): boolean {
+  return round != null && round.status === 'current' && !round.matches.some((m) => m.scoreA != null || m.scoreB != null);
+}
+
+// Tournament Mode + Leaderboard format's "Allow late joiners" gate (see
+// TournamentSettings.allowLateJoiners) — Standard Social Play and every
+// other Social format have no such setting and are always allowed, so this
+// is only ever consulted for that one format/mode combination.
+export function canAddLateJoiner(settings: TournamentSettings): { ok: true } | { ok: false; reason: string } {
+  if (settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && !settings.allowLateJoiners) {
+    return { ok: false, reason: 'Late joiners are disabled for this tournament.' };
+  }
+  return { ok: true };
+}
+
 // --- Mid-session player availability (Standard Social Play + King Court) --
 // Shared here (rather than duplicated per mode, unlike Dynamic Pairing
 // Social/Dynamic Team Qualifier's deliberately-isolated logic files) because
@@ -120,8 +143,31 @@ export function isRoundComplete(round: Round): boolean {
 // these — see canGenerateRound/createRound, which take `players` as given
 // and don't filter it — so a Tournament player's (always-absent)
 // availabilityStatus can never affect anything.
-export function isPlayerAvailableForScheduling(player: Player): boolean {
-  return (player.availabilityStatus ?? 'available') === 'available';
+// `roundNumber` (the round/cycle about to be generated or checked against)
+// is optional so every existing call site keeps compiling and behaving
+// exactly as before when it's omitted — a 'new-joiner' with no round
+// context supplied is conservatively treated as not yet schedulable, same
+// as 'unavailable'. Pass it whenever the check is actually *for* a specific
+// round/cycle (round generation, capacity counts) so a mid-session-added
+// player's `effectiveFromRound` is honoured — see Player.effectiveFromRound
+// and activateDueNewJoiners below.
+export function isPlayerAvailableForScheduling(player: Player, roundNumber?: number): boolean {
+  const status = player.availabilityStatus ?? 'available';
+  if (status === 'new-joiner') {
+    return roundNumber != null && player.effectiveFromRound != null && roundNumber >= player.effectiveFromRound;
+  }
+  return status === 'available';
+}
+
+// A looser check than isPlayerAvailableForScheduling, used only by swap/
+// substitute actions (canSwapPlayerInRound, King Court's
+// availableSubstitutes): an organiser explicitly picking a specific
+// replacement is a different decision from automatic round generation, so
+// a 'new-joiner' waiting for a future round is still a valid pick *right
+// now* — see README's "Mid-session player and court changes".
+export function isPlayerEligibleForSwap(player: Player): boolean {
+  const status = player.availabilityStatus ?? 'available';
+  return status === 'available' || status === 'new-joiner';
 }
 
 export function availabilityStatusLabel(status: PlayerAvailabilityStatus): string {
@@ -138,6 +184,8 @@ export function availabilityStatusLabel(status: PlayerAvailabilityStatus): strin
       return 'Injured';
     case 'unavailable':
       return 'Unavailable';
+    case 'new-joiner':
+      return 'New';
   }
 }
 
@@ -155,6 +203,25 @@ export function revertRestingPlayers(players: Player[]): Player[] {
   );
 }
 
+// Flips any 'new-joiner' whose effectiveFromRound has arrived back to
+// 'available' — the mid-session-add counterpart of revertRestingPlayers
+// above, called at the same round/cycle-advance points (App.tsx's
+// onNextRound, useDynamicPairingSocial.generateNextRound, King Court's
+// confirmMovementAndAdvance) so a player added "from next round" actually
+// becomes schedulable the moment that round starts, with no separate
+// organiser action required. `upcomingRoundNumber` is whichever round/cycle
+// is about to become current.
+export function activateDueNewJoiners(players: Player[], upcomingRoundNumber: number): Player[] {
+  if (!players.some((player) => player.availabilityStatus === 'new-joiner')) return players;
+  return players.map((player) =>
+    player.availabilityStatus === 'new-joiner' &&
+    player.effectiveFromRound != null &&
+    player.effectiveFromRound <= upcomingRoundNumber
+      ? { ...player, availabilityStatus: 'available' }
+      : player,
+  );
+}
+
 // Filters a roster down to who's actually schedulable right now — a fixed
 // team needs *both* players available, since there's no automatic 1-player
 // split (same reason canSwapPlayerInRound/isFixedTeamSide refuse to split
@@ -162,9 +229,13 @@ export function revertRestingPlayers(players: Player[]): Player[] {
 // SessionControls' court-capacity check both funnel through, so "how many
 // people can actually take a court right now" can never disagree between
 // what generates a round and what the UI warns about beforehand.
-export function filterSchedulableRoster(players: Player[], teams: Team[], teamPlayers: Player[]) {
-  const availablePlayers = players.filter(isPlayerAvailableForScheduling);
-  const availableTeamPlayers = teamPlayers.filter(isPlayerAvailableForScheduling);
+// `roundNumber` — see isPlayerAvailableForScheduling — should be the round
+// this schedulability check is actually for; omit only for a context with
+// no specific round in mind (in which case a 'new-joiner' is conservatively
+// excluded).
+export function filterSchedulableRoster(players: Player[], teams: Team[], teamPlayers: Player[], roundNumber?: number) {
+  const availablePlayers = players.filter((p) => isPlayerAvailableForScheduling(p, roundNumber));
+  const availableTeamPlayers = teamPlayers.filter((p) => isPlayerAvailableForScheduling(p, roundNumber));
   const availableTeamPlayerIds = new Set(availableTeamPlayers.map((p) => p.id));
   const availableTeams = teams.filter((team) => team.playerIds.every((id) => availableTeamPlayerIds.has(id)));
   return { availablePlayers, availableTeams, availableTeamPlayers };
@@ -173,8 +244,8 @@ export function filterSchedulableRoster(players: Player[], teams: Team[], teamPl
 // Total individual humans who could actually take a court right now — a
 // fixed team counts as 2 (both members), matching canGenerateRound's
 // "players" convention (see App.tsx's effectivePlayers).
-export function countAvailableForScheduling(players: Player[], teams: Team[], teamPlayers: Player[]): number {
-  const { availablePlayers, availableTeams } = filterSchedulableRoster(players, teams, teamPlayers);
+export function countAvailableForScheduling(players: Player[], teams: Team[], teamPlayers: Player[], roundNumber?: number): number {
+  const { availablePlayers, availableTeams } = filterSchedulableRoster(players, teams, teamPlayers, roundNumber);
   return availablePlayers.length + availableTeams.length * 2;
 }
 

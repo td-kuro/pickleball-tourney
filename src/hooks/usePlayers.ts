@@ -44,6 +44,44 @@ export function usePlayers() {
     setPlayers([...players, ...newPlayers]);
   }
 
+  // "Add Player Mid-Session" — see AddPlayerMidSessionModal and README's
+  // "Mid-session player additions". Unlike addPlayersBulk (blank slots
+  // filled in later), this creates one fully-specified player in a single
+  // step, since the organiser already has a name (and optionally a rating/
+  // seed/note) in hand when adding someone to a session already under way.
+  // Deliberately doesn't set skillLevel, partnerHistory, or any other
+  // stat-shaped field — this player has never played, so every stats
+  // helper across every mode (computePlayerStats, computeTeamStats,
+  // calculateDynamicPairingStats, ...) already derives all-zero/neutral
+  // stats for them purely from having no rounds in their history yet; no
+  // separate "neutral stats" bookkeeping is needed or possible to get
+  // wrong. Returns the created player so the caller can immediately act on
+  // its id (e.g. wiring it into a live swap) without waiting for the next
+  // render's `players` to reflect the update.
+  function addPlayerMidSession(fields: {
+    name: string;
+    rating?: number;
+    startingSeed?: number;
+    note?: string;
+    availabilityStatus: PlayerAvailabilityStatus;
+    addedAtRound?: number;
+    effectiveFromRound?: number;
+  }): Player {
+    const player: Player = {
+      id: makePlayerId(),
+      name: fields.name,
+      rating: fields.rating,
+      startingSeed: fields.startingSeed,
+      note: fields.note,
+      availabilityStatus: fields.availabilityStatus,
+      addedAtRound: fields.addedAtRound,
+      effectiveFromRound: fields.effectiveFromRound,
+      addedMidSession: true,
+    };
+    setPlayers([...players, player]);
+    return player;
+  }
+
   function updatePlayer(id: string, name: string, rating?: number) {
     setPlayers(players.map((player) => (player.id === id ? { ...player, name, rating } : player)));
   }
@@ -82,6 +120,7 @@ export function usePlayers() {
     addPlayersBulk,
     setPlayersBulk,
     addExistingPlayers,
+    addPlayerMidSession,
     updatePlayer,
     setAvailabilityStatus,
     removePlayer,
