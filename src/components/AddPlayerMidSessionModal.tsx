@@ -1,11 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import type { AddPlayerMidSessionResult, MidSessionJoinTiming } from '../types';
+import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerGender } from '../types';
 
 export interface AddPlayerMidSessionFields {
   name: string;
   rating?: number;
   startingSeed?: number;
   note?: string;
+  // Dynamic Pairing Social only — see showGender below. Every other mode's
+  // onAdd simply never reads this, same as startingSeed for modes that
+  // don't rank by seed.
+  gender?: PlayerGender;
 }
 
 interface AddPlayerMidSessionModalProps {
@@ -34,6 +38,12 @@ interface AddPlayerMidSessionModalProps {
   // README) — hides the whole Join Timing section and always submits
   // 'next', which that mode's `onAdd` simply doesn't use. Default true.
   showJoinTiming?: boolean;
+  // Dynamic Pairing Social only — shows a Gender (M/F, default M) selector
+  // instead of the Seed field, matching that mode's own Setup roster UI
+  // (see DynamicPairingSetup.tsx and PlayerGender in ../types.ts). Every
+  // other mode omits this and keeps the plain Seed field exactly as
+  // before. Default false.
+  showGender?: boolean;
 }
 
 // Reusable "Add Player Mid-Session" action — see README's "Mid-session
@@ -52,10 +62,12 @@ export function AddPlayerMidSessionModal({
   restingListLabel = 'bye list',
   warningMessage,
   showJoinTiming = true,
+  showGender = false,
 }: AddPlayerMidSessionModalProps) {
   const [name, setName] = useState('');
   const [rating, setRating] = useState('');
   const [seed, setSeed] = useState('');
+  const [gender, setGender] = useState<PlayerGender>('M');
   const [note, setNote] = useState('');
   // Default "Join from next round" — see the design brief: joining live
   // mid-round is the exception, not the assumption, even when it turns out
@@ -77,7 +89,8 @@ export function AddPlayerMidSessionModal({
       {
         name: trimmedName,
         rating: parsedRating != null && !Number.isNaN(parsedRating) ? parsedRating : undefined,
-        startingSeed: parsedSeed != null && !Number.isNaN(parsedSeed) ? parsedSeed : undefined,
+        startingSeed: showGender ? undefined : parsedSeed != null && !Number.isNaN(parsedSeed) ? parsedSeed : undefined,
+        gender: showGender ? gender : undefined,
         note: note.trim() === '' ? undefined : note.trim(),
       },
       showJoinTiming ? joinTiming : 'next',
@@ -135,18 +148,32 @@ export function AddPlayerMidSessionModal({
                 placeholder="Unrated"
               />
             </div>
-            <div className="form-row">
-              <label htmlFor="amp-seed">Seed (optional)</label>
-              <input
-                id="amp-seed"
-                type="number"
-                min={1}
-                step={1}
-                value={seed}
-                onChange={(event) => setSeed(event.target.value)}
-                placeholder="No seed"
-              />
-            </div>
+            {showGender ? (
+              <div className="form-row">
+                <label htmlFor="amp-gender">Gender</label>
+                <select
+                  id="amp-gender"
+                  value={gender}
+                  onChange={(event) => setGender(event.target.value as PlayerGender)}
+                >
+                  <option value="M">M</option>
+                  <option value="F">F</option>
+                </select>
+              </div>
+            ) : (
+              <div className="form-row">
+                <label htmlFor="amp-seed">Seed (optional)</label>
+                <input
+                  id="amp-seed"
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={seed}
+                  onChange={(event) => setSeed(event.target.value)}
+                  placeholder="No seed"
+                />
+              </div>
+            )}
             <div className="form-row">
               <label htmlFor="amp-note">Note (optional)</label>
               <input
@@ -215,7 +242,7 @@ export function AddPlayerMidSessionModal({
 interface AddPlayerMidSessionButtonProps
   extends Pick<
     AddPlayerMidSessionModalProps,
-    'onAdd' | 'offerCurrentRoundJoin' | 'unitLabel' | 'restingListLabel' | 'warningMessage' | 'showJoinTiming'
+    'onAdd' | 'offerCurrentRoundJoin' | 'unitLabel' | 'restingListLabel' | 'warningMessage' | 'showJoinTiming' | 'showGender'
   > {
   label?: string;
   disabled?: boolean;
@@ -233,6 +260,7 @@ export function AddPlayerMidSessionButton({
   restingListLabel,
   warningMessage,
   showJoinTiming,
+  showGender,
   label = 'Add Player Mid-Session',
   disabled,
   disabledReason,
@@ -253,6 +281,7 @@ export function AddPlayerMidSessionButton({
           restingListLabel={restingListLabel}
           warningMessage={warningMessage}
           showJoinTiming={showJoinTiming}
+          showGender={showGender}
         />
       )}
     </>

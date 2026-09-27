@@ -7,6 +7,7 @@ import type {
   MidSessionJoinTiming,
   Player,
   PlayerAvailabilityStatus,
+  PlayerGender,
   SessionAdjustment,
   SessionAdjustmentType,
 } from '../types';
@@ -128,10 +129,11 @@ export function useDynamicPairingSocial() {
   }
 
   // Quickly generates `count` blank player slots so the organiser can fill
-  // in names/ratings/seeds afterward instead of adding one by one — mirrors
-  // usePlayers' addPlayersBulk, adapted for this roster's own shape
-  // (availabilityStatus defaults to 'available') — also how a single
-  // "+ Add Player" click adds one slot (count=1). Name starts empty (not
+  // in names/ratings/genders afterward instead of adding one by one —
+  // mirrors usePlayers' addPlayersBulk, adapted for this roster's own shape
+  // (availabilityStatus defaults to 'available', gender defaults to 'M' —
+  // see PlayerGender in ../types.ts for why) — also how a single "+ Add
+  // Player" click adds one slot (count=1). Name starts empty (not
   // "Player N") so typing a real name doesn't require clearing a
   // placeholder first — the row's `placeholder` attribute still shows
   // "Player N" as greyed-out ghost text until then.
@@ -140,6 +142,7 @@ export function useDynamicPairingSocial() {
       id: makePlayerId(i),
       name: '',
       availabilityStatus: 'available',
+      gender: 'M',
     }));
     setPlayers([...players, ...newPlayers]);
   }
@@ -150,9 +153,10 @@ export function useDynamicPairingSocial() {
     rating?: number,
     startingSeed?: number,
     availabilityStatus?: PlayerAvailabilityStatus,
+    gender?: PlayerGender,
   ) {
     setPlayers(
-      players.map((p) => (p.id === id ? { ...p, name, rating, startingSeed, availabilityStatus } : p)),
+      players.map((p) => (p.id === id ? { ...p, name, rating, startingSeed, availabilityStatus, gender } : p)),
     );
   }
 
@@ -226,7 +230,7 @@ export function useDynamicPairingSocial() {
   // comment on why every stats helper already derives all-zero stats for a
   // player with no rounds in their history.
   function addPlayerMidSession(
-    fields: { name: string; rating?: number; startingSeed?: number; note?: string },
+    fields: { name: string; rating?: number; startingSeed?: number; note?: string; gender?: PlayerGender },
     joinTiming: MidSessionJoinTiming,
   ): AddPlayerMidSessionResult {
     if (fields.name.trim() === '') return { ok: false, reason: 'Enter a name before adding this player.' };
@@ -237,6 +241,7 @@ export function useDynamicPairingSocial() {
       rating: fields.rating,
       startingSeed: fields.startingSeed,
       note: fields.note,
+      gender: fields.gender ?? 'M',
       addedAtRound: currentRoundNumber,
       addedMidSession: true,
     };

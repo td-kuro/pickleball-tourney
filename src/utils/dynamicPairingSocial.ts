@@ -14,6 +14,14 @@
 // - Court/partnership allocation (allocatePlayersToCourts,
 //   createBalancedPartnerships) only runs on whoever is left *after* both
 //   of the above have already been decided.
+//
+// Gender-aware pairing (see "Gender-aware pairing" below) is a soft
+// preference layered *inside* that third step, never a fourth independent
+// system: it only ever chooses between partnership options that court/
+// partnership allocation had already decided are otherwise equally valid
+// (same players, same ranking-driven court groupings) — it never moves a
+// player to a different court, changes who rests, or overrides an
+// opponent-rotation/repeat-partner penalty. See shouldUseGenderAwarePairing.
 
 import type {
   CourtMovementLimit,
@@ -29,6 +37,7 @@ import type {
   DynamicPairingTeam,
   Player,
   PlayerAvailabilityStatus,
+  PlayerGender,
 } from '../types';
 
 // --- Capacity ---------------------------------------------------------
@@ -672,6 +681,120 @@ export function applyCourtMovementLimit(
   return courts;
 }
 
+// --- Gender-aware pairing ---------------------------------------------
+// See the file header's "Gender-aware pairing" note. Every helper here is
+// pure and derived-only — a match's gender classification is never stored
+// on DynamicPairingCourtAssignment, always recomputed on demand from
+// team1PlayerIds/team2PlayerIds + the roster's own `gender` field, the same
+// "derived, not persisted" approach the rest of this file uses for ranking
+// basis labels and entrant views.
+
+// A missing/invalid gender always reads as 'M' — see PlayerGender's comment
+// in ../types.ts for why 'M' (not, say, refusing to classify) is the
+// deliberate default. Also guards against a corrupted stored value that
+// isn't literally 'M' or 'F'.
+export function getPlayerGender(player: Player | undefined): PlayerGender {
+  return player?.gender === 'F' ? 'F' : 'M';
+}
+
+// A "side" here is exactly what DynamicPairingCourtAssignment already
+// tracks per team — a fixed team's two members, or two individuals
+// temporarily paired for the round; either way, always exactly 2 physical
+// players once a side is fully formed. 'UNKNOWN' only ever occurs for a
+// malformed/incomplete side (defensive — every real side this file builds
+// has exactly 2 playerIds).
+export type SideGenderComposition = 'MF' | 'MM' | 'FF' | 'UNKNOWN';
+
+export function getSideGenderComposition(
+  sidePlayerIds: string[],
+  playersById: Map<string, Player>,
+): SideGenderComposition {
+  if (sidePlayerIds.length !== 2) return 'UNKNOWN';
+  const [a, b] = sidePlayerIds.map((id) => getPlayerGender(playersById.get(id)));
+  if (a === b) return a === 'M' ? 'MM' : 'FF';
+  return 'MF';
+}
+
+// See the file's "Mixed game"/"Gendered game" definitions — anything that
+// isn't one of the four explicitly-named compositions (e.g. a malformed
+// side, or the M/F vs F/M-mismatched cases that can't actually occur given
+// getSideGenderComposition's symmetric MF result) falls back to 'standard',
+// the same "no gender story to tell" label a same-gender-imbalanced court
+// (e.g. 3 men + 1 woman split across two sides) also gets.
+export type MatchGenderType =
+  | 'mixed'
+  | 'gendered-mm-vs-mm'
+  | 'gendered-ff-vs-ff'
+  | 'gendered-mm-vs-ff'
+  | 'standard';
+
+export function getMatchGenderType(
+  side1PlayerIds: string[],
+  side2PlayerIds: string[],
+  playersById: Map<string, Player>,
+): MatchGenderType {
+  const a = getSideGenderComposition(side1PlayerIds, playersById);
+  const b = getSideGenderComposition(side2PlayerIds, playersById);
+  if (a === 'MF' && b === 'MF') return 'mixed';
+  if (a === 'MM' && b === 'MM') return 'gendered-mm-vs-mm';
+  if (a === 'FF' && b === 'FF') return 'gendered-ff-vs-ff';
+  if ((a === 'MM' && b === 'FF') || (a === 'FF' && b === 'MM')) return 'gendered-mm-vs-ff';
+  return 'standard';
+}
+
+// Display label for Current Round / All Rounds — deliberately collapses
+// every gendered-* variant to one "Gendered" badge (see the design brief's
+// "keep the label simple"); the specific composition is still visible from
+// the player names themselves.
+export function matchGenderTypeLabel(type: MatchGenderType): string {
+  switch (type) {
+    case 'mixed':
+      return 'Mixed';
+    case 'gendered-mm-vs-mm':
+    case 'gendered-ff-vs-ff':
+    case 'gendered-mm-vs-ff':
+      return 'Gendered';
+    case 'standard':
+      return 'Standard';
+  }
+}
+
+// The on/off switch for every gender preference below — evaluated fresh
+// against whichever physical players are actually active (on a court) for
+// one specific round, not the whole session's roster, so a round where
+// both registered female players happen to be resting correctly falls back
+// to normal pairing for that round alone (see the design brief's "if fewer
+// than 2 active female players, use normal pairing"). Re-derivable at
+// display time from a round's own courts (every consumer of this file's
+// generation functions and every display component call it the same way),
+// so there's nothing to store or get out of sync.
+export function shouldUseGenderAwarePairing(activePlayers: Player[]): boolean {
+  return activePlayers.filter((p) => getPlayerGender(p) === 'F').length >= 2;
+}
+
+// Small additive bonus/penalty folded into scorePartnershipOption/
+// buildGradingCandidate's existing "lower is better" penalty score — see
+// the file header's "Gender-aware pairing" note on why this can never
+// outweigh a real fairness difference: every existing penalty weight here
+// (REPEAT_PARTNER_PENALTY=100, OPPONENT_HISTORY_WEIGHT=5, ...) is at least
+// an order of magnitude larger than this term's full 0-3 spread, so gender
+// preference only ever breaks a genuine tie between otherwise-equal
+// candidates, exactly as the design brief's priority order requires
+// (mixed preferred over gendered, gendered over standard — see
+// MatchGenderType).
+function genderPreferenceScore(type: MatchGenderType): number {
+  switch (type) {
+    case 'mixed':
+      return 0;
+    case 'gendered-mm-vs-mm':
+    case 'gendered-ff-vs-ff':
+    case 'gendered-mm-vs-ff':
+      return 1;
+    case 'standard':
+      return 3;
+  }
+}
+
 // --- Partnerships ----------------------------------------------------------
 
 export interface PartnershipOption {
@@ -681,14 +804,22 @@ export interface PartnershipOption {
 
 // Lower score = more desirable. Penalises (in priority order, heaviest
 // first): repeating the exact same partner as the previous round,
-// cumulative partner-history repeats, and cumulative opponent-history
-// repeats (a proxy for "have these two pairs already played this exact
-// match" — if they have, every cross-pair opponent count will be
-// elevated).
+// cumulative partner-history repeats, cumulative opponent-history repeats
+// (a proxy for "have these two pairs already played this exact match" — if
+// they have, every cross-pair opponent count will be elevated), and —
+// lightest of all, see genderPreferenceScore — how well this option's
+// resulting match classifies under gender-aware pairing, only ever applied
+// when `genderAware` is true (see shouldUseGenderAwarePairing). Passing
+// `genderAware: false` (or omitting `playersById`) reproduces this
+// function's exact pre-gender-aware-pairing behaviour, so every existing
+// caller/session is unaffected until 2+ active female players make it
+// relevant.
 export function scorePartnershipOption(
   option: PartnershipOption,
   statsById: Map<string, DynamicPairingPlayerStats>,
   previousRoundPartnerById: Map<string, string>,
+  playersById?: Map<string, Player>,
+  genderAware = false,
 ): number {
   const REPEAT_PREVIOUS_PARTNER_WEIGHT = 1000;
   const PARTNER_HISTORY_WEIGHT = 10;
@@ -704,6 +835,9 @@ export function scorePartnershipOption(
       score += (statsById.get(a)?.opponentHistory[b] ?? 0) * OPPONENT_HISTORY_WEIGHT;
     }
   }
+  if (genderAware && playersById) {
+    score += genderPreferenceScore(getMatchGenderType(option.team1, option.team2, playersById));
+  }
   return score;
 }
 
@@ -711,20 +845,25 @@ export function scorePartnershipOption(
 // group) into balanced teams. Only two splits are ever considered:
 // 1st+4th vs 2nd+3rd (the default — the most balanced possible split of a
 // ranked quad) or 1st+3rd vs 2nd+4th (the alternative, used when it scores
-// better on variety without sacrificing balance). 1st+2nd vs 3rd+4th is
-// deliberately never considered — it's the least balanced possible split
-// of the four, and the brief puts competitive balance ahead of variety.
+// better on variety without sacrificing balance, or — once `genderAware`
+// applies, see shouldUseGenderAwarePairing — on gender classification
+// without sacrificing either). 1st+2nd vs 3rd+4th is deliberately never
+// considered — it's the least balanced possible split of the four, and the
+// brief puts competitive balance ahead of variety (and, by the same
+// reasoning, ahead of gender preference too).
 export function createBalancedPartnerships(
   courtGroupPlayerIds: string[],
   statsById: Map<string, DynamicPairingPlayerStats>,
   previousRoundPartnerById: Map<string, string>,
+  playersById?: Map<string, Player>,
+  genderAware = false,
 ): { team1: string[]; team2: string[] } {
   const [r1, r2, r3, r4] = courtGroupPlayerIds;
   const optionA: PartnershipOption = { team1: [r1, r4], team2: [r2, r3] };
   const optionB: PartnershipOption = { team1: [r1, r3], team2: [r2, r4] };
 
-  const scoreA = scorePartnershipOption(optionA, statsById, previousRoundPartnerById);
-  const scoreB = scorePartnershipOption(optionB, statsById, previousRoundPartnerById);
+  const scoreA = scorePartnershipOption(optionA, statsById, previousRoundPartnerById, playersById, genderAware);
+  const scoreB = scorePartnershipOption(optionB, statsById, previousRoundPartnerById, playersById, genderAware);
   const chosen = scoreA <= scoreB ? optionA : optionB;
   return { team1: chosen.team1, team2: chosen.team2 };
 }
@@ -992,9 +1131,16 @@ export function generateDynamicPairingRound(
     }
   }
 
+  // See shouldUseGenderAwarePairing — evaluated against this round's own
+  // active (on-court) players, not the whole session's roster, so a round
+  // where the registered female players happen to be resting still falls
+  // back to normal pairing for that round alone.
+  const playersById = new Map(players.map((p) => [p.id, p]));
+  const genderAware = shouldUseGenderAwarePairing(activeIds.map((id) => playersById.get(id)!).filter(Boolean));
+
   const statsById = new Map(stats.map((s) => [s.playerId, s]));
   const courts: DynamicPairingCourtAssignment[] = courtGroups.map((group, index) => {
-    const { team1, team2 } = createBalancedPartnerships(group, statsById, previousRoundPartnerById);
+    const { team1, team2 } = createBalancedPartnerships(group, statsById, previousRoundPartnerById, playersById, genderAware);
     return {
       courtNumber: index + 1,
       playerIds: [...team1, ...team2],
@@ -1037,7 +1183,14 @@ export interface DynamicPairingSide {
 // ends up adjacent round to round, and adding a second optimisation layer
 // on top of an already-ranked, already-team-aware list was judged
 // unnecessary complexity for this feature's scope (see README's "Current
-// limitations"). If the number of active individual entrants is odd (only
+// limitations"). For the same reason, this path also has no gender-aware
+// pairing pass (unlike createBalancedPartnerships/buildGradingCandidate) —
+// once at least one fixed team exists *and* the round is past grading,
+// sides are still built by plain rank-adjacency regardless of gender; the
+// resulting match is still classified correctly for display
+// (getMatchGenderType reads whatever sides come out of this function), it's
+// just never *steered* toward a better one here. See README's "Current
+// limitations". If the number of active individual entrants is odd (only
 // possible via the rare rest-selection under-fill described in
 // selectRestingEntrants), the single leftover entrant can't form a side and
 // is returned as `oddOneOutEntrantId` for the caller to rest instead.
@@ -1183,6 +1336,8 @@ function buildGradingCandidate(
   eligibleEntrantById: Map<string, DynamicPairingEntrant>,
   playerStatsById: Map<string, DynamicPairingPlayerStats>,
   priorRounds: DynamicPairingRound[],
+  playersById: Map<string, Player>,
+  genderAware: boolean,
 ): GradingCandidate {
   const { sides } = buildSidesFromRankedEntrants(shuffledEntrants);
   const courts = groupSidesIntoCourts(sides, courtsUsed);
@@ -1218,6 +1373,15 @@ function buildGradingCandidate(
         const alreadyPartnered = (playerStatsById.get(p1.playerIds[0])?.partnerHistory[p2.playerIds[0]] ?? 0) > 0;
         if (alreadyPartnered) penalty += REPEAT_PARTNER_PENALTY;
       }
+    }
+
+    // Gender-aware pairing (see the file header) — a much lighter touch
+    // than any penalty above, so it only ever nudges the search toward the
+    // better-classified schedule among several otherwise-equally-fair
+    // random orderings; it never causes a repeat opponent/partner to be
+    // preferred over an available clean one.
+    if (genderAware) {
+      penalty += genderPreferenceScore(getMatchGenderType(side1Ids, side2Ids, playersById));
     }
   }
 
@@ -1265,6 +1429,12 @@ export function generateRotationAwareGradingRound(
   );
   const activeEntrants = activeEntrantIds.map((id) => eligibleEntrantById.get(id)!);
 
+  // See shouldUseGenderAwarePairing — evaluated against this round's own
+  // active (on-court) entrants, so a grading round where the available
+  // female players happen to be resting still falls back to normal
+  // scheduling for that round alone.
+  const genderAware = shouldUseGenderAwarePairing(activeEntrants.flatMap((e) => e.playerIds).map((id) => playersById.get(id)!).filter(Boolean));
+
   let best: GradingCandidate | null = null;
   for (let attempt = 0; attempt < GRADING_SCHEDULE_ATTEMPTS; attempt++) {
     const candidate = buildGradingCandidate(
@@ -1274,13 +1444,33 @@ export function generateRotationAwareGradingRound(
       eligibleEntrantById,
       playerStatsById,
       priorRounds,
+      playersById,
+      genderAware,
     );
     if (!best || candidate.penalty < best.penalty) best = candidate;
-    if (best.repeatOpponentCount === 0 && attempt >= 5) break; // good enough — stop searching early
+    // Good enough — stop searching early. Skipped while genderAware: a
+    // repeat-opponent-free candidate can already turn up within the first
+    // handful of attempts (trivially true for e.g. Round 1, before any
+    // history exists at all), which wouldn't leave the search enough
+    // attempts to also find a well-classified mixed/gendered grouping —
+    // running the full GRADING_SCHEDULE_ATTEMPTS instead gives the gender
+    // preference a real chance to matter, still bounded and still fast
+    // (pure in-memory scoring, no I/O), and still dominated by the same
+    // opponent/partner-repeat penalties either way.
+    if (best.repeatOpponentCount === 0 && attempt >= 5 && !genderAware) break;
   }
   const chosen =
     best ??
-    buildGradingCandidate(activeEntrants, courtsUsed, eligibleEntrants, eligibleEntrantById, playerStatsById, priorRounds);
+    buildGradingCandidate(
+      activeEntrants,
+      courtsUsed,
+      eligibleEntrants,
+      eligibleEntrantById,
+      playerStatsById,
+      priorRounds,
+      playersById,
+      genderAware,
+    );
 
   const restingPlayerIds = restingEntrantIds.flatMap((id) => eligibleEntrantById.get(id)?.playerIds ?? []);
 

@@ -960,6 +960,21 @@ button.danger:hover:not(:disabled) {
   font-weight: 400;
 }
 
+/* Gender-aware pairing's Mixed/Gendered match-type callout (see
+   getMatchGenderType/matchGenderTypeLabel) — a small pill, distinct from
+   the plain-text Fixed Team/Temporary Pair badge it sits alongside, since
+   it's worth noticing at a glance rather than just informational. */
+.dp-gender-match-badge {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--accent-2-bg);
+  color: var(--accent-2);
+  margin-left: 4px;
+}
+
 @media (max-width: 480px) {
   .match-teams {
     flex-direction: column;
@@ -1349,6 +1364,17 @@ button.danger:hover:not(:disabled) {
   background: var(--bg);
   color: var(--text-h);
   flex-shrink: 0;
+}
+
+.dp-gender-select {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-h);
+  flex-shrink: 0;
+  width: 56px;
 }
 
 /* Dynamic Team Qualifier */

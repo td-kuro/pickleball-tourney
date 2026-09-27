@@ -46,6 +46,14 @@ export type PlayerAvailabilityStatus =
   | 'unavailable'
   | 'new-joiner';
 
+// Dynamic Pairing Social only (see gender-aware pairing in
+// utils/dynamicPairingSocial.ts) — 'M' is the default everywhere a player's
+// gender is read (getPlayerGender) or created (addPlayersBulk/
+// addPlayerMidSession), since most sessions skew male and defaulting to 'M'
+// keeps setup low-effort. Every other mode simply never reads this field,
+// same as skillLevel/startingSeed below.
+export type PlayerGender = 'M' | 'F';
+
 export interface Player {
   id: string;
   name: string;
@@ -57,7 +65,16 @@ export interface Player {
   // generateDynamicPairingRound), but the mid-session Add Player flow
   // offers it for every mode now, so it's read generically here; modes
   // that don't rank by seed simply never read it, same as skillLevel below.
+  // No longer exposed in Dynamic Pairing Social's own Setup roster UI
+  // (replaced there by `gender` below — see DynamicPairingSetup.tsx) but
+  // still settable via the shared mid-session Add Player flow and still a
+  // valid ranking tiebreaker (sortPlayersByRanking/sortEntrantsByRanking),
+  // so existing seeded rosters/localStorage keep working unchanged.
   startingSeed?: number;
+  // Dynamic Pairing Social only — see PlayerGender above. Optional so old
+  // localStorage data needs no migration: every reader falls back to 'M'
+  // via getPlayerGender rather than requiring this to be backfilled.
+  gender?: PlayerGender;
   // Dynamic Pairing Social only: an organiser-assigned rank (1 = strongest)
   // set *after* grading rounds finish, once the organiser has actually seen
   // players compete — see isGradingPhaseComplete in

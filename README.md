@@ -180,20 +180,23 @@ with its own card:
 - **Number of Courts** — the same clickable 1–6 + Other court selector
   used everywhere else in the app.
 - **Players** — its own dedicated roster (separate from every other
-  mode's), each with a name, an optional rating, and an optional
-  **starting seed** (1 = strongest), used only as a ranking tiebreaker —
-  grading rounds are randomized regardless of seed (see "Grading rounds
-  are pre-generated up front" below). Once grading finishes, a **skill
-  level** (also 1 = strongest) becomes assignable per player too, right on
-  this same Players list — entirely optional, and never a blocker to
-  dynamic pairing starting (see "Automatic ranking and no Admin Skill
-  Review" below).
+  mode's), each with a name, an optional rating, and a **gender** (**M**
+  or **F**, default **M** — see "Gender-aware pairing" below; this
+  replaces the plain starting-seed field every other mode's mid-session
+  Add Player flow still offers, since most sessions skew male and
+  defaulting to M keeps setup low-effort). Once grading finishes, a
+  **skill level** (also 1 = strongest) becomes assignable per player too,
+  right on this same Players list — entirely optional, and never a
+  blocker to dynamic pairing starting (see "Automatic ranking and no
+  Admin Skill Review" below).
 - **Grading rounds** — how many of the first rounds are grading rounds.
   Default: **3**.
 - **Game lag (rounds)** — how many rounds "behind" the competitive
   ranking a predetermined Dynamic Pairing round's pairing is allowed to
   be. Default: **1**, minimum **0** (an empty or invalid value falls back
   to the default of 1). See "Game lag and predetermined rounds" below.
+- **Gender-aware pairing** — automatic, nothing to configure — see
+  "Gender-aware pairing" below.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
   **First to Score** (with a winning score) — for the organiser's
   reference; this version doesn't enforce either automatically (same
@@ -486,12 +489,77 @@ Each round, after resting players are removed:
    worse cumulative partner/opponent-repeat count), the app tries the
    other reasonable split — rank 1 + rank 3 vs. rank 2 + rank 4 — instead,
    as long as it doesn't sacrifice balance. Competitive balance always
-   takes priority over variety when the two conflict.
+   takes priority over variety when the two conflict. Once gender-aware
+   pairing applies (see below), it breaks a remaining tie between these
+   two splits too — behind balance and repeat-avoidance, ahead only of
+   pure randomness.
 
 Court groups are rebuilt from scratch every round — nothing about a
 court's *group of 4* carries over, only each individual player's ranking
 and rest history. See `allocatePlayersToCourts`/`createBalancedPartnerships`
 in `src/utils/dynamicPairingSocial.ts`.
+
+### Gender-aware pairing
+
+Each player has a **gender**, **M** or **F** (default **M** — see
+"Setup" above), used to attempt **mixed** and **gendered** games
+alongside regular matches whenever there's enough of a female player
+pool to make it meaningful:
+
+```
+Mixed game:     M/F vs M/F
+Gendered game:  M/M vs M/M,  F/F vs F/F,  or  M/M vs F/F
+```
+
+- **Fewer than 2 active female players** (this round specifically — see
+  "Two independent systems" for what "active" means here): pairing works
+  exactly as it always has, with no gender consideration at all. One
+  female player among many males, for instance, still gets paired purely
+  by the same ranking/rotation/partner-variety rules described above.
+- **2 or more active female players**: the pairing search — the grading
+  phase's rotation-aware candidate search (see "Grading rounds are
+  pre-generated up front" above) and the ranking phase's 2-option
+  partnership split (see "Court allocation and balanced partnerships"
+  above) alike — adds a small preference toward whichever available
+  option classifies as **mixed** first, **gendered** second, **standard**
+  (no clean gender story) last, on top of every score those searches
+  already compute.
+
+This is deliberately a **soft, additive preference, never a constraint**:
+every existing fairness weight (repeat-opponent, repeat-partner,
+opponent/partner-history) is at least an order of magnitude larger than
+gender preference's full spread, so a genuine fairness difference between
+two candidates always wins regardless of which one pairs genders more
+neatly — see `genderPreferenceScore` in `src/utils/dynamicPairingSocial.ts`.
+Concretely, this means gender-aware pairing:
+
+- **Never** creates a repeat opponent/partner ahead of an available
+  clean option, ever changes who rests, or moves a player to a different
+  court than ranking already put them on.
+- **Never** overrides a fixed team, or the ranking/game-lag basis behind
+  a dynamic round.
+- **Can** go entirely unrealized in a specific round if no available
+  option happens to classify well — e.g. two active female players who
+  simply don't end up in the same 4-player court group that round. It's
+  an attempt, not a guarantee, exactly as the goal describes.
+
+Every court's classification (`Mixed`/`Gendered`, or no badge at all for
+a `Standard` court) is shown on **Current Round** and **All Rounds**,
+computed fresh from whichever players actually ended up on that
+court — see `getMatchGenderType` in `src/utils/dynamicPairingSocial.ts`.
+**All Rounds** also notes, per round, whether gender-aware pairing was
+even active for it ("Gender-aware pairing applied where possible." vs.
+"Gender-aware pairing inactive: fewer than 2 female players.").
+
+**Current limitation:** once at least one fixed team exists (see "Fixed
+teams" below) *and* the round is past grading, sides are still built by
+plain rank-adjacency with no gender-optimisation pass (unlike the
+no-fixed-team ranking path's 2-option split, or the grading search, both
+of which do apply this preference) — the resulting match is still
+classified correctly for display, it's just never *steered* toward a
+better one in that specific combination. Grading rounds get full
+gender-aware treatment regardless of whether a fixed team exists. See
+`buildSidesFromRankedEntrants`'s doc comment.
 
 ### Fixed teams
 
@@ -510,8 +578,12 @@ team, or two individual players temporarily paired for that round).
   gets its own **seed**, **rating**, and (once grading finishes) **skill
   level** — set directly on its row — separate from either member's own
   fields, since those are what ranking actually reads once the team
-  exists. Each member keeps their own name and availability status,
-  editable right there on the team's row.
+  exists. Each member keeps their own name, **gender**, and availability
+  status, editable right there on the team's row — there's no separate
+  team-level gender field; a team's gender composition (MF/MM/FF, for
+  "Gender-aware pairing" above) is always derived from its two members'
+  own genders, the same "derived, not a separate field" approach the
+  rest of this section uses for stats.
 - **Splitting a team**: **Split Team** reverts it back to two individual
   rows. Always available before the session starts. Once the session has
   started, splitting still works but asks for confirmation first (an
@@ -718,6 +790,13 @@ it's a full wipe, not a "new round, same roster" reset.
   that round) rather than skip over a fairer entrant to make a better-
   fitting court — see "Round generation with fixed teams" above for why
   each of these is a deliberate scope decision, not an oversight.
+- **Gender-aware pairing** (see its own section above) **has no
+  optimisation pass once a fixed team exists in the ranking phase** —
+  same rank-adjacency-only path fixed teams already use there, just now
+  also not steered by gender; grading rounds aren't affected by this. It's
+  also a soft preference everywhere else, not a guarantee — a court with
+  only 1 active female player (or a female player who simply doesn't land
+  in the same 4-player group as another this round) still pairs normally.
 - **Grading round rotation is a bounded random search, not an exact
   solver** — a fixed number of random schedule attempts, keeping the best
   one found (see "Grading rounds are pre-generated up front" above) — so a
@@ -1465,8 +1544,11 @@ takes effect from the next round instead, same as everywhere else. Future
 **Add Player Mid-Session** (Session Controls / Resting Players / Manage
 Courts & Players — wherever a mode's other mid-session actions already
 live) adds a brand-new player without touching anything already played.
-Enter a name and optionally a rating, seed, and note, then choose **Join
-timing**:
+Enter a name and optionally a rating and note, then choose **Join
+timing**. Every mode except Dynamic Pairing Social also offers an optional
+starting seed here; Dynamic Pairing Social shows a **Gender** (M/F,
+default M) selector in that same spot instead, matching its own Setup
+roster — see "Gender-aware pairing" above.
 
 - **Join current round if possible** — folds them into the *live* round
   right now (a bye/resting slot, or an active court, whichever the normal
@@ -2316,7 +2398,14 @@ src/
                              derived status/label helpers (isAwaitingSkillReview — now
                              only a stale-session self-heal check, see
                              useDynamicPairingSocial.ts — playedDynamicPairingRounds,
-                             roundStatusLabel, roundPhaseLabel, nextRoundButtonLabel)
+                             roundStatusLabel, roundPhaseLabel, nextRoundButtonLabel),
+                             and gender-aware pairing (getPlayerGender,
+                             getSideGenderComposition, getMatchGenderType,
+                             matchGenderTypeLabel, shouldUseGenderAwarePairing,
+                             genderPreferenceScore — see "Gender-aware pairing" above;
+                             folded into scorePartnershipOption/createBalancedPartnerships
+                             and buildGradingCandidate/generateRotationAwareGradingRound
+                             as a small additive term, never a separate code path)
                              (Dynamic Pairing Social)
   utils/dynamicTeamQualifier.ts
                              Pure logic, entirely self-contained: rest schedule
@@ -2378,8 +2467,9 @@ src/
                              than duplicating it; KingCourtRoundsPage
                              is the Current Round/All Rounds toggle parent, mirroring
                              RoundsPage); DynamicPairingSetup (own player roster UI —
-                             not a reuse of PlayerList, since it needs starting seed +
-                             availability fields it doesn't have),
+                             not a reuse of PlayerList, since it needs gender +
+                             availability fields it doesn't have; gender replaces starting
+                             seed here specifically, see "Gender-aware pairing" above),
                              DynamicPairingRoundsPage (Current Round/All Rounds toggle
                              parent, mirroring RoundsPage), DynamicPairingCurrentRound,
                              DynamicPairingAllRounds (also renders 'pending-results'
@@ -2423,8 +2513,9 @@ its own utils file, its own hook, its own components, its own
 `localStorage` keys) rather than a rewrite of it — Dynamic Pairing Social
 and Dynamic Team Qualifier don't even share `usePlayers`/`useTeams`, only
 the `Player` *type* in Dynamic Pairing Social's case (extended with
-optional `startingSeed`/`availabilityStatus` fields every other mode
-simply never sets); Dynamic Team Qualifier doesn't use the shared `Player`
+optional `startingSeed`/`availabilityStatus`/`gender` fields every other
+mode simply never sets — see "Gender-aware pairing" above for the last
+one); Dynamic Team Qualifier doesn't use the shared `Player`
 or `Team` types at all — it has its own `DynamicTeam` shape, since a team
 (not a player) is the ranking/pairing unit throughout. King Court shares
 only the `Player` type and `usePlayers` roster (and UI/CSS building

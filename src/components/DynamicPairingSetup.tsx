@@ -1,10 +1,19 @@
 import { useState, type ChangeEvent, type KeyboardEvent } from 'react';
-import type { CourtMovementLimit, DynamicGameFormat, DynamicPairingSettings, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
+import type {
+  CourtMovementLimit,
+  DynamicGameFormat,
+  DynamicPairingSettings,
+  DynamicPairingTeam,
+  Player,
+  PlayerAvailabilityStatus,
+  PlayerGender,
+} from '../types';
 import {
   canGenerateDynamicPairingRound,
   courtMovementLimitLabel,
   dynamicPairingAvailabilityLabel,
   gameFormatLabel,
+  getPlayerGender,
 } from '../utils/dynamicPairingSocial';
 import { CourtSelector } from './CourtSelector';
 
@@ -13,6 +22,7 @@ const MOVEMENT_LIMITS: CourtMovementLimit[] = ['unrestricted', 'max-1', 'max-2']
 // current-round action (see PlayerAvailabilityControls in
 // DynamicPairingRestingPlayers.tsx), not a setup-time roster edit.
 const AVAILABILITY_OPTIONS: PlayerAvailabilityStatus[] = ['available', 'unavailable', 'left-early', 'injured'];
+const GENDER_OPTIONS: PlayerGender[] = ['M', 'F'];
 
 interface DynamicPairingSetupProps {
   settings: DynamicPairingSettings;
@@ -25,6 +35,7 @@ interface DynamicPairingSetupProps {
     rating?: number,
     startingSeed?: number,
     availabilityStatus?: PlayerAvailabilityStatus,
+    gender?: PlayerGender,
   ) => void;
   onRemovePlayer: (id: string) => void;
   onRemoveAllPlayers: () => void;
@@ -52,10 +63,19 @@ function idTimestamp(id: string): number {
 // Setup screen for Dynamic Pairing Social — a self-contained card (not
 // reusing TournamentSetup's Number of Courts/roster sections, since this
 // format needs its own fields: session name, grading rounds, game format,
-// court movement limit, and a player roster with starting seed +
-// availability that plain PlayerForm/PlayerList don't have). See
-// TournamentSetup's Social Format toggle for how you get here, and
+// court movement limit, and a player roster with gender + availability
+// that plain PlayerForm/PlayerList don't have). See TournamentSetup's
+// Social Format toggle for how you get here, and
 // utils/dynamicPairingSocial.ts for the logic this configures.
+//
+// Gender replaces starting seed in this roster specifically (see
+// PlayerGender in ../types.ts) — `startingSeed` still exists on the shared
+// Player shape and is still a valid ranking tiebreaker, it's just no longer
+// exposed here; a player added via the shared mid-session Add Player flow
+// can still arrive with a seed set (that flow shows Gender instead, when
+// used from Dynamic Pairing Social — see AddPlayerMidSessionModal's
+// `showGender`), and every row here forwards whatever seed a player already
+// has through unchanged rather than clearing it.
 //
 // Fixed teams: select two individual player rows (checkbox) and confirm in
 // the "Make Team" bar that appears — same interaction as Standard Social
@@ -87,6 +107,14 @@ export function DynamicPairingSetup({
   onGoToRounds,
 }: DynamicPairingSetupProps) {
   const startCheck = canGenerateDynamicPairingRound(players, settings, undefined);
+  // See shouldUseGenderAwarePairing — this is the same "available" count
+  // shown just below ("N available of M added"), just filtered to female,
+  // so this hint stays consistent with that line even though the real
+  // per-round check (in utils/dynamicPairingSocial.ts) also accounts for
+  // who's actually resting that specific round.
+  const activeFemaleCount = players.filter(
+    (p) => (p.availabilityStatus ?? 'available') === 'available' && getPlayerGender(p) === 'F',
+  ).length;
 
   function handleRemoveAll() {
     if (window.confirm('Are you sure you want to remove all players?')) {
@@ -140,9 +168,11 @@ export function DynamicPairingSetup({
           />
           <p className="hint">
             All {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} are generated up front when
-            you start matches, pairing courts at random (not by seed or results) while enough game data builds up —
-            see them all immediately under All Rounds. Default: 3. Once every grading round is scored, ranking is
-            calculated automatically from those results and dynamic pairing begins — no admin confirmation needed.
+            you start matches, pairing courts at random (not by rating or results — though still with a soft
+            preference toward mixed/gendered games when 2+ female players are active, see "Gender-aware pairing"
+            below) while enough game data builds up — see them all immediately under All Rounds. Default: 3. Once
+            every grading round is scored, ranking is calculated automatically from those results and dynamic
+            pairing begins — no admin confirmation needed.
           </p>
         </div>
 
@@ -166,6 +196,18 @@ export function DynamicPairingSetup({
             as Round N − 1 becomes current, without waiting for it to finish. For example, with 2 grading rounds and
             game lag 1, Round 3 is generated from Round 1 results. Set to 0 to always wait for the immediately
             preceding round to complete before generating the next one.
+          </p>
+        </div>
+
+        <div className="form-row">
+          <span>Gender-aware pairing</span>
+          <p className="hint">
+            Automatic — no setting to configure. Whenever 2 or more female players are active, the app attempts to
+            include mixed games (M/F vs M/F) and gendered games (M/M vs M/M, F/F vs F/F, or M/M vs F/F) alongside
+            regular matches — set each player's gender in the Players list below. This is a soft preference: it
+            never overrides bye fairness, opponent rotation, fixed teams, or the ranking behind dynamic pairing —
+            see README's "Gender-aware pairing". With fewer than 2 active female players, pairing works exactly as
+            it always has.
           </p>
         </div>
 
@@ -271,9 +313,13 @@ export function DynamicPairingSetup({
           )}
         </div>
         <p className="hint">
-          Starting seed (optional) is used only as a ranking tiebreaker — grading rounds are randomized regardless of
-          seed. Select two players below to combine them into a fixed team that always plays together and is
-          ranked as one unit — see README's "Fixed teams".
+          Gender (M/F, default M) is used for gender-aware pairing — see below. Select two players below to combine
+          them into a fixed team that always plays together and is ranked as one unit — see README's "Fixed teams".
+        </p>
+        <p className="hint">
+          {activeFemaleCount >= 2
+            ? `Gender-aware pairing is active — with ${activeFemaleCount} available female players, the app will attempt mixed (M/F vs M/F) and gendered games where possible, without breaking bye fairness or opponent rotation.`
+            : `Gender-aware pairing inactive: fewer than 2 available female players (${activeFemaleCount} currently). Pairing works exactly as before.`}
         </p>
         <DynamicPairingParticipantList
           players={players}
@@ -457,20 +503,23 @@ function DynamicPairingPlayerRow({
 }: DynamicPairingPlayerRowProps) {
   const [name, setName] = useState(player.name);
   const [rating, setRating] = useState(player.rating != null ? String(player.rating) : '');
-  const [seed, setSeed] = useState(player.startingSeed != null ? String(player.startingSeed) : '');
   const [skillLevel, setSkillLevel] = useState(player.skillLevel != null ? String(player.skillLevel) : '');
 
-  function commit(nextName: string, nextRating: string, nextSeed: string) {
+  // Starting seed is no longer editable from this row (replaced by Gender
+  // below — see the file header) but is still forwarded through unchanged
+  // on every commit, so a seed set via the mid-session Add Player flow (or
+  // by an older version of this screen) is never silently cleared just
+  // because the organiser edited this player's name/rating.
+  function commit(nextName: string, nextRating: string) {
     const trimmedRating = nextRating.trim();
     const parsedRating = trimmedRating === '' ? undefined : parseFloat(trimmedRating);
-    const trimmedSeed = nextSeed.trim();
-    const parsedSeed = trimmedSeed === '' ? undefined : parseInt(trimmedSeed, 10);
     onUpdate(
       player.id,
       nextName,
       parsedRating != null && !Number.isNaN(parsedRating) ? parsedRating : undefined,
-      parsedSeed != null && !Number.isNaN(parsedSeed) ? parsedSeed : undefined,
+      player.startingSeed,
       player.availabilityStatus,
+      player.gender,
     );
   }
 
@@ -485,11 +534,16 @@ function DynamicPairingPlayerRow({
   }
 
   function handleAvailabilityChange(event: ChangeEvent<HTMLSelectElement>) {
-    onUpdate(player.id, name, player.rating, player.startingSeed, event.target.value as PlayerAvailabilityStatus);
+    onUpdate(player.id, name, player.rating, player.startingSeed, event.target.value as PlayerAvailabilityStatus, player.gender);
+  }
+
+  function handleGenderChange(event: ChangeEvent<HTMLSelectElement>) {
+    onUpdate(player.id, name, player.rating, player.startingSeed, player.availabilityStatus, event.target.value as PlayerGender);
   }
 
   const missingName = name.trim() === '';
   const availability = player.availabilityStatus ?? 'available';
+  const gender = getPlayerGender(player);
 
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
@@ -508,7 +562,7 @@ function DynamicPairingPlayerRow({
         className="player-row-name"
         value={name}
         onChange={(event) => setName(event.target.value)}
-        onBlur={() => commit(name, rating, seed)}
+        onBlur={() => commit(name, rating)}
         onKeyDown={blurOnEnter}
         placeholder={`Player ${index + 1}`}
         aria-label={`Player ${index + 1} name`}
@@ -521,25 +575,26 @@ function DynamicPairingPlayerRow({
         min="0"
         value={rating}
         onChange={(event) => setRating(event.target.value)}
-        onBlur={() => commit(name, rating, seed)}
+        onBlur={() => commit(name, rating)}
         onKeyDown={blurOnEnter}
         placeholder="Unrated"
         aria-label={`Player ${index + 1} rating`}
         disabled={disabled}
       />
-      <input
-        type="number"
-        className="player-row-rating"
-        min={1}
-        step={1}
-        value={seed}
-        onChange={(event) => setSeed(event.target.value)}
-        onBlur={() => commit(name, rating, seed)}
-        onKeyDown={blurOnEnter}
-        placeholder="Seed"
-        aria-label={`Player ${index + 1} starting seed`}
+      <select
+        className="dp-gender-select"
+        value={gender}
+        onChange={handleGenderChange}
+        aria-label={`Player ${index + 1} gender`}
+        title="Gender — used for gender-aware pairing"
         disabled={disabled}
-      />
+      >
+        {GENDER_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
       <input
         type="number"
         className="player-row-rating"
@@ -615,9 +670,13 @@ function DynamicPairingTeamRow({
   const [rating, setRating] = useState(team.rating != null ? String(team.rating) : '');
   const [skillLevel, setSkillLevel] = useState(team.skillLevel != null ? String(team.skillLevel) : '');
 
+  // A team member is still a normal roster entry underneath (see the file
+  // header) — every field not being edited here is forwarded through
+  // unchanged, same as DynamicPairingPlayerRow's commit, so it's never
+  // silently cleared.
   function commitName(player: Player | undefined, nextName: string) {
     if (!player) return;
-    onUpdatePlayer(player.id, nextName, player.rating, player.startingSeed, player.availabilityStatus);
+    onUpdatePlayer(player.id, nextName, player.rating, player.startingSeed, player.availabilityStatus, player.gender);
   }
 
   function commitSeedAndRating(nextSeed: string, nextRating: string) {
@@ -640,7 +699,15 @@ function DynamicPairingTeamRow({
 
   function handleAvailabilityChange(player: Player | undefined, status: PlayerAvailabilityStatus) {
     if (!player) return;
-    onUpdatePlayer(player.id, player.name, player.rating, player.startingSeed, status);
+    onUpdatePlayer(player.id, player.name, player.rating, player.startingSeed, status, player.gender);
+  }
+
+  // A fixed team's gender composition (see getSideGenderComposition in
+  // utils/dynamicPairingSocial.ts) is always derived from its two members'
+  // own genders — there's no separate team-level gender field to set.
+  function handleGenderChange(player: Player | undefined, gender: PlayerGender) {
+    if (!player) return;
+    onUpdatePlayer(player.id, player.name, player.rating, player.startingSeed, player.availabilityStatus, gender);
   }
 
   function blurOnEnter(event: KeyboardEvent<HTMLInputElement>) {
@@ -670,6 +737,20 @@ function DynamicPairingTeamRow({
               aria-label={`Team ${index + 1} ${label} name`}
               disabled={disabled}
             />
+            <select
+              className="dp-gender-select"
+              value={getPlayerGender(player)}
+              onChange={(event) => handleGenderChange(player, event.target.value as PlayerGender)}
+              aria-label={`Team ${index + 1} ${label} gender`}
+              title="Gender — used for gender-aware pairing"
+              disabled={disabled}
+            >
+              {GENDER_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </select>
             <select
               className="dp-availability-select"
               value={player?.availabilityStatus ?? 'available'}

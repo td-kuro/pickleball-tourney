@@ -1,5 +1,13 @@
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
-import { entrantIdsForSide, rankingBasisLabel, roundPhaseLabel, roundStatusLabel } from '../utils/dynamicPairingSocial';
+import {
+  entrantIdsForSide,
+  getMatchGenderType,
+  matchGenderTypeLabel,
+  rankingBasisLabel,
+  roundPhaseLabel,
+  roundStatusLabel,
+  shouldUseGenderAwarePairing,
+} from '../utils/dynamicPairingSocial';
 
 const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
   upcoming: 'status-badge',
@@ -34,6 +42,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
   }
 
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
+  const playersById = new Map(players.map((p) => [p.id, p]));
 
   function teamLabel(playerIds: string[]) {
     return playerIds.map((id) => playerNameById.get(id) ?? 'Unknown player').join(' & ');
@@ -83,12 +92,16 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                       const badge1 = sideBadge(court, 1);
                       const badge2 = sideBadge(court, 2);
                       const hasScore = court.score1 != null && court.score2 != null;
+                      const genderType = getMatchGenderType(court.team1PlayerIds, court.team2PlayerIds, playersById);
                       return (
                         <li key={court.courtNumber} className="all-rounds-match">
                           <span>
                             Court {court.courtNumber}: {team1Label}
                             {badge1 && <span className="dp-side-badge"> ({badge1})</span>} vs {team2Label}
                             {badge2 && <span className="dp-side-badge"> ({badge2})</span>}
+                            {genderType !== 'standard' && (
+                              <span className="dp-side-badge dp-gender-match-badge"> {matchGenderTypeLabel(genderType)}</span>
+                            )}
                           </span>
                           {hasScore && (
                             <span className="all-rounds-score">
@@ -112,6 +125,13 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                       Rotation note: {round.rotationNote ?? 'No repeat opponents.'}
                     </p>
                   )}
+                  <p className="all-rounds-byes">
+                    {shouldUseGenderAwarePairing(
+                      round.courts.flatMap((c) => c.playerIds).map((id) => playersById.get(id)!).filter(Boolean),
+                    )
+                      ? 'Gender-aware pairing applied where possible.'
+                      : 'Gender-aware pairing inactive: fewer than 2 female players.'}
+                  </p>
                   {joiningPlayerNames(round.roundNumber).map((name) => (
                     <p key={name} className="all-rounds-byes">
                       Note: {name} joins from this round

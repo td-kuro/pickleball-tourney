@@ -2,8 +2,10 @@ import { useState, type FormEvent } from 'react';
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
 import {
   dynamicPairingAvailabilityLabel,
+  getMatchGenderType,
   isDynamicPairingFixedTeamSide,
   isDynamicPairingRoundComplete,
+  matchGenderTypeLabel,
   nextRoundButtonLabel,
   rankingBasisLabel,
   roundPhaseLabel,
@@ -106,6 +108,15 @@ export function DynamicPairingCurrentRound({
     return isDynamicPairingFixedTeamSide(playerIds, teams) ? 'Fixed Team' : 'Temporary Pair';
   }
 
+  // Only shown for a court whose gender classification is worth calling
+  // out (see getMatchGenderType) — a 'standard' court (no clean mixed/
+  // gendered story) shows no label at all, keeping this uncluttered for
+  // sessions where gender-aware pairing isn't active.
+  function matchGenderLabel(team1PlayerIds: string[], team2PlayerIds: string[]): string | null {
+    const type = getMatchGenderType(team1PlayerIds, team2PlayerIds, playerById);
+    return type === 'standard' ? null : matchGenderTypeLabel(type);
+  }
+
   function renderPlayerNames(playerIds: string[]) {
     return (
       <span className="match-team-name">
@@ -167,6 +178,7 @@ export function DynamicPairingCurrentRound({
                 team2Label={teamLabel(court.team2PlayerIds)}
                 team1Badge={sideBadge(court.team1PlayerIds)}
                 team2Badge={sideBadge(court.team2PlayerIds)}
+                genderTypeLabel={matchGenderLabel(court.team1PlayerIds, court.team2PlayerIds)}
                 renderTeam1={() => renderPlayerNames(court.team1PlayerIds)}
                 renderTeam2={() => renderPlayerNames(court.team2PlayerIds)}
                 onSetScore={(score1, score2) => onSetScore(court.courtNumber, score1, score2)}
@@ -215,12 +227,23 @@ interface DynamicPairingCourtCardProps {
   team2Label: string;
   team1Badge: string | null;
   team2Badge: string | null;
+  genderTypeLabel: string | null;
   renderTeam1: () => React.ReactNode;
   renderTeam2: () => React.ReactNode;
   onSetScore: (score1: number, score2: number) => void;
 }
 
-function DynamicPairingCourtCard({ court, team1Label, team2Label, team1Badge, team2Badge, renderTeam1, renderTeam2, onSetScore }: DynamicPairingCourtCardProps) {
+function DynamicPairingCourtCard({
+  court,
+  team1Label,
+  team2Label,
+  team1Badge,
+  team2Badge,
+  genderTypeLabel,
+  renderTeam1,
+  renderTeam2,
+  onSetScore,
+}: DynamicPairingCourtCardProps) {
   const [score1, setScore1] = useState(court.score1 != null ? String(court.score1) : '');
   const [score2, setScore2] = useState(court.score2 != null ? String(court.score2) : '');
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +271,10 @@ function DynamicPairingCourtCard({ court, team1Label, team2Label, team1Badge, te
 
   return (
     <form className="match-card" onSubmit={handleSubmit}>
-      <div className="match-header">Court {court.courtNumber}</div>
+      <div className="match-header">
+        Court {court.courtNumber}
+        {genderTypeLabel && <span className="dp-side-badge dp-gender-match-badge"> {genderTypeLabel}</span>}
+      </div>
       <div className="match-teams">
         <div className={court.winnerTeam === 1 ? 'match-team winner' : 'match-team'}>
           {renderTeam1()}

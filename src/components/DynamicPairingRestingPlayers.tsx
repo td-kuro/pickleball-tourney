@@ -169,6 +169,7 @@ export function DynamicPairingRestingPlayers({
             onAdd={onAddPlayerMidSession}
             offerCurrentRoundJoin={!!currentRound}
             restingListLabel="resting list"
+            showGender
           />
         </div>
       </section>
