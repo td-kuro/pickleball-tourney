@@ -770,14 +770,11 @@ function App() {
           currentRound={dynamicPairing.currentRound}
           players={dynamicPairing.players}
           teams={dynamicPairing.teams}
-          awaitingSkillReview={dynamicPairing.awaitingSkillReview}
           onSetScore={(courtNumber, score1, score2) => {
             if (!dynamicPairing.currentRound) return;
             dynamicPairing.setCourtScore(dynamicPairing.currentRound.id, courtNumber, score1, score2);
           }}
           onGenerateNextRound={dynamicPairing.generateNextRound}
-          onUpdateEntrantSkillLevel={dynamicPairing.updateEntrantSkillLevel}
-          onConfirmSkillReview={dynamicPairing.confirmSkillReviewAndStartRankingRounds}
           onSetAvailability={dynamicPairing.setAvailabilityStatus}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
         />

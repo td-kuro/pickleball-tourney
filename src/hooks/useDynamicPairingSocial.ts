@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import type {
   AddPlayerMidSessionResult,
   DynamicPairingRound,
@@ -13,6 +14,7 @@ import {
   canGenerateDynamicPairingRound,
   canSwapPlayerInDynamicPairingRound,
   dynamicPairingTeamDisplayName,
+  extendDynamicPairingLookahead,
   generateDynamicPairingRoundForEntrants,
   generateInitialGradingRoundsForEntrants,
   isAwaitingSkillReview,
@@ -20,7 +22,6 @@ import {
   lockCompletedRound,
   processDynamicPairingScore,
   regenerateCurrentDynamicPairingRound,
-  regenerateUpcomingRankingRoundsForEntrants,
   regenerateUpcomingRoundsForEntrants,
   swapPlayerInDynamicPairingRound,
 } from '../utils/dynamicPairingSocial';
@@ -94,12 +95,33 @@ export function useDynamicPairingSocial() {
   const started = rounds.length > 0;
   const currentRound = rounds.find((r) => r.status === 'current');
   // Gates the "Set Skill Levels" UI on the Setup tab — see
-  // isGradingPhaseComplete and Player.skillLevel.
+  // isGradingPhaseComplete and Player.skillLevel. Purely a ranking
+  // tiebreaker input, independent of the auto-advance self-heal below —
+  // it stays available on Setup whether or not a skill review checkpoint
+  // ever existed for this session.
   const gradingPhaseComplete = isGradingPhaseComplete(rounds, settings);
-  // True once the pre-generated grading batch is fully played and Round 4+
-  // hasn't been generated yet — see isAwaitingSkillReview. Gates showing
-  // DynamicPairingAdminSkillReview in place of Current Round.
+  // Only ever true for a session whose `rounds` were saved by an older
+  // version of this app, genuinely stuck at the old Admin Skill Review
+  // checkpoint — see isAwaitingSkillReview and the self-heal effect below,
+  // which advances past it automatically. A session started under the
+  // current version can never observe this as true, since
+  // generateNextRound now generates/activates Round `gradingRounds + 1`
+  // itself the moment grading finishes.
   const awaitingSkillReview = isAwaitingSkillReview(rounds, settings);
+
+  // Self-heal for exactly that stale case: reaching this checkpoint used
+  // to require an explicit organiser click (confirmSkillReviewAndStartRankingRounds)
+  // to unblock the session; that requirement is removed, so a session
+  // loaded from localStorage in that state advances past it automatically
+  // instead of leaving the organiser with no current round and no visible
+  // way to continue.
+  useEffect(() => {
+    if (!awaitingSkillReview) return;
+    const check = canGenerateDynamicPairingRound(players, settings, undefined);
+    if (!check.ok) return;
+    const firstDynamicRound = generateDynamicPairingRoundForEntrants(players, teams, settings, rounds);
+    setRounds(extendDynamicPairingLookahead(players, teams, settings, [...rounds, firstDynamicRound]));
+  }, [awaitingSkillReview, players, teams, settings, rounds, setRounds]);
 
   function updateSettings(next: DynamicPairingSettings) {
     setSettings(next);
@@ -326,7 +348,8 @@ export function useDynamicPairingSocial() {
     setTeams(teams.map((t) => (t.id === teamId ? { ...t, seed, rating } : t)));
   }
 
-  // Entrant-aware skill-level setter for Admin Skill Review — writes to the
+  // Entrant-aware skill-level setter for the Setup tab's participant list
+  // (see DynamicPairingSetup, skillLevelEditable) — writes to the
   // matching team's own skillLevel when `entrantId` is a team id, otherwise
   // falls through to the regular per-player setter.
   function updateEntrantSkillLevel(entrantId: string, skillLevel?: number) {
@@ -342,27 +365,30 @@ export function useDynamicPairingSocial() {
   // All Rounds shows the whole planned schedule immediately — see
   // generateInitialGradingRounds. Only Round 1 is playable to start; the
   // rest are 'upcoming' until generateNextRound activates them in order.
-  // The extra regenerateUpcomingRankingRoundsForEntrants pass is a no-op
-  // in the normal case (grading rounds exist, so there's no ranking round
-  // to look ahead from yet) — it only does something when gradingRounds is
-  // 0, where the very first generated round is already a ranking round.
+  // The extendDynamicPairingLookahead pass appends the first dynamic
+  // round beyond the grading batch — generated for real immediately if
+  // its (lagged or baseline) ranking basis is already available (only
+  // possible with a large enough game lag or gradingRounds of 0), or a
+  // 'pending-results' placeholder otherwise — so All Rounds shows what's
+  // coming even before grading finishes.
   function startSession() {
     const initial = generateInitialGradingRoundsForEntrants(players, teams, settings);
-    setRounds(regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, initial));
+    setRounds(extendDynamicPairingLookahead(players, teams, settings, initial));
   }
 
-  // Advances past the current round once every court is scored.
-  // Grading phase: a pre-generated round (Round 2 or 3) is just activated
-  // in order, or — on the last grading round — locked with nothing made
-  // 'current' after it, which is exactly what makes isAwaitingSkillReview
-  // true; DynamicPairingAdminSkillReview takes it from here via
-  // confirmSkillReviewAndStartRankingRounds. Ranking phase: the look-ahead
-  // window (see regenerateUpcomingRankingRoundsForEntrants) normally
-  // already has the next round pre-generated — activate it — then rebuild
-  // the remaining look-ahead window against the results that just came in,
-  // per the "Predetermined round generation" rule (recalculate rankings,
-  // regenerate only future unlocked rounds, never touch what's
-  // locked/completed/current).
+  // Advances past the current round once every court is scored, locks it,
+  // then rebuilds the dynamic-pairing look-ahead tail against the result
+  // that just came in (see extendDynamicPairingLookahead) before
+  // activating whatever is now 'upcoming' at the next round number —
+  // either a still-pre-generated grading round, a dynamic round that was
+  // already real ahead of time, or one that extendDynamicPairingLookahead
+  // just upgraded from a 'pending-results' placeholder now that this
+  // round's result unblocked it. This is what removes the old Admin Skill
+  // Review checkpoint: completing the last grading round no longer leaves
+  // the session waiting on an organiser confirmation — Round
+  // `gradingRounds + 1` is generated and activated the same way any other
+  // round is (see extendDynamicPairingLookahead's doc comment for why the
+  // next round is always ready by this point).
   function generateNextRound() {
     if (!currentRound) return;
     // "This round" is ending — resting-this-round players are available
@@ -379,49 +405,23 @@ export function useDynamicPairingSocial() {
     if (!check.ok) return;
 
     const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
-    const upcoming = locked.find((r) => r.roundNumber === currentRound.roundNumber + 1 && r.status === 'upcoming');
+    const withLookahead = extendDynamicPairingLookahead(updatedPlayers, teams, settings, locked);
+    const upcoming = withLookahead.find((r) => r.roundNumber === upcomingRoundNumber && r.status === 'upcoming');
 
-    if (currentRound.phase === 'grading') {
-      if (upcoming) {
-        setRounds(locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r)));
-        return;
-      }
-      setRounds(locked); // last grading round — hands off to Admin Skill Review
-      return;
-    }
-
-    // Ranking phase. Only generates fresh here (instead of activating an
-    // already-pre-generated round) when rankingLagRounds is 0, i.e. no
-    // look-ahead window exists at all.
+    // The fallback (generate fresh, right now) guards against an
+    // otherwise-unreachable state — see extendDynamicPairingLookahead's
+    // doc comment — rather than leaving the organiser stuck with no
+    // current round.
     const activated: DynamicPairingRound[] = upcoming
-      ? locked.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r))
-      : [...locked, generateDynamicPairingRoundForEntrants(updatedPlayers, teams, settings, locked)];
+      ? withLookahead.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r))
+      : [...withLookahead, generateDynamicPairingRoundForEntrants(updatedPlayers, teams, settings, withLookahead)];
 
-    const regenerated = regenerateUpcomingRankingRoundsForEntrants(updatedPlayers, teams, settings, activated);
-    setRounds(regenerated);
-    if (regenerated.some((r) => r.status === 'upcoming')) {
+    setRounds(activated);
+    if (activated.some((r) => r.status === 'upcoming' || r.status === 'pending-results')) {
       logAdjustment('future-rounds-regenerated', {
-        note: 'Future rounds were updated using latest available lagged rankings.',
+        note: 'Future Dynamic Pairing rounds were updated using game-lag rankings.',
       });
     }
-  }
-
-  // Confirms Admin Skill Review and generates Round `gradingRounds + 1` —
-  // the first round to use real ranking-based pairing (see
-  // generateDynamicPairingRound's 'ranking' phase) — then immediately
-  // extends the ranking look-ahead window as far as rankingLagRounds
-  // allows (see regenerateUpcomingRankingRoundsForEntrants), so e.g. with
-  // the default lag of 1 and 3 grading rounds, Round 5 is already visible
-  // in All Rounds the moment Round 4 becomes current. Setting skill levels
-  // beforehand is optional (see updatePlayerSkillLevel); only reaching and
-  // clicking Confirm is required to unblock Round 4.
-  function confirmSkillReviewAndStartRankingRounds() {
-    if (!awaitingSkillReview) return;
-    const check = canGenerateDynamicPairingRound(players, settings, undefined);
-    if (!check.ok) return;
-    const firstRankingRound = generateDynamicPairingRoundForEntrants(players, teams, settings, rounds);
-    const withLookahead = regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, [...rounds, firstRankingRound]);
-    setRounds(withLookahead);
   }
 
   function setCourtScore(roundId: string, courtNumber: number, score1: number, score2: number) {
@@ -461,10 +461,8 @@ export function useDynamicPairingSocial() {
     currentRound,
     started,
     gradingPhaseComplete,
-    awaitingSkillReview,
     startSession,
     generateNextRound,
-    confirmSkillReviewAndStartRankingRounds,
     setCourtScore,
     changeCourtCount,
     swapPlayerInCurrentRound,

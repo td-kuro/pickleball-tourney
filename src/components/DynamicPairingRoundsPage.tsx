@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
-import { DynamicPairingAdminSkillReview } from './DynamicPairingAdminSkillReview';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
 
@@ -11,33 +10,29 @@ interface DynamicPairingRoundsPageProps {
   currentRound: DynamicPairingRound | undefined;
   players: Player[];
   teams: DynamicPairingTeam[];
-  awaitingSkillReview: boolean;
   onSetScore: (courtNumber: number, score1: number, score2: number) => void;
   onGenerateNextRound: () => void;
-  onUpdateEntrantSkillLevel: (entrantId: string, skillLevel?: number) => void;
-  onConfirmSkillReview: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
 }
 
 // Parent for Dynamic Pairing Social's "Rounds" tab — a Current Round / All
 // Rounds toggle, mirroring RoundsPage's shape for the standard rotating-
-// round modes. While awaitingSkillReview is true (all pre-generated
-// grading rounds played, Round 4 not generated yet — see
-// isAwaitingSkillReview), the "Current Round" slot shows
-// DynamicPairingAdminSkillReview instead — All Rounds keeps working
-// exactly as normal throughout, since it doesn't depend on there being an
-// active round.
+// round modes. Ranking is now calculated and dynamic rounds generated
+// automatically as soon as their game-lag basis is available (see
+// extendDynamicPairingLookahead in utils/dynamicPairingSocial.ts) — there's
+// no longer an Admin Skill Review checkpoint between grading and dynamic
+// pairing here (see DynamicPairingAdminSkillReview.tsx's file header for
+// where that screen used to be wired in). All Rounds keeps working exactly
+// as normal throughout, since it doesn't depend on there being an active
+// round.
 export function DynamicPairingRoundsPage({
   rounds,
   currentRound,
   players,
   teams,
-  awaitingSkillReview,
   onSetScore,
   onGenerateNextRound,
-  onUpdateEntrantSkillLevel,
-  onConfirmSkillReview,
   onSetAvailability,
   onSwap,
 }: DynamicPairingRoundsPageProps) {
@@ -65,26 +60,16 @@ export function DynamicPairingRoundsPage({
       </div>
 
       {subView === 'current' ? (
-        awaitingSkillReview ? (
-          <DynamicPairingAdminSkillReview
-            players={players}
-            teams={teams}
-            rounds={rounds}
-            onUpdateSkillLevel={onUpdateEntrantSkillLevel}
-            onConfirm={onConfirmSkillReview}
-          />
-        ) : (
-          <DynamicPairingCurrentRound
-            round={currentRound}
-            rounds={rounds}
-            players={players}
-            teams={teams}
-            onSetScore={onSetScore}
-            onGenerateNextRound={onGenerateNextRound}
-            onSetAvailability={onSetAvailability}
-            onSwap={onSwap}
-          />
-        )
+        <DynamicPairingCurrentRound
+          round={currentRound}
+          rounds={rounds}
+          players={players}
+          teams={teams}
+          onSetScore={onSetScore}
+          onGenerateNextRound={onGenerateNextRound}
+          onSetAvailability={onSetAvailability}
+          onSwap={onSwap}
+        />
       ) : (
         <DynamicPairingAllRounds rounds={rounds} players={players} />
       )}

@@ -6,6 +6,7 @@ const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
   current: 'status-badge status-badge-current',
   completed: 'status-badge status-badge-completed',
   locked: 'status-badge status-badge-completed',
+  'pending-results': 'status-badge',
 };
 
 interface DynamicPairingAllRoundsProps {
@@ -16,7 +17,12 @@ interface DynamicPairingAllRoundsProps {
 // Read-only history of every Dynamic Pairing Social round generated so
 // far — same spirit as AllRoundsView, adapted for DynamicPairingRound's
 // shape (courts instead of matches, a phase badge, resting players
-// instead of byes).
+// instead of byes). Includes future Dynamic Pairing rounds the game-lag
+// look-ahead has already generated (status 'upcoming', courts/pairing
+// basis already decided) as well as a trailing 'pending-results'
+// placeholder — no courts yet, just a note on which round's results it's
+// still waiting for — see extendDynamicPairingLookahead in
+// utils/dynamicPairingSocial.ts.
 export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRoundsProps) {
   if (rounds.length === 0) {
     return (
@@ -66,47 +72,53 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                 <span className={STATUS_CLASS[round.status]}>{roundStatusLabel(round.status)}</span>
                 <span className="all-rounds-match-type">{roundPhaseLabel(round.phase)}</span>
               </div>
-              <ul className="all-rounds-matches">
-                {round.courts.map((court) => {
-                  const team1Label = teamLabel(court.team1PlayerIds);
-                  const team2Label = teamLabel(court.team2PlayerIds);
-                  const badge1 = sideBadge(court, 1);
-                  const badge2 = sideBadge(court, 2);
-                  const hasScore = court.score1 != null && court.score2 != null;
-                  return (
-                    <li key={court.courtNumber} className="all-rounds-match">
-                      <span>
-                        Court {court.courtNumber}: {team1Label}
-                        {badge1 && <span className="dp-side-badge"> ({badge1})</span>} vs {team2Label}
-                        {badge2 && <span className="dp-side-badge"> ({badge2})</span>}
-                      </span>
-                      {hasScore && (
-                        <span className="all-rounds-score">
-                          {court.score1}–{court.score2}
-                          {court.winnerTeam && ` · Winner: ${court.winnerTeam === 1 ? team1Label : team2Label}`}
-                        </span>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="all-rounds-byes">Pairing basis: {rankingBasisLabel(round)}</p>
-              <p className="all-rounds-byes">
-                {round.restingPlayerIds.length > 0
-                  ? `Resting: ${restLabel(round.restingPlayerIds)}`
-                  : 'Everyone available played this round.'}
-              </p>
-              {round.byeFairnessNote && <p className="all-rounds-byes">{round.byeFairnessNote}</p>}
-              {round.phase === 'grading' && (
-                <p className="all-rounds-byes">
-                  Rotation note: {round.rotationNote ?? 'No repeat opponents.'}
-                </p>
+              {round.status === 'pending-results' ? (
+                <p className="all-rounds-byes">Pairing basis: {rankingBasisLabel(round)}</p>
+              ) : (
+                <>
+                  <ul className="all-rounds-matches">
+                    {round.courts.map((court) => {
+                      const team1Label = teamLabel(court.team1PlayerIds);
+                      const team2Label = teamLabel(court.team2PlayerIds);
+                      const badge1 = sideBadge(court, 1);
+                      const badge2 = sideBadge(court, 2);
+                      const hasScore = court.score1 != null && court.score2 != null;
+                      return (
+                        <li key={court.courtNumber} className="all-rounds-match">
+                          <span>
+                            Court {court.courtNumber}: {team1Label}
+                            {badge1 && <span className="dp-side-badge"> ({badge1})</span>} vs {team2Label}
+                            {badge2 && <span className="dp-side-badge"> ({badge2})</span>}
+                          </span>
+                          {hasScore && (
+                            <span className="all-rounds-score">
+                              {court.score1}–{court.score2}
+                              {court.winnerTeam && ` · Winner: ${court.winnerTeam === 1 ? team1Label : team2Label}`}
+                            </span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <p className="all-rounds-byes">Pairing basis: {rankingBasisLabel(round)}</p>
+                  <p className="all-rounds-byes">
+                    {round.restingPlayerIds.length > 0
+                      ? `Resting: ${restLabel(round.restingPlayerIds)}`
+                      : 'Everyone available played this round.'}
+                  </p>
+                  {round.byeFairnessNote && <p className="all-rounds-byes">{round.byeFairnessNote}</p>}
+                  {round.phase === 'grading' && (
+                    <p className="all-rounds-byes">
+                      Rotation note: {round.rotationNote ?? 'No repeat opponents.'}
+                    </p>
+                  )}
+                  {joiningPlayerNames(round.roundNumber).map((name) => (
+                    <p key={name} className="all-rounds-byes">
+                      Note: {name} joins from this round
+                    </p>
+                  ))}
+                </>
               )}
-              {joiningPlayerNames(round.roundNumber).map((name) => (
-                <p key={name} className="all-rounds-byes">
-                  Note: {name} joins from this round
-                </p>
-              ))}
             </div>
           ))}
       </div>

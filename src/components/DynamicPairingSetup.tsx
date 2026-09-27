@@ -141,29 +141,31 @@ export function DynamicPairingSetup({
           <p className="hint">
             All {settings.gradingRounds} round{settings.gradingRounds === 1 ? '' : 's'} are generated up front when
             you start matches, pairing courts at random (not by seed or results) while enough game data builds up —
-            see them all immediately under All Rounds. Default: 3. Once every grading round is scored, an Admin
-            Skill Review screen lets you assign a skill level per player before dynamic pairing begins.
+            see them all immediately under All Rounds. Default: 3. Once every grading round is scored, ranking is
+            calculated automatically from those results and dynamic pairing begins — no admin confirmation needed.
           </p>
         </div>
 
         <div className="form-row">
-          <label htmlFor="dp-ranking-lag">Ranking lag (rounds)</label>
+          <label htmlFor="dp-game-lag">Game lag (rounds)</label>
           <input
-            id="dp-ranking-lag"
+            id="dp-game-lag"
             type="number"
             min={0}
             value={settings.rankingLagRounds}
             onChange={(event) => {
               const parsed = parseInt(event.target.value, 10);
-              onChangeSettings({ ...settings, rankingLagRounds: Number.isNaN(parsed) ? 0 : Math.max(0, parsed) });
+              onChangeSettings({ ...settings, rankingLagRounds: Number.isNaN(parsed) ? 1 : Math.max(0, parsed) });
             }}
             disabled={started}
           />
           <p className="hint">
-            Once dynamic pairing starts, Round N's court order is decided from completed results up to Round N − 1 −
-            this number — so with the default of 1, Round N is generated (and already visible under All Rounds) as
-            soon as Round N − 1 becomes current, without waiting for it to finish. Set to 0 to always wait for the
-            immediately preceding round to complete before generating the next one.
+            Game lag controls how many rounds behind the dynamic pairing calculation uses, so future rounds can be
+            viewed in advance. Round N's court order is decided from completed results up to Round N − 1 − this
+            number — so with the default of 1, Round N is generated (and already visible under All Rounds) as soon
+            as Round N − 1 becomes current, without waiting for it to finish. For example, with 2 grading rounds and
+            game lag 1, Round 3 is generated from Round 1 results. Set to 0 to always wait for the immediately
+            preceding round to complete before generating the next one.
           </p>
         </div>
 
@@ -291,8 +293,8 @@ export function DynamicPairingSetup({
         </p>
         <p className="hint">
           {gradingPhaseComplete
-            ? 'Skill level (1 = strongest) can be set per player/team below — it helps break ranking ties while match data is still thin. You can also set it from the Admin Skill Review screen shown right after grading finishes.'
-            : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored — you'll also get a dedicated Admin Skill Review screen at that point.`}
+            ? 'Skill level (1 = strongest) can be set per player/team below — it helps break ranking ties while match data is still thin. Setting it is entirely optional; dynamic pairing starts automatically once grading finishes either way.'
+            : `Skill level can be set once all ${settings.gradingRounds} grading round${settings.gradingRounds === 1 ? '' : 's'} are scored.`}
         </p>
         {(players.length > 0 || teams.length > 0) && !started && (
           <div className="section-footer-actions">

@@ -593,15 +593,19 @@ export interface DynamicPairingSettings {
   // before they're final" flow — always false in this version; scores are
   // accepted as entered, same as every other mode.
   scoreConfirmationRequired: boolean;
-  // Predetermined-round ranking lag — see
-  // calculateDynamicPairingRankingForRound in utils/dynamicPairingSocial.ts.
-  // Round N's competitive pairing/court order is decided from completed
-  // results only up to Round N - 1 - rankingLagRounds, which is what lets
-  // Round N be generated (and shown in All Rounds) before Round N - 1, or
-  // even Round N - rankingLagRounds, has finished. Bye/rest fairness and
-  // partner/opponent variety are never lagged — they always use every
-  // round actually completed so far, independent of ranking (see the file
-  // header of dynamicPairingSocial.ts). Default 1.
+  // Predetermined-round ranking lag, a.k.a. "game lag" in the setup UI —
+  // see calculateDynamicPairingRankingForRound and
+  // extendDynamicPairingLookahead in utils/dynamicPairingSocial.ts. Round
+  // N's competitive pairing/court order is decided from completed results
+  // only up to Round N - 1 - rankingLagRounds, which is what lets Round N
+  // be generated (and shown in All Rounds) before Round N - 1, or even
+  // Round N - rankingLagRounds, has finished — including while the
+  // grading phase is still in progress, whenever that lagged basis is
+  // already available. Bye/rest fairness and partner/opponent variety are
+  // never lagged — they always use every round actually completed so far,
+  // independent of ranking (see the file header of
+  // dynamicPairingSocial.ts). Minimum 0; empty/invalid input in the UI
+  // falls back to the default of 1.
   rankingLagRounds: number;
 }
 
@@ -661,17 +665,36 @@ export interface DynamicPairingRankingBasis {
   type: DynamicPairingRankingBasisType;
   includedRoundNumbers: number[];
   rankingLagRounds: number;
+  // The round this basis was computed for — redundant with the containing
+  // DynamicPairingRound.roundNumber for a real round, but also present on
+  // a 'pending-results' placeholder's basis (which has no matches yet) so
+  // the placeholder's own note is self-contained.
+  targetRoundNumber?: number;
+  // Set only when type is 'lagged-results': the highest completed round
+  // number this basis actually needed (targetRoundNumber - 1 - lag) — see
+  // calculateDynamicPairingRankingForRound. On a 'pending-results'
+  // placeholder, this is the round the organiser is still waiting on.
+  requiredCompletedRoundNumber?: number;
+  // Human-readable explanation — see rankingBasisLabel / the placeholder
+  // branch of extendDynamicPairingLookahead in utils/dynamicPairingSocial.ts.
+  note?: string;
 }
 
-// 'upcoming': a pre-generated grading round (see generateInitialGradingRounds
-// in utils/dynamicPairingSocial.ts) whose courts/partners are already
-// decided but hasn't started yet — no score entry until it becomes
-// 'current'. 'completed' vs 'locked': a round becomes 'locked' (read-only)
-// the moment the next round is activated/generated — see
-// lockCompletedRound. 'completed' is a forward-compatibility synonym this
-// app never actually produces (see roundStatusLabel, which renders both
-// identically as "Completed").
-export type DynamicPairingRoundStatus = 'upcoming' | 'current' | 'completed' | 'locked';
+// 'upcoming': a pre-generated round (grading or dynamic pairing — see
+// generateInitialGradingRounds / extendDynamicPairingLookahead in
+// utils/dynamicPairingSocial.ts) whose courts/partners are already decided
+// but hasn't started yet — no score entry until it becomes 'current'.
+// 'pending-results': a dynamic-pairing round whose lagged ranking basis
+// isn't determinable yet from completed results — a placeholder with no
+// courts, shown in All Rounds with a note on which round it's waiting for
+// (see extendDynamicPairingLookahead). It's automatically replaced by a
+// real 'upcoming' round the moment that basis becomes available.
+// 'completed' vs 'locked': a round becomes 'locked' (read-only) the moment
+// the next round is activated/generated — see lockCompletedRound.
+// 'completed' is a forward-compatibility synonym this app never actually
+// produces (see roundStatusLabel, which renders both identically as
+// "Completed").
+export type DynamicPairingRoundStatus = 'upcoming' | 'current' | 'completed' | 'locked' | 'pending-results';
 
 export type DynamicPairingCourtStatus = 'pending' | 'completed';
 
@@ -723,6 +746,8 @@ export interface DynamicPairingRound {
   // generated before this feature existed) — which completed rounds'
   // results decided this round's competitive pairing/court order. See
   // DynamicPairingRankingBasis / calculateDynamicPairingRankingForRound.
+  // Always present (with type 'lagged-results' and no included rounds yet)
+  // on a 'pending-results' placeholder — see requiredCompletedRoundNumber.
   rankingBasis?: DynamicPairingRankingBasis;
   // Set only when selectFairByeEntrants had to rest an entrant slightly
   // "out of order" (by total bye count) because of an unavoidable

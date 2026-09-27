@@ -145,10 +145,16 @@ The goal: make matches progressively more competitive and balanced
 through the session. A handful of **grading rounds** — all pre-generated
 together at session start (see "Grading rounds are pre-generated up
 front" below) — shuffle players at random to get real match data on the
-board before anyone's ranked, then hand off to **Admin Skill Review**
-(see below) for what the organiser can do once grading ends; every round
-after that re-ranks players from their actual results so far, and
-rebuilds courts, partners, and opponents around that ranking.
+board before anyone's ranked; every round after that ("Dynamic Pairing")
+re-ranks players from their actual results so far and rebuilds courts,
+partners, and opponents around that ranking — calculated **automatically**
+the instant enough results exist, with no organiser confirmation step in
+between (see "Automatic ranking and no Admin Skill Review" below).
+Dynamic Pairing rounds are themselves generated ahead of time, as far as
+the **Game lag** setting allows, so the organiser can see a round or more
+into the future under **All Rounds** before it becomes current — even
+while grading is still in progress (see "Game lag and predetermined
+rounds" below).
 
 ### Two independent systems: ranking and rest
 
@@ -178,13 +184,16 @@ with its own card:
   **starting seed** (1 = strongest), used only as a ranking tiebreaker —
   grading rounds are randomized regardless of seed (see "Grading rounds
   are pre-generated up front" below). Once grading finishes, a **skill
-  level** (also 1 = strongest) becomes assignable per player too — see
-  "Admin Skill Review" below.
+  level** (also 1 = strongest) becomes assignable per player too, right on
+  this same Players list — entirely optional, and never a blocker to
+  dynamic pairing starting (see "Automatic ranking and no Admin Skill
+  Review" below).
 - **Grading rounds** — how many of the first rounds are grading rounds.
   Default: **3**.
-- **Ranking lag (rounds)** — how many rounds "behind" the competitive
-  ranking a predetermined round's pairing is allowed to be. Default: **1**.
-  See "Predetermined rounds and ranking lag" below.
+- **Game lag (rounds)** — how many rounds "behind" the competitive
+  ranking a predetermined Dynamic Pairing round's pairing is allowed to
+  be. Default: **1**, minimum **0** (an empty or invalid value falls back
+  to the default of 1). See "Game lag and predetermined rounds" below.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
   **First to Score** (with a winning score) — for the organiser's
   reference; this version doesn't enforce either automatically (same
@@ -251,15 +260,23 @@ as always, projected across the whole batch — see "Rest management" and
 "Court allocation and balanced partnerships" below), but score entry stays
 locked to whichever round is currently **Current**. Completing a round's
 scores and advancing (via the button on Current Round) flips the next
-pre-generated round from Upcoming to Current — no new generation happens
-until Round 4.
+pre-generated round from Upcoming to Current.
+
+Alongside the grading batch, the first Dynamic Pairing round (Round
+`gradingRounds + 1`) already has its own entry under **All Rounds** from
+the moment you click Start Matches — either fully generated already (only
+possible with a large enough Game lag, or 0 grading rounds) or, in the
+normal case, a **Pending Results** placeholder that's upgraded to a real
+round the moment its game-lag basis becomes available, which can happen
+*before* grading itself finishes — see "Game lag and predetermined
+rounds" below.
 
 During every grading round:
 
 - Courts and partnerships are assigned **at random** — not by starting
   seed, rating, or results — since there isn't enough game data yet to
   rank meaningfully, and skill levels aren't assignable yet either (see
-  "Admin Skill Review" below).
+  "Automatic ranking and no Admin Skill Review" below).
 - Every score is still recorded, and rests/partners/opponents are still
   tracked and rotated fairly — grading rounds are real matches, not
   throwaway ones.
@@ -283,38 +300,53 @@ group usually can't complete in that time regardless — the goal is to get
 as far through it as possible before any repeat happens, not to guarantee
 completion.
 
-Once all grading rounds are scored, the app hands off to **Admin Skill
-Review** (see below) instead of immediately generating a next round; every
-round from there on is badged **Dynamic Pairing** and uses the actual
-calculated ranking to build courts and partnerships.
+Once all grading rounds are scored, ranking is calculated **automatically**
+from the actual grading-round results and the app generates (or, more
+often, simply activates an already-predetermined) the next **Dynamic
+Pairing** round immediately — no organiser confirmation step in between,
+and every round from there on uses the actual calculated ranking to build
+courts and partnerships (see "Automatic ranking and no Admin Skill
+Review" below).
 
-### Predetermined rounds and ranking lag
+### Game lag and predetermined rounds
 
-Dynamic Pairing rounds (Round 4 on, by default) don't wait to be generated
-one at a time the way earlier versions did — the organiser can see a round
-or more into the future under **All Rounds**, badged **Upcoming**, courts
-and partnerships already decided, before the round(s) ahead of it have
-even finished.
+Dynamic Pairing rounds don't wait to be generated one at a time — the
+organiser can see a round or more into the future under **All Rounds**,
+courts and partnerships already decided, before the round(s) ahead of it
+have even finished, **including while grading is still in progress**.
 
-This works via the **Ranking lag (rounds)** setting (default **1**):
-generating Round N only ever needs completed results up to
-Round N − 1 − ranking lag. With the default lag of 1, that means Round N
-is generatable the moment Round N − 1 exists at all (current or later) —
-so the app always keeps exactly one Dynamic Pairing round pre-generated
-beyond whichever one is current. For example, with 3 grading rounds and
-the default lag:
+This works via the **Game lag (rounds)** setting (default **1**, minimum
+**0**): generating Round N only ever needs completed results up to
+Round N − 1 − Game lag. With the default lag of 1, that means Round N is
+generatable the moment Round N − 1 exists at all (current or later) — so
+the app always keeps exactly one Dynamic Pairing round pre-generated
+beyond whichever one is current, *whether or not grading has finished
+yet*. For example, with 2 grading rounds and the default lag:
 
 ```
-Round 4 — generated the moment Round 3 becomes current — uses results from Rounds 1-2
-Round 5 — generated the moment Round 4 becomes current — uses results from Rounds 1-3
-Round 6 — generated the moment Round 5 becomes current — uses results from Rounds 1-4
+Round 1 — Random Grading
+Round 2 — Random Grading
+Round 3 — Dynamic Pairing — generated from Round 1 results the moment Round 1 completes (Round 2 doesn't need to have been played yet)
+Round 4 — Dynamic Pairing — generated from Rounds 1-2 results the moment Round 2 (and so Round 3) becomes current
+Round 5 — Dynamic Pairing — generated from Rounds 1-3 results the moment Round 3 completes
 ```
 
-Each predetermined round shows a **pairing basis** note (e.g. "Results
-from Rounds 1-2") so it's clear how current the ranking behind it is. If
-there isn't enough completed-round data yet for the lag to resolve to
-anything (only possible right at the very start of a session, before any
-round has completed at all), the round falls back to **baseline
+If a round's game-lag basis *isn't* determinable yet from completed
+results — only ever possible for whichever round is furthest ahead in the
+look-ahead window — **All Rounds** shows it as a **Pending Results**
+placeholder instead of a real round: no courts yet, just a note on
+exactly which round it's still waiting for (e.g. "Waiting for Round 1
+results"). It's automatically replaced by a real, fully-paired round the
+moment that round's score is saved — a session can never get stuck
+waiting on it. See `extendDynamicPairingLookahead` in
+`src/utils/dynamicPairingSocial.ts`.
+
+Each predetermined round also shows a **pairing basis** note (e.g.
+"Results from Rounds 1-2") so it's clear how current the ranking behind
+it is. If there isn't enough completed-round data yet for the lag to
+resolve to anything (only possible right at the very start of a session,
+or whenever Game lag is set high enough relative to the grading rounds
+that it never needs a result at all), the round falls back to **baseline
 ranking** — starting seed, rating, skill level, and admin order, the same
 tiebreak chain "Ranking metrics" describes applied to zero rounds of
 results — and says so on its pairing basis note instead of silently using
@@ -322,58 +354,59 @@ partial data.
 
 **Bye/rest fairness and partner/opponent variety are never lagged** — they
 always look at every round actually completed so far, independent of the
-ranking lag above. Only the *competitive* pairing/court-strength ordering
+game lag above. Only the *competitive* pairing/court-strength ordering
 respects the lag; who sits out and who's already partnered/faced whom is
 decided from real history, same as always (see "Two independent systems"
 above).
 
-Raising **Ranking lag** shows further into the future at once, at the
-cost of that much more staleness in each predetermined round's ranking
-basis; setting it to **0** turns predetermined rounds off entirely — Round
-N then always waits for Round N − 1 to fully complete first, exactly like
-earlier versions of this format.
+Raising **Game lag** shows further into the future at once, at the cost
+of that much more staleness in each predetermined round's ranking basis;
+setting it to **0** turns predetermined rounds off entirely — Round N
+then always waits for Round N − 1 to fully complete first.
 
 **Regeneration, not silent drift:** every time a round completes, the app
-recalculates rankings and rebuilds every still-**Upcoming** predetermined
-round against the freshest completed-round data — a notice ("Future
-rounds were updated using latest available lagged rankings.") appears
-under Resting Players when this happens. The same rebuild runs after a
-mid-session availability or court-count change. **Locked, completed, and
-current rounds are never touched by this** — regeneration only ever
-rewrites rounds still marked **Upcoming**. See
-`regenerateUpcomingRankingRoundsForEntrants` and
+recalculates rankings and rebuilds every still-**Upcoming** or **Pending
+Results** round against the freshest completed-round data — a notice
+("Future Dynamic Pairing rounds were updated using game-lag rankings.")
+appears under Resting Players when this happens. The same rebuild runs
+after a mid-session availability or court-count change. **Locked,
+completed, and current rounds are never touched by this** — regeneration
+only ever rewrites rounds still marked **Upcoming** or **Pending
+Results**. See `extendDynamicPairingLookahead` and
 `calculateDynamicPairingRankingForRound` in
 `src/utils/dynamicPairingSocial.ts`.
 
-### Admin Skill Review
+### Automatic ranking and no Admin Skill Review
 
-The moment the last grading round's scores are saved, **Current Round**
-is replaced by an **Admin Skill Review** screen — a one-time checkpoint
-between random grading and dynamic pairing. It's a derived state, not a
-stored flag (see `isAwaitingSkillReview`), so refreshing mid-review lands
-back here correctly with no extra bookkeeping.
+There is no organiser confirmation step between random grading and
+Dynamic Pairing. The moment the last grading round's scores are saved,
+ranking is calculated automatically from the actual grading-round results
+and the very next round — already predetermined under **All Rounds**
+whenever the Game lag setting allows it (see "Game lag and predetermined
+rounds" above) — becomes **Current** immediately. Nothing blocks the
+session on an admin decision.
 
-The screen lists every player with their grading-round win/loss record,
-plus a **skill level** input (1 = strongest) the organiser can optionally
-fill in *after* actually watching players compete, rather than guessing
-blind before a single point was played. Skill level is the same field
-also editable from the Players list on the Setup tab once grading is
-done (handy for adjusting it later); setting a value is entirely
-optional — clicking **Confirm & Start Round N** works with any mix of
-filled-in and blank skill levels, and that click is what generates the
-first Dynamic Pairing round. **Round 4 (or whatever the next round number
-is) cannot be generated any other way** — reaching and confirming this
-screen is the one mandatory gate, even though the values themselves
-aren't.
+Skill level (1 = strongest) is still available as an optional ranking
+**tiebreaker** once grading finishes — set it per player/team right on
+the Players list on the Setup tab (see "Setup" above), any time
+afterward. Actual results (win %, point differential, points scored,
+head-to-head) always decide ranking first — see step 5 in "Ranking
+metrics" below; skill level only breaks ties, which is common right after
+grading (small, often-equal win/loss records) and matters progressively
+less as more games differentiate players. Unset players simply fall
+through to the next tiebreaker (starting seed). Leaving every skill level
+blank changes nothing about when or how dynamic pairing starts. See
+`sortPlayersByRanking` in `src/utils/dynamicPairingSocial.ts`.
 
-Skill level itself is purely a ranking **tiebreaker** — see step 5 in
-"Ranking metrics" below. Actual results (win %, point differential,
-points scored, head-to-head) always decide ranking first; skill level
-only breaks ties between players, which is common right after grading
-(small, often-equal win/loss records) and matters progressively less as
-more games differentiate players. Unset players simply fall through to
-the next tiebreaker (starting seed). See `sortPlayersByRanking` in
-`src/utils/dynamicPairingSocial.ts`.
+An earlier version of this format had a dedicated **Admin Skill Review**
+screen here that the organiser had to reach and confirm before the first
+Dynamic Pairing round could be generated. That screen's code still exists
+(`DynamicPairingAdminSkillReview.tsx`) but isn't wired into the app
+anywhere any more — see that file's header comment. A session resumed
+from `localStorage` that was genuinely left stuck at that old checkpoint
+by a previous version of the app advances past it automatically the
+moment it loads, rather than getting stuck with no current round and no
+way to continue.
 
 ### Ranking metrics
 
@@ -394,8 +427,8 @@ divide-by-zero. Ranking priority, applied in order:
 3. Average points scored
 4. Head-to-head result (only when the two tied players have actually
    played each other)
-5. Skill level (only assignable once grading finishes — see "Admin Skill
-   Review" above)
+5. Skill level (only assignable once grading finishes — see "Automatic
+   ranking and no Admin Skill Review" above)
 6. Starting seed
 7. Previous rank (a stabiliser, so statistically-identical players don't
    flip-flop rank every round)
@@ -510,12 +543,14 @@ opponent-repeat history is exactly "how many times have these two
 physical players faced that other physical player," which is exactly what
 matters for pairing variety regardless of team structure.
 
-**Ranking** and **Admin Skill Review** both operate on entrants rather
-than raw players once any fixed team exists — same metrics and priority
-order as "Ranking metrics" above, just with a **Type** column badging each
-row **Individual** or **Fixed Team**. **Rankings**/**All Rounds**/**Current
-Round** all badge each side **Fixed Team** or **Temporary Pair** so it's
-always clear at a glance which sides are locked together and which are
+**Ranking** operates on entrants rather than raw players once any fixed
+team exists — same metrics and priority order as "Ranking metrics" above.
+The Setup tab's skill-level input (see "Automatic ranking and no Admin
+Skill Review" above) is entrant-aware the same way, with a **Type**
+column badging each row **Individual** or **Fixed Team**.
+**Rankings**/**All Rounds**/**Current Round** all badge each side **Fixed
+Team** or **Temporary Pair** so it's always clear at a glance which sides
+are locked together and which are
 this round's ad hoc pairing. When no fixed team exists in the session, all
 of this is mathematically identical to ranking players directly — the
 entrant layer only changes behavior once a team is actually declared.
@@ -599,28 +634,31 @@ Rounds/Leaderboard pair):
   Current Round shows the round number, a Random Grading/Dynamic Pairing
   phase badge, a **pairing basis** note, every court's Team 1 vs. Team 2
   with score entry, who's resting (plus a bye fairness note), and a button
-  to advance (its label adapts — "Continue to Round N" while activating a
-  pre-generated round, "Continue to Admin Skill Review" after the last
-  grading round, "Generate Next Round" only when no round is already
-  pre-generated ahead). All Rounds is the read-only history, same spirit
-  as the standard modes' All Rounds — but for Dynamic Pairing Social, it
-  shows all 3 (or however many `gradingRounds` is set to) grading rounds
-  immediately after Start Matches, *and* — once dynamic pairing starts —
-  a look-ahead window of predetermined future rounds (see "Predetermined
-  rounds and ranking lag" above), all badged **Upcoming** with matchups
-  already visible and no scores yet. Once grading finishes,
-  Current Round is temporarily replaced by **Admin Skill Review** — see
-  above — until the organiser confirms it.
+  to advance — "Continue to Round N", since the next round is always
+  already **Upcoming** by the time the current one is fully scored (see
+  "Game lag and predetermined rounds" above; there's no Admin Skill Review
+  checkpoint to interrupt this any more — see "Automatic ranking and no
+  Admin Skill Review" above). All Rounds is the read-only history, same
+  spirit as the standard modes' All Rounds — but for Dynamic Pairing
+  Social, it shows all 3 (or however many `gradingRounds` is set to)
+  grading rounds immediately after Start Matches, *and* a look-ahead
+  window of predetermined Dynamic Pairing rounds as far as the Game lag
+  setting allows — including before grading itself has finished — each
+  badged **Upcoming** with matchups already visible and no scores yet. A
+  round whose game-lag basis isn't determinable yet from completed
+  results shows as **Pending Results** instead, with no courts and a note
+  on exactly which round it's waiting for.
 - **Rankings** — every field from "Ranking metrics" above, recalculated
   live as scores come in (including the still-open current round's
   already-entered scores), sorted by rank. Only counts rounds that have
-  actually been played — pre-generated-but-Upcoming grading rounds are
-  excluded until they're reached, so they can't inflate anyone's record
-  early (see `playedDynamicPairingRounds`).
+  actually been played — pre-generated-but-Upcoming grading rounds and
+  Pending Results placeholders alike are excluded until they're reached,
+  so they can't inflate anyone's record early (see
+  `playedDynamicPairingRounds`).
 - **Resting Players** — total rests, last round rested, consecutive
   rounds played, and availability status per player — a fairness audit
-  view, deliberately *not* sorted by ranking. Same Upcoming-round
-  exclusion as Rankings above.
+  view, deliberately *not* sorted by ranking. Same Upcoming/Pending
+  Results exclusion as Rankings above.
 - **Session History** — the session's settings recap plus a compact
   round-by-round summary (courts, scored/total, resting count).
 
@@ -2270,12 +2308,16 @@ src/
                              round-generation/scoring entry points
                              (generateDynamicPairingRoundForEntrants,
                              generateInitialGradingRoundsForEntrants,
-                             regenerateUpcomingRankingRoundsForEntrants,
+                             extendDynamicPairingLookahead — the unified game-lag
+                             look-ahead tail, real rounds plus a trailing
+                             'pending-results' placeholder, that also removes the old
+                             Admin Skill Review gate, see its own doc comment —
                              processDynamicPairingScore, lockCompletedRound), and the
-                             derived status/label helpers (isAwaitingSkillReview,
-                             playedDynamicPairingRounds, roundStatusLabel,
-                             roundPhaseLabel, nextRoundButtonLabel) (Dynamic Pairing
-                             Social)
+                             derived status/label helpers (isAwaitingSkillReview — now
+                             only a stale-session self-heal check, see
+                             useDynamicPairingSocial.ts — playedDynamicPairingRounds,
+                             roundStatusLabel, roundPhaseLabel, nextRoundButtonLabel)
+                             (Dynamic Pairing Social)
   utils/dynamicTeamQualifier.ts
                              Pure logic, entirely self-contained: rest schedule
                              generation/validation (generateRestSchedule,
@@ -2339,11 +2381,12 @@ src/
                              not a reuse of PlayerList, since it needs starting seed +
                              availability fields it doesn't have),
                              DynamicPairingRoundsPage (Current Round/All Rounds toggle
-                             parent, mirroring RoundsPage; also swaps in
-                             DynamicPairingAdminSkillReview in place of Current Round
-                             while awaitingSkillReview is true), DynamicPairingCurrentRound,
-                             DynamicPairingAllRounds, DynamicPairingAdminSkillReview
-                             (the post-grading checkpoint before Round 4),
+                             parent, mirroring RoundsPage), DynamicPairingCurrentRound,
+                             DynamicPairingAllRounds (also renders 'pending-results'
+                             placeholder rounds — see extendDynamicPairingLookahead),
+                             DynamicPairingAdminSkillReview (no longer rendered anywhere —
+                             see its file header and "Automatic ranking and no Admin
+                             Skill Review" — kept only for reference),
                              DynamicPairingRankings, DynamicPairingRestingPlayers,
                              DynamicPairingSessionHistory (Dynamic Pairing Social);
                              DynamicTeamQualifierSetup (session-level settings),

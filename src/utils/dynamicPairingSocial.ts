@@ -731,8 +731,9 @@ export function createBalancedPartnerships(
 
 // --- Entrant ranking -----------------------------------------------------
 // Entrant-level counterpart of getPlayerHeadToHead/sortPlayersByRanking/
-// calculatePlayerRankings above, used for Rankings and Admin Skill Review
-// once fixed teams exist. Falls back to entrantIdsForSide so it reads
+// calculatePlayerRankings above, used for Rankings (and the Setup tab's
+// skill-level input) once fixed teams exist. Falls back to
+// entrantIdsForSide so it reads
 // correctly even for rounds that predate fixed teams (or a round where no
 // team was involved) — every player there is their own entrant 1:1, so the
 // result is identical to getPlayerHeadToHead in that case.
@@ -845,7 +846,7 @@ export function calculateEntrantRankings(
 // actually been played. `completedRounds` must be genuinely-finished
 // rounds only (status 'locked'/'completed') — never 'current' or
 // 'upcoming' ones, even if the caller is mid-way through pre-generating a
-// chain of future rounds (see regenerateUpcomingRankingRoundsForEntrants).
+// chain of future rounds (see extendDynamicPairingLookahead).
 // Falls back to baseline ranking (seed/rating/skill level/admin order —
 // see sortEntrantsByRanking's tiebreak chain, naturally what you get when
 // there are zero rounds of results to rank on) whenever the lag pushes the
@@ -857,16 +858,23 @@ export function calculateDynamicPairingRankingForRound(
   targetRoundNumber: number,
   rankingLagRounds: number,
 ): { ranking: RankedEntrant[]; basis: DynamicPairingRankingBasis } {
-  const maxIncludedRoundNumber = targetRoundNumber - 1 - Math.max(0, rankingLagRounds);
+  const lag = Math.max(0, rankingLagRounds);
+  const maxIncludedRoundNumber = targetRoundNumber - 1 - lag;
   const includedRounds = completedRounds
     .filter((r) => r.roundNumber <= maxIncludedRoundNumber)
     .sort((a, b) => a.roundNumber - b.roundNumber);
 
   const ranking = calculateEntrantRankings(players, teams, includedRounds);
+  const isBaseline = includedRounds.length === 0;
   const basis: DynamicPairingRankingBasis = {
-    type: includedRounds.length > 0 ? 'lagged-results' : 'baseline',
+    type: isBaseline ? 'baseline' : 'lagged-results',
     includedRoundNumbers: includedRounds.map((r) => r.roundNumber),
-    rankingLagRounds: Math.max(0, rankingLagRounds),
+    rankingLagRounds: lag,
+    targetRoundNumber,
+    requiredCompletedRoundNumber: isBaseline ? undefined : maxIncludedRoundNumber,
+    note: isBaseline
+      ? 'Generated from baseline ranking because no completed results were available'
+      : `Generated from Round${includedRounds.length === 1 ? '' : 's'} ${includedRounds.map((r) => r.roundNumber).join(', ')} results`,
   };
   return { ranking, basis };
 }
@@ -874,6 +882,10 @@ export function calculateDynamicPairingRankingForRound(
 // Human-readable "Pairing basis" label for Current Round / All Rounds —
 // see DynamicPairingRankingBasis.
 export function rankingBasisLabel(round: DynamicPairingRound): string {
+  if (round.status === 'pending-results') {
+    const required = round.rankingBasis?.requiredCompletedRoundNumber;
+    return required != null ? `Waiting for Round ${required} results` : 'Waiting for more completed rounds';
+  }
   if (round.phase === 'grading') return 'Random grading — no ranking data yet';
   const basis = round.rankingBasis;
   if (!basis) return 'Pairing basis unavailable (round generated before this feature existed)';
@@ -940,7 +952,7 @@ export function generateDynamicPairingRound(
   // Grading already returned above — every round reaching this point is a
   // ranking round. `priorRounds` may include already-generated-but-not-yet-
   // played 'upcoming' rounds when this is called while predetermining a
-  // future look-ahead window (see regenerateUpcomingRankingRoundsForEntrants)
+  // future look-ahead window (see extendDynamicPairingLookahead)
   // — only genuinely-finished rounds may ever feed the *ranking* (see
   // calculateDynamicPairingRankingForRound and the ranking-lag rule), even
   // though rest/partner history above correctly used the full projected
@@ -1339,7 +1351,7 @@ export function generateDynamicPairingRoundWithTeams(
   // ranking round. See generateDynamicPairingRound's ranking branch for why
   // only genuinely-finished rounds may feed the lagged ranking, even when
   // `priorRounds` is a projected chain containing not-yet-played 'upcoming'
-  // rounds (see regenerateUpcomingRankingRoundsForEntrants).
+  // rounds (see extendDynamicPairingLookahead).
   const completedRoundsForRanking = priorRounds.filter((r) => r.status === 'locked' || r.status === 'completed');
   const { ranking, basis } = calculateDynamicPairingRankingForRound(
     players,
@@ -1417,29 +1429,41 @@ export function lockCompletedRound(round: DynamicPairingRound): DynamicPairingRo
 
 // --- Mid-session player/court changes -------------------------------------
 // See README's "Mid-session player and court changes". Touches whichever
-// 'upcoming' rounds currently exist — the pre-generated grading batch, and/
-// or the ranking-phase look-ahead window (see
-// regenerateUpcomingRankingRoundsForEntrants) — plus the live 'current'
-// round (for a swap only). 'locked'/'completed' rounds are never rewritten.
+// 'upcoming'/'pending-results' rounds currently exist — the pre-generated
+// grading batch, and/or the dynamic-pairing look-ahead window (see
+// extendDynamicPairingLookahead) — plus the live 'current' round (for a
+// swap only). 'locked'/'completed' rounds are never rewritten.
 
-// Regenerates every still-'upcoming' pre-generated grading round against
-// the current player pool/settings — call after a player's availability
-// changes or the court count changes, mid-grading-phase. A no-op once
-// grading is over (there's nothing left pre-generated to regenerate).
+// Regenerates every still-'upcoming' *pre-generated grading* round (round
+// number <= settings.gradingRounds only) against the current player pool/
+// settings — call after a player's availability changes or the court
+// count changes, mid-grading-phase. Never touches the dynamic-pairing
+// tail beyond the grading batch (real 'upcoming' rounds or a
+// 'pending-results' placeholder — see extendDynamicPairingLookahead),
+// even though one can now exist alongside a still-in-progress grading
+// phase; those are left exactly as passed in, ready for
+// extendDynamicPairingLookahead to rebuild next (see
+// regenerateUpcomingRoundsForEntrants). A no-op once every grading round
+// has been played (there's nothing left pre-generated to regenerate).
 export function regenerateUpcomingGradingRounds(
   players: Player[],
   settings: DynamicPairingSettings,
   rounds: DynamicPairingRound[],
 ): DynamicPairingRound[] {
-  const kept = rounds.filter((round) => round.status !== 'upcoming');
-  const upcomingCount = rounds.length - kept.length;
-  if (upcomingCount === 0) return rounds;
+  const settledGrading = rounds.filter((r) => r.roundNumber <= settings.gradingRounds && r.status !== 'upcoming');
+  const upcomingGradingCount = rounds.filter(
+    (r) => r.roundNumber <= settings.gradingRounds && r.status === 'upcoming',
+  ).length;
+  if (upcomingGradingCount === 0) return rounds;
 
-  let generated = [...kept];
-  for (let i = 0; i < upcomingCount; i++) {
+  let generated = settledGrading;
+  for (let i = 0; i < upcomingGradingCount; i++) {
     generated = [...generated, { ...generateDynamicPairingRound(players, settings, generated), status: 'upcoming' }];
   }
-  return generated;
+  const beyondGrading = rounds.filter(
+    (r) => r.roundNumber > settings.gradingRounds && r.status !== 'upcoming' && r.status !== 'pending-results',
+  );
+  return [...generated, ...beyondGrading];
 }
 
 // Entrant-aware counterpart of regenerateUpcomingGradingRounds — same
@@ -1451,64 +1475,112 @@ export function regenerateUpcomingGradingRoundsForEntrants(
   settings: DynamicPairingSettings,
   rounds: DynamicPairingRound[],
 ): DynamicPairingRound[] {
-  const kept = rounds.filter((round) => round.status !== 'upcoming');
-  const upcomingCount = rounds.length - kept.length;
-  if (upcomingCount === 0) return rounds;
+  const settledGrading = rounds.filter((r) => r.roundNumber <= settings.gradingRounds && r.status !== 'upcoming');
+  const upcomingGradingCount = rounds.filter(
+    (r) => r.roundNumber <= settings.gradingRounds && r.status === 'upcoming',
+  ).length;
+  if (upcomingGradingCount === 0) return rounds;
 
-  let generated = [...kept];
-  for (let i = 0; i < upcomingCount; i++) {
+  let generated = settledGrading;
+  for (let i = 0; i < upcomingGradingCount; i++) {
     generated = [
       ...generated,
       { ...generateDynamicPairingRoundForEntrants(players, teams, settings, generated), status: 'upcoming' },
     ];
   }
-  return generated;
+  const beyondGrading = rounds.filter(
+    (r) => r.roundNumber > settings.gradingRounds && r.status !== 'upcoming' && r.status !== 'pending-results',
+  );
+  return [...generated, ...beyondGrading];
 }
 
-// Ranking-phase counterpart of regenerateUpcomingGradingRoundsForEntrants —
-// see goal 2, "Predetermined future rounds", in the design brief this was
-// built from. Discards every currently-'upcoming' ranking round and
-// regenerates exactly `settings.rankingLagRounds` of them fresh, anchored
-// on whatever is currently 'locked'/'completed'/'current', using the
-// freshest completed-round data for each one's lagged ranking (see
-// calculateDynamicPairingRankingForRound) — this is what keeps All Rounds
-// always showing a consistent look-ahead window, and what re-derives every
-// future round's pairing the moment new results (or an availability/court
-// change) would change its ranking basis. A no-op while still mid-grading,
-// or on the last grading round before skill review is confirmed — there's
-// no ranking window to maintain until the first ranking round exists (see
-// confirmSkillReviewAndStartRankingRounds, which calls this once it
-// generates Round `gradingRounds + 1`). Never touches a 'locked',
-// 'completed', or 'current' round — only ever rebuilds 'upcoming' ones,
-// per the file's safety rule.
-export function regenerateUpcomingRankingRoundsForEntrants(
+// The dynamic-pairing look-ahead tail, unified across both phases — this
+// is what makes future Dynamic Pairing rounds viewable in All Rounds
+// before they become current, and what removes the old Admin Skill
+// Review gate: rather than waiting for the whole grading phase to finish
+// before considering any ranking round, this runs after *every* round
+// completes (grading or dynamic) and asks the same question each time —
+// "how far past the grading batch can a real round now be generated?"
+//
+// Discards and rebuilds, from scratch, every round with
+// roundNumber > settings.gradingRounds whose status is 'upcoming' or
+// 'pending-results' (i.e. anything not locked/completed/current) — the
+// pre-generated grading batch (roundNumber <= gradingRounds) and every
+// settled round are left completely untouched, per the file's safety
+// rule. For each round number beyond that, in order: if its lagged
+// ranking basis (Round N - 1 - rankingLagRounds) is already covered by
+// genuinely completed ('locked'/'completed') rounds — or needs none at
+// all, i.e. baseline — generate it for real via
+// generateDynamicPairingRoundForEntrants and keep going; the moment a
+// round's basis *isn't* yet available, stop and append exactly one
+// 'pending-results' placeholder for it instead (see
+// DynamicPairingRankingBasis.requiredCompletedRoundNumber), so All Rounds
+// always shows what's coming next and what it's waiting on, without
+// guessing further ahead than the lag actually supports. Because
+// requiredCompletedRoundNumber for round N is always N - 1 - lag <= N - 1,
+// this placeholder is always upgraded to a real round the moment the
+// round immediately before it locks (see generateNextRound in
+// useDynamicPairingSocial.ts) — a session can never get stuck waiting on
+// a manual confirmation step.
+export function extendDynamicPairingLookahead(
   players: Player[],
   teams: DynamicPairingTeam[],
   settings: DynamicPairingSettings,
   rounds: DynamicPairingRound[],
 ): DynamicPairingRound[] {
-  const settled = rounds.filter((r) => r.status !== 'upcoming');
-  if (settled.length === 0) return rounds;
+  const kept = rounds.filter(
+    (r) => r.roundNumber <= settings.gradingRounds || (r.status !== 'upcoming' && r.status !== 'pending-results'),
+  );
+  const lastKeptRoundNumber = kept.reduce((max, r) => Math.max(max, r.roundNumber), 0);
+  const lastLockedRoundNumber = rounds.reduce(
+    (max, r) => ((r.status === 'locked' || r.status === 'completed') && r.roundNumber > max ? r.roundNumber : max),
+    0,
+  );
+  const lag = Math.max(0, settings.rankingLagRounds);
+  const targetMaxRealRoundNumber = lastLockedRoundNumber + 1 + lag;
 
-  const lastSettledRoundNumber = settled[settled.length - 1].roundNumber;
-  if (lastSettledRoundNumber <= settings.gradingRounds) return rounds; // still mid-grading — nothing to do here
-
-  const lookahead = Math.max(0, settings.rankingLagRounds);
-  const targetMaxRoundNumber = lastSettledRoundNumber + lookahead;
-
-  let projected = settled;
-  for (let roundNumber = lastSettledRoundNumber + 1; roundNumber <= targetMaxRoundNumber; roundNumber++) {
-    const nextRound = generateDynamicPairingRoundForEntrants(players, teams, settings, projected);
-    projected = [...projected, { ...nextRound, status: 'upcoming' }];
+  let generated = kept;
+  let nextRoundNumber = Math.max(lastKeptRoundNumber, settings.gradingRounds) + 1;
+  while (nextRoundNumber <= targetMaxRealRoundNumber) {
+    const round = { ...generateDynamicPairingRoundForEntrants(players, teams, settings, generated), status: 'upcoming' as const };
+    generated = [...generated, round];
+    nextRoundNumber += 1;
   }
-  return projected;
+
+  const requiredCompletedRoundNumber = nextRoundNumber - 1 - lag;
+  const placeholder: DynamicPairingRound = {
+    id: makeDynamicPairingId('round'),
+    roundNumber: nextRoundNumber,
+    phase: 'ranking',
+    status: 'pending-results',
+    courts: [],
+    restingPlayerIds: [],
+    rankingBasis: {
+      type: 'lagged-results',
+      includedRoundNumbers: [],
+      rankingLagRounds: lag,
+      targetRoundNumber: nextRoundNumber,
+      requiredCompletedRoundNumber: requiredCompletedRoundNumber > 0 ? requiredCompletedRoundNumber : undefined,
+      note:
+        requiredCompletedRoundNumber > 0
+          ? `Waiting for Round ${requiredCompletedRoundNumber} results`
+          : 'Waiting for more completed rounds',
+    },
+    createdAt: Date.now(),
+  };
+
+  return [...generated, placeholder];
 }
 
 // Convenience wrapper for mid-session availability/court-count changes —
-// covers both phases in one call. Exactly one of the two steps ever does
-// anything on a given call, since a session is always in one phase or the
-// other (grading's pre-generated batch is fully consumed before any
-// ranking round exists).
+// covers both phases in one call: first refreshes whichever pre-generated
+// grading rounds are still 'upcoming', then rebuilds the dynamic-pairing
+// look-ahead tail (real rounds as far as now computable, plus one
+// 'pending-results' placeholder) against the result — see
+// regenerateUpcomingGradingRoundsForEntrants and
+// extendDynamicPairingLookahead. Both steps can now do something on the
+// same call, since a real or placeholder dynamic round can exist
+// alongside a still-in-progress grading phase.
 export function regenerateUpcomingRoundsForEntrants(
   players: Player[],
   teams: DynamicPairingTeam[],
@@ -1516,7 +1588,7 @@ export function regenerateUpcomingRoundsForEntrants(
   rounds: DynamicPairingRound[],
 ): DynamicPairingRound[] {
   const afterGrading = regenerateUpcomingGradingRoundsForEntrants(players, teams, settings, rounds);
-  return regenerateUpcomingRankingRoundsForEntrants(players, teams, settings, afterGrading);
+  return extendDynamicPairingLookahead(players, teams, settings, afterGrading);
 }
 
 // Rebuilds the *current* round itself (same roundNumber, same phase, same
@@ -1668,11 +1740,16 @@ export function generateInitialGradingRoundsForEntrants(
   return rounds.map((round, index) => (index === 0 ? round : { ...round, status: 'upcoming' }));
 }
 
-// True once every generated round has been played (locked) and none is
-// currently active — i.e. the pre-generated grading batch just finished
-// and Round 4+ hasn't been generated yet. Deliberately derived from
-// `rounds`/`settings` rather than a stored flag, so a page refresh mid-review
-// lands back here automatically (see README's "LocalStorage" section).
+// Historical gate, no longer part of the required flow (see
+// extendDynamicPairingLookahead / generateNextRound in
+// useDynamicPairingSocial.ts, which now generate and activate Round
+// `gradingRounds + 1` automatically the moment the grading phase
+// finishes — no admin ranking confirmation required). Kept only so
+// useDynamicPairingSocial can detect, and self-heal, a session whose
+// `rounds` were saved to localStorage by an older version of this app
+// while genuinely stuck at this checkpoint; a normally-progressing
+// session started under the current version can never reach this state
+// (see the self-heal effect there).
 export function isAwaitingSkillReview(rounds: DynamicPairingRound[], settings: DynamicPairingSettings): boolean {
   if (rounds.length === 0) return false;
   if (rounds.some((r) => r.status === 'current')) return false;
@@ -1680,16 +1757,18 @@ export function isAwaitingSkillReview(rounds: DynamicPairingRound[], settings: D
 }
 
 // Rounds that have actually been played (or are being played right now) —
-// excludes 'upcoming' pre-generated rounds. Stats/rankings/rest-history
-// must only ever be computed from this, never the raw `rounds` array,
-// while grading rounds are still pre-generated but not yet reached —
-// otherwise a not-yet-played Round 3 would inflate rest counts, win/loss
-// records, and partner history before it's actually been played. (Round
-// *generation* itself is the one deliberate exception — see
+// excludes 'upcoming' pre-generated rounds and 'pending-results'
+// placeholders alike. Stats/rankings/rest-history must only ever be
+// computed from this, never the raw `rounds` array, while grading rounds
+// are still pre-generated but not yet reached, or a future Dynamic
+// Pairing round already exists ahead of the current one — otherwise a
+// not-yet-played round (real or placeholder) would inflate rest counts,
+// win/loss records, and partner history before it's actually been played.
+// (Round *generation* itself is the one deliberate exception — see
 // generateInitialGradingRounds — since it's meant to plan fairness across
 // the whole projected batch.)
 export function playedDynamicPairingRounds(rounds: DynamicPairingRound[]): DynamicPairingRound[] {
-  return rounds.filter((r) => r.status !== 'upcoming');
+  return rounds.filter((r) => r.status !== 'upcoming' && r.status !== 'pending-results');
 }
 
 // Label for a round's current place in the schedule — see
@@ -1705,20 +1784,25 @@ export function roundStatusLabel(status: DynamicPairingRoundStatus): string {
     case 'completed':
     case 'locked':
       return 'Completed';
+    case 'pending-results':
+      return 'Pending Results';
   }
 }
 
-// What the "advance" button on Current Round should say and do next:
-// activate the next pre-generated grading round if one's waiting, hand off
-// to Admin Skill Review if this was the last grading round, or generate a
-// fresh ranking round otherwise (Round 5+). Mirrors the branching in
-// useDynamicPairingSocial's generateNextRound — kept as a pure function so
-// the button label can never drift out of sync with what clicking it
-// actually does.
+// What the "advance" button on Current Round should say and do next.
+// Under the current game-lag-driven flow, the round after `currentRound`
+// always already exists as 'upcoming' by the time its scores are fully
+// entered (either a still-pre-generated grading round, or a dynamic
+// round extendDynamicPairingLookahead has already upgraded from a
+// placeholder — see that function's doc comment for why this is
+// guaranteed) — so this is normally just "Continue to Round N". The
+// fallback below is only a safety net for an otherwise-unreachable state
+// (e.g. hand-edited localStorage); useDynamicPairingSocial's
+// generateNextRound always generates fresh in that case rather than
+// leaving the organiser stuck.
 export function nextRoundButtonLabel(currentRound: DynamicPairingRound, rounds: DynamicPairingRound[]): string {
   const upcoming = rounds.find((r) => r.roundNumber === currentRound.roundNumber + 1 && r.status === 'upcoming');
   if (upcoming) return `Continue to Round ${upcoming.roundNumber}`;
-  if (currentRound.phase === 'grading') return 'Continue to Admin Skill Review';
   return 'Generate Next Round';
 }
 

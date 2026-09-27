@@ -1,3 +1,15 @@
+// NOT CURRENTLY WIRED IN — kept for reference/possible reuse, not deleted,
+// but no longer rendered anywhere (see DynamicPairingRoundsPage.tsx, which
+// used to show this in place of Current Round while awaitingSkillReview
+// was true). Dynamic Pairing Social no longer has an Admin Skill Review
+// checkpoint: ranking is calculated and dynamic rounds are generated
+// automatically using the game-lag setting the moment their basis is
+// available (see extendDynamicPairingLookahead in
+// utils/dynamicPairingSocial.ts), and a session can never get stuck
+// waiting on this screen's Confirm button. Skill level is still editable
+// exactly as this screen offered — see the Setup tab's participant list
+// (DynamicPairingSetup.tsx, skillLevelEditable) and
+// useDynamicPairingSocial's updateEntrantSkillLevel.
 import { useState, type KeyboardEvent } from 'react';
 import type { DynamicPairingEntrant, DynamicPairingPlayerStats, DynamicPairingRound, DynamicPairingTeam, Player } from '../types';
 import { buildDynamicPairingEntrants, calculateDynamicPairingStats, formatSignedPoints } from '../utils/dynamicPairingSocial';
