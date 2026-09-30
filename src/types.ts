@@ -110,6 +110,12 @@ export interface Player {
   // rounds they missed while late/unavailable — see
   // normalizeReturningByeAdjustments in utils/availability.ts.
   byeCountAdjustment?: number;
+  // The last round this player missed before returning mid-session (set
+  // alongside byeCountAdjustment). Bye selection treats it like their most
+  // recent bye when breaking ties, so a player who has just arrived isn't
+  // picked to sit out straight away as if they were "most due" — see
+  // lastByeRoundWithAbsence in utils/availability.ts.
+  lastAbsentRound?: number;
 }
 
 // Whether a session records full scores or just who won — see
@@ -273,6 +279,11 @@ export interface Round {
   // bye-assignment comment for when/why this can happen.
   splitTeamIds?: string[];
   status: RoundStatus;
+  // Set only when someone had to sit out two rounds in a row because no
+  // fair alternative existed (see selectFairByes in utils/byeSelection.ts)
+  // — shown as "Bye note: ..." in Current Round and All Rounds. Absent for
+  // a normal fair rotation.
+  byeNote?: string;
 }
 
 // Social Play session timing: the total booked court time, split into
@@ -808,11 +819,12 @@ export interface DynamicPairingRound {
   // Always present (with type 'lagged-results' and no included rounds yet)
   // on a 'pending-results' placeholder — see requiredCompletedRoundNumber.
   rankingBasis?: DynamicPairingRankingBasis;
-  // Set only when selectFairByeEntrants had to rest an entrant slightly
-  // "out of order" (by total bye count) because of an unavoidable
-  // court-capacity/fixed-team-size mismatch — see selectFairByeEntrants.
-  // Absent (not a generic "all good" string) whenever bye selection
-  // followed strict fairness order with no compromise.
+  // Set only when rest selection had to compromise — an entrant resting in
+  // consecutive rounds because no fair alternative existed
+  // (CONSECUTIVE_BYE_NOTE), or one extra player resting because a fixed
+  // team couldn't be split to fit the courts — see selectFairByeEntrants.
+  // Absent for a fair rotation (older saved rounds may carry a legacy
+  // "fair rotation" string, hidden by visibleByeNote).
   byeFairnessNote?: string;
   createdAt: number;
 }

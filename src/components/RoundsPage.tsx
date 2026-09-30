@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { Player, PlayerAvailabilityStatus, ResultSubmission, Round, Team, TournamentSettings } from '../types';
 import { AllRoundsView } from './AllRoundsView';
 import { CurrentRoundView } from './CurrentRoundView';
+import { ScheduleIntegrityNotice } from './ScheduleIntegrityNotice';
+import { entrantByeContext, firstUpcomingRoundNumber, standardScheduleView, validateCurrentRoundMatchesSchedule } from '../utils/scheduleValidation';
 
 type RoundsSubView = 'current' | 'all';
 
@@ -24,12 +26,16 @@ interface RoundsPageProps {
   // omit them.
   onSetAvailability?: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap?: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
+  onResumeSavedRound?: () => void;
 }
 
 // Parent for the "Rounds" tab: a Current Round / All Rounds toggle above
 // either the live round (CurrentRoundView) or the full round-by-round list
-// (AllRoundsView). Both read the same `rounds` prop — there's no separate
-// history state to keep in sync. Always opens on Current Round: App.tsx
+// (AllRoundsView). Both read the same `rounds` prop — the one saved
+// schedule; neither view generates pairings, and there's no separate
+// history state to keep in sync. The schedule is checked on every render
+// (see validateCurrentRoundMatchesSchedule) and any problem is reported,
+// never auto-repaired. Always opens on Current Round: App.tsx
 // only renders this component while the Rounds tab is selected, so it
 // remounts (and this state resets) every time the tab is entered.
 export function RoundsPage({
@@ -43,8 +49,19 @@ export function RoundsPage({
   teams = [],
   onSetAvailability,
   onSwap,
+  onResumeSavedRound,
 }: RoundsPageProps) {
   const [subView, setSubView] = useState<RoundsSubView>('current');
+  const validation = useMemo(
+    () =>
+      validateCurrentRoundMatchesSchedule({
+        rounds: rounds.map((round) => standardScheduleView(round, teams)),
+        knownPlayerIds: new Set(players.map((p) => p.id)),
+        fixedTeams: teams,
+        ...entrantByeContext(players, teams, (team) => team.name),
+      }),
+    [rounds, players, teams],
+  );
 
   return (
     <>
@@ -66,6 +83,12 @@ export function RoundsPage({
           </button>
         </div>
       </div>
+
+      <ScheduleIntegrityNotice
+        validation={validation}
+        resumeRoundNumber={rounds.some((r) => r.status === 'current') ? undefined : firstUpcomingRoundNumber(rounds)}
+        onResume={onResumeSavedRound}
+      />
 
       {subView === 'current' ? (
         <CurrentRoundView

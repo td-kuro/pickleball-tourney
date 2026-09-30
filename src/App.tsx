@@ -37,7 +37,14 @@ import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
-import { availabilityChangeMessage, currentRoundHasResultMessage, isAwayStatus, normalizeReturningByeAdjustments, statusOf } from './utils/availability';
+import {
+  availabilityChangeMessage,
+  changeAffectsFutureRounds,
+  currentRoundHasResultMessage,
+  isAwayStatus,
+  normalizeReturningByeAdjustments,
+  statusOf,
+} from './utils/availability';
 import { playerHasRemainingGamesOnCourt, waitingPlayers } from './utils/kingCourt';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
 import {
@@ -113,6 +120,7 @@ function App() {
     rounds,
     plannedRounds,
     nextRound,
+    resumeSavedCurrentRound,
     startSession,
     setMatchResult,
     recordAvailabilityChange,
@@ -285,13 +293,21 @@ function App() {
     if (oldStatus === status) return;
 
     const changed = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
-    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedByesLookup());
+    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedByesLookup(), {
+      absentThroughRound: (rounds.find((round) => round.status === 'current')?.roundNumber ?? 1) - 1,
+    });
     setPlayersBulk(updatedPlayers);
-    const regenerated = regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
+    // Resting this round <-> available never changes a future round (see
+    // changeAffectsFutureRounds), so the saved schedule is left exactly as
+    // All Rounds shows it rather than reshuffled.
+    const affectsFuture = changeAffectsFutureRounds(oldStatus, status);
+    const regenerated = affectsFuture && regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
 
     const outcome = regenerated
       ? 'Future rounds have been updated.'
-      : status === 'available'
+      : !affectsFuture
+        ? 'Future rounds are unchanged.'
+        : status === 'available'
         ? 'They will be included from the next round.'
         : 'They will be left out of future rounds.';
     const message = availabilityChangeMessage(player.name, status, availabilityStatusLabel(status), outcome);
@@ -898,6 +914,7 @@ function App() {
           onGenerateNextRound={dynamicPairing.generateNextRound}
           onSetAvailability={(playerId, status) => setFlashMessages(dynamicPairing.setAvailabilityStatus(playerId, status))}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
+          onResumeSavedRound={dynamicPairing.resumeSavedCurrentRound}
         />
       )}
 
@@ -1018,6 +1035,7 @@ function App() {
                   players,
                   activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber),
                   recordedByesLookup(),
+                  { absentThroughRound: upcomingRoundNumber - 1 },
                 );
                 if (updatedPlayers !== players) setPlayersBulk(updatedPlayers);
                 nextRound(updatedPlayers, teams, teamPlayers);
@@ -1027,6 +1045,7 @@ function App() {
               teams={teams}
               onSetAvailability={handleSetPlayerAvailability}
               onSwap={handleSwapPlayer}
+              onResumeSavedRound={resumeSavedCurrentRound}
             />
             {(settings.playMode === 'social' || settings.tournamentFormat === 'leaderboard') && (
               <SessionControls

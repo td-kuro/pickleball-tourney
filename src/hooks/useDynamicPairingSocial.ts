@@ -12,7 +12,16 @@ import type {
   SessionAdjustment,
   SessionAdjustmentType,
 } from '../types';
-import { availabilityAdjustmentType, availabilityChangeMessage, currentRoundHasResultMessage, isAwayStatus, normalizeReturningByeAdjustments, statusOf } from '../utils/availability';
+import {
+  availabilityAdjustmentType,
+  availabilityChangeMessage,
+  changeAffectsFutureRounds,
+  currentRoundHasResultMessage,
+  isAwayStatus,
+  normalizeReturningByeAdjustments,
+  statusOf,
+} from '../utils/availability';
+import { firstUpcomingRoundNumber } from '../utils/scheduleValidation';
 import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
 import {
   calculateDynamicPairingStats,
@@ -160,6 +169,12 @@ export function useDynamicPairingSocial() {
     return (playerId) => restsById.get(playerId) ?? 0;
   }
 
+  // A fixed-team member's partner(s) — left out of the minimum a returning
+  // player's rest count is levelled to (see normalizeReturningByeAdjustments).
+  function teammatesOf(playerId: string): string[] {
+    return teams.find((t) => t.playerIds.includes(playerId))?.playerIds.filter((id) => id !== playerId) ?? [];
+  }
+
   // Quickly generates `count` blank player slots so the organiser can fill
   // in names/ratings/genders afterward instead of adding one by one —
   // mirrors usePlayers' addPlayersBulk, adapted for this roster's own shape
@@ -218,14 +233,26 @@ export function useDynamicPairingSocial() {
     if (oldStatus === status) return [];
 
     const changed = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
-    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedRestsLookup());
+    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedRestsLookup(), {
+      teammatesOf,
+      absentThroughRound: currentRound ? currentRound.roundNumber - 1 : undefined,
+    });
     setPlayers(updatedPlayers);
-    let nextRounds = regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
+    // Resting this round <-> available can't change a future round (see
+    // changeAffectsFutureRounds) — keep the saved schedule exactly as All
+    // Rounds shows it instead of reshuffling it.
+    const affectsFuture = changeAffectsFutureRounds(oldStatus, status);
+    let nextRounds = affectsFuture ? regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds) : rounds;
     if (nextRounds !== rounds) {
       logAdjustment('future-rounds-regenerated', { note: 'Future rounds were regenerated due to player/court changes.' });
     }
 
-    const message = availabilityChangeMessage(player.name, status, dynamicPairingAvailabilityLabel(status));
+    const message = availabilityChangeMessage(
+      player.name,
+      status,
+      dynamicPairingAvailabilityLabel(status),
+      affectsFuture ? undefined : 'Future rounds are unchanged.',
+    );
     const messages = [message];
     const team = teams.find((t) => t.playerIds.includes(id));
     if (team && isAwayStatus(status)) {
@@ -462,13 +489,15 @@ export function useDynamicPairingSocial() {
   }
 
   // Advances past the current round once every court is scored, locks it,
-  // then rebuilds the dynamic-pairing look-ahead tail against the result
-  // that just came in (see extendDynamicPairingLookahead) before
-  // activating whatever is now 'upcoming' at the next round number —
-  // either a still-pre-generated grading round, a dynamic round that was
-  // already real ahead of time, or one that extendDynamicPairingLookahead
-  // just upgraded from a 'pending-results' placeholder now that this
-  // round's result unblocked it. This is what removes the old Admin Skill
+  // then extends the dynamic-pairing look-ahead against the result that
+  // just came in (see extendDynamicPairingLookahead) before activating
+  // whatever is now 'upcoming' at the next round number — either a
+  // still-pre-generated grading round, a dynamic round that was already
+  // real ahead of time, or one that extendDynamicPairingLookahead just
+  // upgraded from a 'pending-results' placeholder now that this round's
+  // result unblocked it. A round that was already saved (and so already
+  // visible in All Rounds) is activated exactly as saved — never rebuilt —
+  // so Current Round always matches what All Rounds showed. This is what removes the old Admin Skill
   // Review checkpoint: completing the last grading round no longer leaves
   // the session waiting on an organiser confirmation — Round
   // `gradingRounds + 1` is generated and activated the same way any other
@@ -489,6 +518,7 @@ export function useDynamicPairingSocial() {
       players,
       activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber),
       recordedRestsLookup(),
+      { teammatesOf, absentThroughRound: currentRound.roundNumber },
     );
     if (updatedPlayers !== players) setPlayers(updatedPlayers);
 
@@ -513,6 +543,16 @@ export function useDynamicPairingSocial() {
         note: 'Future Dynamic Pairing rounds were updated using game-lag rankings.',
       });
     }
+  }
+
+  // Recovery for a saved schedule that has lost its current round —
+  // promotes the first saved upcoming round as-is rather than generating a
+  // different one (see useTournament's resumeSavedCurrentRound).
+  function resumeSavedCurrentRound() {
+    if (currentRound) return;
+    const roundNumber = firstUpcomingRoundNumber(rounds);
+    if (roundNumber == null) return;
+    setRounds(rounds.map((r) => (r.roundNumber === roundNumber ? { ...r, status: 'current' as const } : r)));
   }
 
   function setCourtResult(roundId: string, courtNumber: number, result: ResultSubmission) {
@@ -560,6 +600,7 @@ export function useDynamicPairingSocial() {
     gradingPhaseComplete,
     startSession,
     generateNextRound,
+    resumeSavedCurrentRound,
     setCourtResult,
     changeCourtCount,
     swapPlayerInCurrentRound,

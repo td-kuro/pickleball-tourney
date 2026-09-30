@@ -172,6 +172,8 @@ export function CurrentRoundView({
                 : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
             </span>
             {isWinLossTracked(settings) && <p className="hint">Scoring: {scoreRecordingModeLabel(scoreMode)}</p>}
+            {currentRound && <p className="hint">Loaded from saved Round {currentRound.roundNumber} schedule</p>}
+            {currentRound?.byeNote && <p className="hint">Bye note: {currentRound.byeNote}</p>}
           </div>
           {!isPastPlannedRounds && (
             <button type="button" className="cta-button" onClick={onNextRound} disabled={!generateCheck.ok}>

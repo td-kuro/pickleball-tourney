@@ -8,7 +8,7 @@ import type {
   Team,
   TournamentSettings,
 } from '../types';
-import { availabilityAdjustmentType } from '../utils/availability';
+import { availabilityAdjustmentType, playersForFutureRounds } from '../utils/availability';
 import { generateLeaderboardRound } from '../utils/pairing';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
 import {
@@ -20,6 +20,7 @@ import {
   swapPlayerInRound,
 } from '../utils/tournament';
 import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
+import { firstUpcomingRoundNumber } from '../utils/scheduleValidation';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:settings';
@@ -161,7 +162,9 @@ export function useTournament() {
   // regeneration, a freshly-rebuilt current round — precede them),
   // chaining each one off the rounds generated so far for fair bye/matchup
   // rotation. The one tail-building routine every mid-session regenerate
-  // function below shares.
+  // function below shares. Generated with 'resting-this-round' treated as
+  // available (see playersForFutureRounds) — a rest only covers the current
+  // round, and nextRound promotes these saved rounds as-is.
   function buildUpcomingTail(
     withSettings: TournamentSettings,
     prefix: Round[],
@@ -170,11 +173,13 @@ export function useTournament() {
     teams: Team[],
     teamPlayers: Player[],
   ): Round[] {
+    const futurePlayers = playersForFutureRounds(players);
+    const futureTeamPlayers = playersForFutureRounds(teamPlayers);
     let generated = [...prefix];
     for (let i = 0; i < count; i++) {
       generated = [
         ...generated,
-        generateRoundWith(withSettings, players, teams, teamPlayers, generated.length + 1, generated, 'upcoming'),
+        generateRoundWith(withSettings, futurePlayers, teams, futureTeamPlayers, generated.length + 1, generated, 'upcoming'),
       ];
     }
     return generated;
@@ -199,19 +204,16 @@ export function useTournament() {
     const estimatedRounds = calculateSessionPlan(settings.sessionTiming).estimatedRounds;
     if (estimatedRounds < 1) return;
 
-    const generated: Round[] = [];
-    for (let roundNumber = 1; roundNumber <= estimatedRounds; roundNumber++) {
-      generated.push(
-        generateRound(players, teams, teamPlayers, roundNumber, generated, roundNumber === 1 ? 'current' : 'upcoming'),
-      );
-    }
+    const generated: Round[] = [generateRound(players, teams, teamPlayers, 1, [], 'current')];
     setPlannedRounds(estimatedRounds);
-    setRounds(generated);
+    setRounds(buildUpcomingTail(settings, generated, estimatedRounds - 1, players, teams, teamPlayers));
   }
 
   // Called by "Next Round"/"Generate Extra Round": marks the active round
   // completed, then either promotes the next pre-generated "upcoming"
-  // round to "current" (Social Play, still within the planned schedule) or
+  // round to "current" exactly as saved — never regenerated, so it's the
+  // same pairing All Rounds showed (Social Play, still within the planned
+  // schedule) or
   // generates a brand new round (Tournament Mode, which never pre-plans;
   // or Social Play once it's run past its planned rounds).
   function nextRound(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
@@ -234,6 +236,17 @@ export function useTournament() {
 
     const newRound = generateRound(players, teams, teamPlayers, withCompleted.length + 1, withCompleted, 'current');
     setRounds([...withCompleted, newRound]);
+  }
+
+  // Recovery for a saved schedule that has lost its current round (e.g.
+  // hand-edited or partially-written storage): promotes the first saved
+  // upcoming round to current as-is, rather than generating a different
+  // one — the saved schedule stays the source of truth.
+  function resumeSavedCurrentRound() {
+    if (rounds.some((round) => round.status === 'current')) return;
+    const roundNumber = firstUpcomingRoundNumber(rounds);
+    if (roundNumber == null) return;
+    setRounds(rounds.map((round) => (round.roundNumber === roundNumber ? { ...round, status: 'current' as const } : round)));
   }
 
   // Records either kind of result (see ScoreRecordingMode) — a full score
@@ -418,6 +431,7 @@ export function useTournament() {
     rounds,
     plannedRounds,
     nextRound,
+    resumeSavedCurrentRound,
     startSession,
     setMatchResult,
     recordAvailabilityChange,

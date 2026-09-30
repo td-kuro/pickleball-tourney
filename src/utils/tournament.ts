@@ -24,6 +24,8 @@ import type {
   TeamStats,
   TournamentSettings,
 } from '../types';
+import { lastByeRoundWithAbsence } from './availability';
+import { byeHistory, compareByePriority, CONSECUTIVE_BYE_NOTE, selectFairByes, type ByeCandidate } from './byeSelection';
 import { hasAnyResult, resolveWinner } from './results';
 // Only used for pairing styles other than the default 'balanced' — see
 // createRound/createFixedTeamRound below. utils/pairing.ts imports plenty
@@ -662,18 +664,28 @@ export function createRound(
   const playingCount = usableCourts * perCourt;
   const byeCount = players.length - playingCount;
 
+  // Fair bye rotation — fewest byes first, never back-to-back when someone
+  // else could sit instead, then longest since the last bye, then roster
+  // order (see selectFairByes in utils/byeSelection.ts).
   const statsByPlayer = new Map(computePlayerStats(players, priorRounds).map((s) => [s.playerId, s]));
-  const byePriority = players
-    .map((player, index) => ({
-      player,
-      index,
+  const history = byeHistory(priorRounds, (round) => round.byePlayerIds);
+  const previousByes = new Set(priorRounds[priorRounds.length - 1]?.byePlayerIds ?? []);
+  const rosterOrder = new Map(players.map((player, index) => [player.id, index]));
+  const byeSelection = selectFairByes(
+    players.map((player) => ({
+      id: player.id,
+      size: 1,
       // Recorded byes plus any late-return normalisation — see
       // Player.byeCountAdjustment / normalizeReturningByeAdjustments.
-      byes: (statsByPlayer.get(player.id)?.byes ?? 0) + (player.byeCountAdjustment ?? 0),
-    }))
-    .sort((a, b) => a.byes - b.byes || a.index - b.index);
+      byeCount: (statsByPlayer.get(player.id)?.byes ?? 0) + (player.byeCountAdjustment ?? 0),
+      lastByeRound: lastByeRoundWithAbsence(history.get(player.id)?.lastRound, [player]),
+      restedLastRound: previousByes.has(player.id),
+    })),
+    byeCount,
+    (a, b) => (rosterOrder.get(a.id) ?? 0) - (rosterOrder.get(b.id) ?? 0),
+  );
 
-  const byePlayerIds = byePriority.slice(0, byeCount).map((entry) => entry.player.id);
+  const byePlayerIds = byeSelection.restingIds;
   const byeIdSet = new Set(byePlayerIds);
   const playing = players.filter((p) => !byeIdSet.has(p.id));
 
@@ -722,6 +734,7 @@ export function createRound(
     matches,
     byePlayerIds,
     status,
+    byeNote: byeSelection.consecutiveIds.length > 0 ? CONSECUTIVE_BYE_NOTE : undefined,
   };
 }
 
@@ -767,6 +780,9 @@ export function createFixedTeamRound(
   pairingStyle: PairingStyle = 'balanced',
   // Late-return normalisation per team — see Player.byeCountAdjustment.
   teamByeAdjustments: Map<string, number> = new Map(),
+  // Each team's member Player objects, for their lastAbsentRound (see
+  // lastByeRoundWithAbsence). Optional — omitted, ties break on real byes.
+  teamMembers: Map<string, (Player | undefined)[]> = new Map(),
 ): Round {
   // A doubles court seats exactly 2 teams (4 players).
   const usableCourts = Math.min(settings.courts, Math.floor(teams.length / 2));
@@ -796,22 +812,37 @@ export function createFixedTeamRound(
   const wholeTeamByeCount = Math.floor(byeSlotsNeeded / 2);
   const hasOddSplitSlot = byeSlotsNeeded % 2 === 1;
 
+  // Same fair rotation as createRound, with each team as one entrant (one
+  // bye for the team, both players sit) — see selectFairByes.
   const teamStatsById = new Map(computeTeamStats(teams, priorRounds).map((s) => [s.teamId, s]));
-  const byePriority = teams
-    .map((team, index) => ({
-      team,
-      index,
-      byes: (teamStatsById.get(team.id)?.byes ?? 0) + (teamByeAdjustments.get(team.id) ?? 0),
-    }))
-    .sort((a, b) => a.byes - b.byes || a.index - b.index);
+  const teamByeIdsOf = (round: Round) => [...(round.byeTeamIds ?? []), ...(round.splitTeamIds ?? [])];
+  const teamHistory = byeHistory(priorRounds, teamByeIdsOf);
+  const previousPriorRound = priorRounds[priorRounds.length - 1];
+  const previousTeamByes = new Set(previousPriorRound ? teamByeIdsOf(previousPriorRound) : []);
+  const teamOrder = new Map(teams.map((team, index) => [team.id, index]));
+  const teamCandidates: ByeCandidate[] = teams.map((team) => ({
+    id: team.id,
+    size: 1,
+    byeCount: (teamStatsById.get(team.id)?.byes ?? 0) + (teamByeAdjustments.get(team.id) ?? 0),
+    lastByeRound: lastByeRoundWithAbsence(teamHistory.get(team.id)?.lastRound, teamMembers.get(team.id) ?? []),
+    restedLastRound: previousTeamByes.has(team.id),
+  }));
+  const byOrder = (a: ByeCandidate, b: ByeCandidate) => (teamOrder.get(a.id) ?? 0) - (teamOrder.get(b.id) ?? 0);
+  const teamSelection = selectFairByes(teamCandidates, wholeTeamByeCount, byOrder);
+  const teamById = new Map(teams.map((team) => [team.id, team]));
 
-  const byeTeamIds = byePriority.slice(0, wholeTeamByeCount).map((entry) => entry.team.id);
+  const byeTeamIds = teamSelection.restingIds;
   const splitTeamIds: string[] = [];
-  const byePlayerIds = byeTeamIds.flatMap((id) => teams.find((team) => team.id === id)!.playerIds);
+  const byePlayerIds = byeTeamIds.flatMap((id) => teamById.get(id)!.playerIds);
+  let consecutiveBye = teamSelection.consecutiveIds.length > 0;
 
   if (hasOddSplitSlot) {
-    const splitCandidate = byePriority[wholeTeamByeCount];
+    const splitCandidate = teamCandidates
+      .filter((c) => !byeTeamIds.includes(c.id))
+      .sort((a, b) => compareByePriority(a, b, byOrder))
+      .map((c) => ({ team: teamById.get(c.id)!, restedLastRound: c.restedLastRound }))[0];
     if (splitCandidate) {
+      consecutiveBye ||= splitCandidate.restedLastRound;
       splitTeamIds.push(splitCandidate.team.id);
       byePlayerIds.push(...splitCandidate.team.playerIds);
     }
@@ -852,6 +883,7 @@ export function createFixedTeamRound(
     byeTeamIds,
     splitTeamIds,
     status,
+    byeNote: consecutiveBye ? CONSECUTIVE_BYE_NOTE : undefined,
   };
 }
 

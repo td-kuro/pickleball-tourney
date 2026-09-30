@@ -9,6 +9,7 @@ import {
   roundPhaseLabel,
   roundStatusLabel,
   shouldUseGenderAwarePairing,
+  visibleByeNote,
 } from '../utils/dynamicPairingSocial';
 
 const STATUS_CLASS: Record<DynamicPairingRoundStatus, string> = {
@@ -75,6 +76,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
   return (
     <section className="card">
       <h2>All Rounds</h2>
+      <p className="hint">Saved schedule — Current Round plays these exact pairings.</p>
       <div className="all-rounds-list">
         {[...rounds]
           .sort((a, b) => a.roundNumber - b.roundNumber)
@@ -121,7 +123,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                       ? `Resting: ${restLabel(round.restingPlayerIds)}`
                       : 'Everyone available played this round.'}
                   </p>
-                  {round.byeFairnessNote && <p className="all-rounds-byes">{round.byeFairnessNote}</p>}
+                  {visibleByeNote(round) && <p className="all-rounds-byes">Bye note: {visibleByeNote(round)}</p>}
                   {round.phase === 'grading' && (
                     <p className="all-rounds-byes">
                       Rotation note: {round.rotationNote ?? 'No repeat opponents.'}

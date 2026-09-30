@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus, ResultSubmission, ScoreRecordingMode } from '../types';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
+import { ScheduleIntegrityNotice } from './ScheduleIntegrityNotice';
+import { dynamicPairingTeamDisplayName } from '../utils/dynamicPairingSocial';
+import { dynamicPairingScheduleView, entrantByeContext, firstUpcomingRoundNumber, validateCurrentRoundMatchesSchedule } from '../utils/scheduleValidation';
 
 type RoundsSubView = 'current' | 'all';
 
@@ -15,6 +18,7 @@ interface DynamicPairingRoundsPageProps {
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
+  onResumeSavedRound: () => void;
 }
 
 // Parent for Dynamic Pairing Social's "Rounds" tab — a Current Round / All
@@ -26,7 +30,9 @@ interface DynamicPairingRoundsPageProps {
 // pairing here (see DynamicPairingAdminSkillReview.tsx's file header for
 // where that screen used to be wired in). All Rounds keeps working exactly
 // as normal throughout, since it doesn't depend on there being an active
-// round.
+// round. Both sub-views render the same saved `rounds` — Current Round is
+// just the saved round whose status is 'current', never a separately
+// generated one (see validateCurrentRoundMatchesSchedule).
 export function DynamicPairingRoundsPage({
   rounds,
   currentRound,
@@ -37,7 +43,18 @@ export function DynamicPairingRoundsPage({
   onGenerateNextRound,
   onSetAvailability,
   onSwap,
+  onResumeSavedRound,
 }: DynamicPairingRoundsPageProps) {
+  const validation = useMemo(
+    () =>
+      validateCurrentRoundMatchesSchedule({
+        rounds: rounds.map(dynamicPairingScheduleView),
+        knownPlayerIds: new Set(players.map((p) => p.id)),
+        fixedTeams: teams,
+        ...entrantByeContext(players, teams, (team) => dynamicPairingTeamDisplayName(team, players)),
+      }),
+    [rounds, players, teams],
+  );
   const [subView, setSubView] = useState<RoundsSubView>('current');
 
   return (
@@ -60,6 +77,12 @@ export function DynamicPairingRoundsPage({
           </button>
         </div>
       </div>
+
+      <ScheduleIntegrityNotice
+        validation={validation}
+        resumeRoundNumber={currentRound ? undefined : firstUpcomingRoundNumber(rounds)}
+        onResume={onResumeSavedRound}
+      />
 
       {subView === 'current' ? (
         <DynamicPairingCurrentRound

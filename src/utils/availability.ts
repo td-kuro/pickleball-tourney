@@ -21,6 +21,31 @@ export function isAwayStatus(status: PlayerAvailabilityStatus): boolean {
   return status === 'late' || status === 'unavailable' || status === 'injured' || status === 'left-early';
 }
 
+// 'resting-this-round' only ever covers the current round — it reverts to
+// 'available' automatically the moment the round ends — so every *future*
+// round is generated treating it as 'available'. That's what keeps a saved
+// future round valid when it later becomes current: nothing has to be
+// regenerated on advance just because a rest expired.
+export function statusForFutureRounds(status: PlayerAvailabilityStatus): PlayerAvailabilityStatus {
+  return status === 'resting-this-round' ? 'available' : status;
+}
+
+// The roster as future-round generation should see it — see
+// statusForFutureRounds. Returns the same array when nobody is resting.
+export function playersForFutureRounds<P extends Player>(players: P[]): P[] {
+  if (!players.some((p) => p.availabilityStatus === 'resting-this-round')) return players;
+  return players.map((p) =>
+    p.availabilityStatus === 'resting-this-round' ? { ...p, availabilityStatus: 'available' as const } : p,
+  );
+}
+
+// Whether a status change can alter any future round at all. Resting this
+// round <-> available doesn't, so the saved future schedule is kept exactly
+// as shown in All Rounds instead of being reshuffled for no reason.
+export function changeAffectsFutureRounds(oldStatus: PlayerAvailabilityStatus, newStatus: PlayerAvailabilityStatus): boolean {
+  return statusForFutureRounds(oldStatus) !== statusForFutureRounds(newStatus);
+}
+
 export function availabilityAdjustmentType(status: PlayerAvailabilityStatus): SessionAdjustmentType {
   return status === 'available' ? 'player-marked-available' : 'player-marked-unavailable';
 }
@@ -60,29 +85,64 @@ export function currentRoundHasResultMessage(name: string): string {
 // the bye-selection input is normalised. `recordedByes` should count
 // byes/rests from rounds actually reached (not pre-generated upcoming
 // ones).
+//
+// `teammatesOf` (Dynamic Pairing Social's fixed teams) leaves out of that
+// minimum anyone who couldn't actually have played: the returning player's
+// own teammates, and any player whose fixed-team partner is still away. A
+// fixed team only plays when complete, so those players' counts are just as
+// stale — comparing against them let a team return under-rested and absorb
+// the next several rests.
+export interface NormalizeReturningOptions {
+  teammatesOf?: (playerId: string) => string[];
+  // The last round a returning player missed — recorded as
+  // Player.lastAbsentRound (see lastByeRoundWithAbsence).
+  absentThroughRound?: number;
+}
+
 export function normalizeReturningByeAdjustments(
   prev: Player[],
   next: Player[],
   recordedByes: (playerId: string) => number,
+  { teammatesOf = () => [], absentThroughRound }: NormalizeReturningOptions = {},
 ): Player[] {
   const prevStatusById = new Map(prev.map((p) => [p.id, statusOf(p)]));
   const returning = next.filter((p) => statusOf(p) === 'available' && prevStatusById.get(p.id) !== 'available');
   if (returning.length === 0) return next;
 
   const returningIds = new Set(returning.map((p) => p.id));
-  const others = next.filter((p) => statusOf(p) === 'available' && !returningIds.has(p.id));
-  if (others.length === 0) return next;
-  const minEffective = Math.min(...others.map((p) => recordedByes(p.id) + (p.byeCountAdjustment ?? 0)));
+  const availableIds = new Set(next.filter((p) => statusOf(p) === 'available').map((p) => p.id));
+  const others = next.filter(
+    (p) => availableIds.has(p.id) && !returningIds.has(p.id) && teammatesOf(p.id).every((id) => availableIds.has(id)),
+  );
+  const effective = (p: Player) => recordedByes(p.id) + (p.byeCountAdjustment ?? 0);
 
   let changed = false;
   const result = next.map((p) => {
     if (!returningIds.has(p.id)) return p;
-    const needed = Math.max(p.byeCountAdjustment ?? 0, minEffective - recordedByes(p.id));
-    if (needed === (p.byeCountAdjustment ?? 0)) return p;
-    changed = true;
-    return { ...p, byeCountAdjustment: needed };
+    let updated = p;
+    if (absentThroughRound != null && absentThroughRound > 0 && absentThroughRound > (p.lastAbsentRound ?? 0)) {
+      updated = { ...updated, lastAbsentRound: absentThroughRound };
+    }
+    const teammates = new Set(teammatesOf(p.id));
+    const comparable = others.filter((o) => !teammates.has(o.id));
+    if (comparable.length > 0) {
+      const minEffective = Math.min(...comparable.map(effective));
+      const needed = Math.max(p.byeCountAdjustment ?? 0, minEffective - recordedByes(p.id));
+      if (needed !== (p.byeCountAdjustment ?? 0)) updated = { ...updated, byeCountAdjustment: needed };
+    }
+    if (updated !== p) changed = true;
+    return updated;
   });
   return changed ? result : next;
+}
+
+// A returning player's absence counts as their most recent "bye" for
+// tie-breaking only (never for the count itself): of two players level on
+// byes, the one who just arrived is the less due to sit out again.
+export function lastByeRoundWithAbsence(lastByeRound: number | undefined, players: (Player | undefined)[]): number | undefined {
+  const absent = Math.max(0, ...players.map((p) => p?.lastAbsentRound ?? 0));
+  if (absent === 0) return lastByeRound;
+  return Math.max(lastByeRound ?? 0, absent);
 }
 
 // Effective bye count for a fixed pair (a fixed team rests as one unit):

@@ -367,15 +367,24 @@ of that much more staleness in each predetermined round's ranking basis;
 setting it to **0** turns predetermined rounds off entirely — Round N
 then always waits for Round N − 1 to fully complete first.
 
-**Regeneration, not silent drift:** every time a round completes, the app
-recalculates rankings and rebuilds every still-**Upcoming** or **Pending
-Results** round against the freshest completed-round data — a notice
-("Future Dynamic Pairing rounds were updated using game-lag rankings.")
-appears under Resting Players when this happens. The same rebuild runs
-after a mid-session availability or court-count change. **Locked,
-completed, and current rounds are never touched by this** — regeneration
-only ever rewrites rounds still marked **Upcoming** or **Pending
-Results**. See `extendDynamicPairingLookahead` and
+**What you see is what gets played:** once a predetermined round is
+generated and saved, it's final unless something actually changes the
+roster. Completing a round only *extends* the look-ahead — it turns the
+**Pending Results** placeholder into a real round and adds the next one —
+and never rebuilds an **Upcoming** round that already exists, so when
+Round 3 becomes current it's exactly the Round 3 **All Rounds** showed.
+(A saved round's lagged ranking basis was already complete when it was
+generated, so a later result couldn't change it anyway.) Earlier versions
+rebuilt every Upcoming round each time a round completed, which could
+reshuffle a round the organiser had already previewed; see "One saved
+schedule" under "The Rounds tab".
+
+Upcoming rounds *are* regenerated — and only then — for a real reason: a
+mid-session availability change, a player added mid-session, or a
+court-count change. **Locked, completed, and current rounds are never
+touched by this** — regeneration only ever rewrites rounds still marked
+**Upcoming** or **Pending Results**. See `extendDynamicPairingLookahead`,
+`regenerateUpcomingRoundsForEntrants` and
 `calculateDynamicPairingRankingForRound` in
 `src/utils/dynamicPairingSocial.ts`.
 
@@ -451,28 +460,18 @@ when a player changes courts, and ranking has no influence on who rests
 loss, points, or point differential that round; their existing stats are
 otherwise untouched.
 
-Every bye/rest decision in the app — individual players and fixed-team
-entrants alike — goes through one shared fairness engine,
-`selectFairByeEntrants` in `src/utils/dynamicPairingSocial.ts`, in this
-order:
-
-1. **Fewest total byes so far.** This is the core rule: nobody gets a 2nd
-   bye until every eligible player/team has had a 1st, nobody gets a 3rd
-   until everyone's had a 2nd, and so on — a "bye cycle." A player/team
-   with 2 byes is never selected while anyone eligible still has 0 or 1.
-2. Among those tied, **longest since their last bye** (never having
-   rested yet counts as longest).
-3. Prefer someone who didn't rest last round, where possible (avoids
-   back-to-back byes).
-4. A deterministic tiebreaker (same stable-hash approach as ranking, not
-   `Math.random()`, so genuinely tied players don't reshuffle on every
-   re-render).
-
-Because rule 1 is reapplied fresh every round, the gap between the
-most- and least-rested eligible player/team never exceeds 1 — no separate
-"cycle" bookkeeping needed to enforce that on top. A fixed team's bye
-counts once at the team (entrant) level, not once per player — see "Fixed
-teams" below.
+Every rest decision goes through the app-wide fair bye selector
+(`selectFairByes` in `src/utils/byeSelection.ts`, called here via
+`selectFairByeEntrants`) — the same rules as Standard Social Play; see
+"How byes work" for the full description. In short: fewest rests first
+(nobody rests a 2nd time until every eligible player/team has rested
+once), never back-to-back when anyone else could take the rest, then
+longest since their last rest, then a deterministic tiebreaker (a stable
+hash, not `Math.random()`, so tied players don't reshuffle on every
+re-render). A fixed team is one entrant: both players sit out together
+and the team's rest counts once. When a back-to-back rest is genuinely
+unavoidable, the round says so (*"Bye note: Consecutive bye unavoidable
+due to player/court count."*); a fair rotation shows no note.
 
 ### Court allocation and balanced partnerships
 
@@ -651,20 +650,16 @@ either way). Once ranking rounds start, generation branches:
   `src/utils/dynamicPairingSocial.ts`.
 
 Rest selection also branches the same way: with no fixed teams, nothing
-changes. With a fixed team, the same `selectFairByeEntrants` engine (see
-"Rest management" above) selects whole entrants — a team's physical
-footprint is 2, an individual's is 1 — in the exact same fairness order,
-resting the lowest-bye-count entrants first until enough physical players
-are sitting out. Because entrant size varies, this can occasionally rest
-one physical player *more* than the strict minimum (e.g. the next
-fairest entrant in line is a 2-player team but only 1 physical slot of
-rest is actually needed) — this is accepted rather than solved with a
-full bin-packing search, since filling every last court slot exactly
-would sometimes mean skipping over a fairer entrant to rest a
-worse-fitting one instead, which would undermine rest fairness itself.
-When this happens, the round's **bye fairness note** (visible on Current
-Round/All Rounds) says so explicitly rather than leaving it looking like
-an unexplained anomaly. See "Current limitations" below.
+changes. With a fixed team, the same fair selector (see "Rest
+management" above) picks whole entrants — a team takes 2 physical slots,
+an individual 1. It weighs every exact way to fill the rest slots (k
+teams plus the rest individuals, the most-due of each kind) and keeps the
+fairest, so courts are filled exactly. Earlier versions walked the
+fairness order greedily instead. That sometimes skipped a team that
+didn't fit the last slot, or rested one player too many, and could hand
+someone back-to-back rests. Only when no exact fit exists at all (e.g.
+only fixed teams left for an odd number of slots) does one extra player
+rest, and the round's bye note says so.
 
 ### Court movement limit
 
@@ -785,11 +780,11 @@ it's a full wipe, not a "new round, same roster" reset.
   with fixed teams" above); the ad hoc pairing of individual entrants into
   temporary *ranking-round* (Round 4+) sides has no repeat-partner
   optimisation pass — grading rounds are different, see below; and
-  entrant-level rest selection can rarely rest one physical player more
-  than the strict minimum (and correspondingly leave one court slot unused
-  that round) rather than skip over a fairer entrant to make a better-
-  fitting court — see "Round generation with fixed teams" above for why
-  each of these is a deliberate scope decision, not an oversight.
+  entrant-level rest selection can rest one physical player more than
+  the strict minimum only when no exact fit exists at all (e.g. only
+  fixed teams left for an odd number of slots) — see "Round generation
+  with fixed teams" above. These are deliberate scope decisions, not
+  oversights.
 - **Gender-aware pairing** (see its own section above) **has no
   optimisation pass once a fixed team exists in the ranking phase** —
   same rank-adjacency-only path fixed teams already use there, just now
@@ -2081,6 +2076,57 @@ separate page, so switching between them is instant and never loses your
 place. It always opens on **Current Round**, whichever way you got there
 (clicking the tab, **Go to Rounds**, or reopening the app mid-session).
 
+### One saved schedule
+
+**Current Round** and **All Rounds** always show the same pairings for
+the same round, because there's only one copy of each round: the saved
+schedule (`rounds` in session state, persisted to localStorage). Neither
+view generates pairings. Current Round is just the saved round whose
+status is **Current**, labelled *"Loaded from saved Round 3 schedule"*,
+and All Rounds lists the whole saved schedule, labelled *"Saved
+schedule"*. Randomness (shuffles, tie-breaks) only happens when a round is
+generated; the result is saved, so switching tabs, refreshing the page, or
+advancing never re-rolls anything.
+
+Rounds are written in exactly these places:
+
+- **Start Matches** — generates the schedule (the whole planned session
+  for Standard Social Play; the grading batch plus the game-lag
+  look-ahead for Dynamic Pairing Social; Round 1 for Tournament
+  Leaderboard).
+- **Next Round / Continue to Round N** — saves Round N as completed or
+  locked, then promotes the *already saved* Round N + 1 to current as-is.
+  A new round is generated only when none is saved yet (Tournament
+  Leaderboard, a Social session past its planned rounds, or Dynamic
+  Pairing's look-ahead extending by one).
+- **Result entry** — updates that round's saved matches only.
+- **Regenerating future rounds** — only for a real reason (availability
+  change, player added mid-session, court count change, or the organiser
+  confirming a current-round rebuild), and only rounds that are
+  **Upcoming** or **Pending Results**, or a current round with no
+  result. Marking someone **Resting This Round** (or back) never
+  regenerates anything: a rest only covers the current round, and future
+  rounds are always generated treating resting players as available.
+
+Every time the Rounds tab renders, the saved schedule is checked
+(`validateCurrentRoundMatchesSchedule` in `src/utils/scheduleValidation.ts`):
+there is exactly one current round, round and match IDs are unique, no
+player appears twice in a round, no resting player is also playing, no
+fixed team is split in a round that hasn't been played, and every
+scheduled player is still on the roster. If a check fails, a *Saved
+schedule check* warning appears above the rounds and a console warning is
+logged. Nothing is repaired automatically: the saved schedule stays the
+source of truth. If the current round itself is missing (*"Current round
+is missing from the saved schedule."*), the warning offers **Resume from
+saved Round N**, which promotes the first saved upcoming round as-is
+rather than generating a different one.
+
+The other modes don't preview pairings ahead of time, so there's nothing
+to drift. King Court builds each cycle when it starts, Pools & Knockout
+fixes its pool schedule at the start, and Dynamic Team Qualifier lists
+upcoming rounds with only their scheduled resting teams (its pairings
+depend on standings, so they're created when the round starts).
+
 ### Current Round
 
 1. **Current Round** — each court's match. In Tournament Mode, or Social
@@ -2243,14 +2289,45 @@ or loss recorded, just a tally of how many byes they've had. This applies
 in both modes. When there are more players than court capacity, byes are
 handed out fairly:
 
-- The app tracks each player's total bye count across all rounds so far.
-- When a round needs N players to sit out, it picks the N players with the
-  **fewest** byes so far (ties broken by player-list order) —
-  equivalently, players with more byes already "banked" are prioritized
-  to play, and players who've played the most rounds relative to others
-  are prioritized to sit out next.
-- This means no one sits out a second time until everyone else has sat out
-  once, and so on — an even rotation over the course of the session.
+- The app tracks each player's (or fixed team's) bye count across all
+  rounds so far.
+- Every mode with byes or rests uses one selector (`selectFairByes` in
+  `src/utils/byeSelection.ts`): Standard Social Play, Tournament
+  Leaderboard, and Dynamic Pairing Social. When a round needs players to
+  sit out, it only considers available players/teams and picks by:
+  1. **Fewest byes first.** Nobody gets a 2nd bye until every eligible
+     player/team has had one, nor a 3rd until everyone has had two.
+  2. **No back-to-back byes.** Someone who sat out last round is only
+     picked again when nobody else could take it without breaking rule
+     1. That happens when the player/court count leaves no choice (e.g.
+     9 players on 1 court, where 5 sit out every round) or a fixed
+     team's size doesn't fit the open slots.
+  3. **Longest since their last bye.**
+  4. A stable tiebreak (player-list order, or a stable hash in Dynamic
+     Pairing Social), so re-rendering never reshuffles anything.
+- **Fixed teams are one entrant.** Both players sit out together and the
+  team's bye counts once. With teams and individuals mixed, every exact
+  way to fill the bye slots is weighed and the fairest kept.
+- **Late or returning players start level.** When someone becomes
+  available mid-session, their bye count is levelled to the current
+  minimum among the players who could actually play (for a fixed team,
+  ignoring players whose partner is still away, since their counts are
+  stale too). Their absence also counts as their most recent bye for
+  tie-breaks, so a player who has just arrived isn't picked to sit out
+  straight away. See `normalizeReturningByeAdjustments` in
+  `src/utils/availability.ts`.
+- **Unavoidable repeats are labelled; fair rounds aren't.** When a
+  back-to-back bye can't be avoided, Current Round and All Rounds show
+  *"Bye note: Consecutive bye unavoidable due to player/court count."*
+  Nothing is shown for a fair rotation.
+- **Checked on every render.** The saved-schedule check (see "One saved
+  schedule") flags any unplayed round where someone has back-to-back
+  byes without that note, reaches 2 byes while an eligible player/team
+  has none, or reaches 3 while one has 1 or fewer (`auditByeFairness`).
+- **Other modes.** 5-Player King Court seats exactly 5 per court, and
+  its 5-game cycle rests each player exactly once, never twice in a row.
+  Dynamic Team Qualifier's rest schedule already forbids consecutive
+  rests and validates that. Pools & Knockout has no rotating byes.
 
 ## How scoring works
 

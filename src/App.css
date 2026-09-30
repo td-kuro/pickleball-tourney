@@ -1597,3 +1597,18 @@ button.danger:hover:not(:disabled) {
 .bye-chip-clickable:hover {
   background: var(--accent-border);
 }
+
+/* Saved-schedule integrity warning (see ScheduleIntegrityNotice) — only
+   ever rendered when validateCurrentRoundMatchesSchedule finds a problem. */
+.schedule-integrity-notice {
+  border: 1px solid #c0392b;
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  color: #c0392b;
+}
+
+.schedule-integrity-notice ul {
+  margin: 6px 0 10px;
+  padding-left: 18px;
+}

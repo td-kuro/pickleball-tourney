@@ -37,7 +37,8 @@ import {
   type MeetingCounts,
   shuffled,
 } from './tournament';
-import { teamByeAdjustment } from './availability';
+import { lastByeRoundWithAbsence, teamByeAdjustment } from './availability';
+import { byeHistory, CONSECUTIVE_BYE_NOTE, selectFairByes, type ByeCandidate } from './byeSelection';
 
 // A generic "who's playing" unit: 1 player id for a Singles competitor, 2
 // for a doubles side (fixed team or temporary partnership). Every style
@@ -466,12 +467,23 @@ export function pairUnitsByStyle(
 }
 
 // --- Bye selection across a mixed fixed-team / individual-player pool -----
-// Fixed teams sit out as a whole pair whenever possible (favouring fewest
-// byes so far, same fairness rule as everywhere else in the app); an
-// individual player fills a single leftover slot. A fixed team is only
+// Fixed teams sit out as a whole pair (one bye for the team) and
+// individuals one slot each, chosen by the shared fair selector
+// (selectFairByes in utils/byeSelection.ts): fewest byes first, never
+// back-to-back when someone else could take it, then longest since the
+// last bye. It weighs every exact way to fill the slots with teams and
+// individuals — the old greedy walk skipped a team that didn't fit the last
+// slot and handed the bye to someone less due instead. A fixed team is only
 // temporarily split (one player sits, the other keeps playing solo — see
-// Round.splitTeamIds) as a last resort, when a single slot is left and no
-// individual player is available to take it — see the loop below.
+// Round.splitTeamIds) as a last resort, when no exact fit exists (an odd
+// slot count with no individual able to take it).
+export interface ByeHistoryInputs {
+  // Round number (in play order) of each entrant's most recent bye.
+  lastByeRoundById: Map<string, number>;
+  // Entrant ids (team ids and individual player ids) on a bye last round.
+  previousRoundByeIds: Set<string>;
+}
+
 export function selectByeParticipants(
   players: Player[],
   teams: Team[],
@@ -479,59 +491,60 @@ export function selectByeParticipants(
   byeSlotsNeeded: number,
   playerByeCounts: Map<string, number>,
   teamByeCounts: Map<string, number>,
+  history: ByeHistoryInputs = { lastByeRoundById: new Map(), previousRoundByeIds: new Set() },
 ): {
   byeTeamIds: string[];
   splitTeamIds: string[];
   byePlayerIds: string[];
   playingTeams: Team[];
   playingIndividuals: Player[];
+  consecutiveBye: boolean;
 } {
   if (byeSlotsNeeded <= 0) {
-    return { byeTeamIds: [], splitTeamIds: [], byePlayerIds: [], playingTeams: teams, playingIndividuals: players };
+    return { byeTeamIds: [], splitTeamIds: [], byePlayerIds: [], playingTeams: teams, playingIndividuals: players, consecutiveBye: false };
   }
 
-  type Candidate =
-    | { kind: 'team'; team: Team; index: number; byes: number }
-    | { kind: 'player'; player: Player; index: number; byes: number };
+  const order = new Map<string, number>([...teams.map((t) => t.id), ...players.map((p) => p.id)].map((id, i) => [id, i]));
+  const candidate = (id: string, size: number, byeCount: number): ByeCandidate => ({
+    id,
+    size,
+    byeCount,
+    lastByeRound: history.lastByeRoundById.get(id),
+    restedLastRound: history.previousRoundByeIds.has(id),
+  });
+  const selection = selectFairByes(
+    [
+      ...teams.map((team) => candidate(team.id, 2, teamByeCounts.get(team.id) ?? 0)),
+      ...players.map((player) => candidate(player.id, 1, playerByeCounts.get(player.id) ?? 0)),
+    ],
+    byeSlotsNeeded,
+    (a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0),
+  );
 
-  const candidates: Candidate[] = [
-    ...teams.map((team, index): Candidate => ({ kind: 'team', team, index, byes: teamByeCounts.get(team.id) ?? 0 })),
-    ...players.map((player, index): Candidate => ({ kind: 'player', player, index, byes: playerByeCounts.get(player.id) ?? 0 })),
-  ].sort((a, b) => a.byes - b.byes || a.index - b.index);
-
-  let remaining = byeSlotsNeeded;
+  const teamById = new Map(teams.map((t) => [t.id, t]));
   const byeTeamIds: string[] = [];
+  const splitTeamIds: string[] = [];
   const byePlayerIds: string[] = [];
   const sittingTeamIds = new Set<string>();
   const sittingPlayerIds = new Set<string>();
-
-  for (const candidate of candidates) {
-    if (remaining <= 0) break;
-    if (candidate.kind === 'player') {
-      byePlayerIds.push(candidate.player.id);
-      sittingPlayerIds.add(candidate.player.id);
-      remaining -= 1;
-    } else if (remaining >= 2) {
-      byeTeamIds.push(candidate.team.id);
-      sittingTeamIds.add(candidate.team.id);
-      byePlayerIds.push(...candidate.team.playerIds);
-      remaining -= 2;
+  selection.restingIds.forEach((id, index) => {
+    const team = teamById.get(id);
+    if (!team) {
+      byePlayerIds.push(id);
+      sittingPlayerIds.add(id);
+      return;
     }
-    // A team candidate with only 1 slot remaining doesn't fit — it's left
-    // for the next candidate (which may be an individual player able to
-    // take that single slot) rather than splitting immediately.
-  }
-
-  const splitTeamIds: string[] = [];
-  if (remaining === 1) {
-    const splitCandidate = candidates.find((c): c is Candidate & { kind: 'team' } => c.kind === 'team' && !sittingTeamIds.has(c.team.id));
-    if (splitCandidate) {
-      splitTeamIds.push(splitCandidate.team.id);
-      sittingTeamIds.add(splitCandidate.team.id);
-      byePlayerIds.push(splitCandidate.team.playerIds[0]);
-      remaining -= 1;
+    sittingTeamIds.add(id);
+    // Overshooting by one slot means the last team picked only has room
+    // for one of its players to sit — split it.
+    if (selection.overshoot === 1 && index === selection.restingIds.length - 1) {
+      splitTeamIds.push(id);
+      byePlayerIds.push(team.playerIds[0]);
+    } else {
+      byeTeamIds.push(id);
+      byePlayerIds.push(...team.playerIds);
     }
-  }
+  });
 
   const teamPlayerById = new Map(teamPlayers.map((p) => [p.id, p]));
   const splitOverflowPlayers = splitTeamIds
@@ -545,6 +558,7 @@ export function selectByeParticipants(
     byePlayerIds,
     playingTeams: teams.filter((t) => !sittingTeamIds.has(t.id)),
     playingIndividuals: [...players.filter((p) => !sittingPlayerIds.has(p.id)), ...splitOverflowPlayers],
+    consecutiveBye: selection.consecutiveIds.length > 0,
   };
 }
 
@@ -590,13 +604,14 @@ export function generateMixedDoublesRound(
     ]),
   );
 
-  const { byeTeamIds, splitTeamIds, byePlayerIds, playingTeams, playingIndividuals } = selectByeParticipants(
+  const { byeTeamIds, splitTeamIds, byePlayerIds, playingTeams, playingIndividuals, consecutiveBye } = selectByeParticipants(
     players,
     teams,
     teamPlayers,
     byeSlotsNeeded,
     playerByeCounts,
     teamByeCounts,
+    mixedByeHistory(teams, priorRounds, individualsById),
   );
 
   const { opponents, teammates } = buildMatchHistory(priorRounds);
@@ -648,6 +663,32 @@ export function generateMixedDoublesRound(
     byeTeamIds,
     splitTeamIds,
     status,
+    byeNote: consecutiveBye ? CONSECUTIVE_BYE_NOTE : undefined,
+  };
+}
+
+// Bye history keyed by entrant — a fixed team's id when the whole team (or
+// a split half of it) sat out, otherwise the individual player's id.
+function mixedByeHistory(teams: Team[], priorRounds: Round[], playersById: Map<string, Player>): ByeHistoryInputs {
+  const teamIdByPlayerId = new Map(teams.flatMap((t) => t.playerIds.map((id) => [id, t.id] as const)));
+  const byeIdsOf = (round: Round) => [
+    ...(round.byeTeamIds ?? []),
+    ...(round.splitTeamIds ?? []),
+    ...round.byePlayerIds.filter((id) => !teamIdByPlayerId.has(id)),
+  ];
+  const history = byeHistory(priorRounds, byeIdsOf);
+  const previous = priorRounds[priorRounds.length - 1];
+  // A returning player's absence counts as their latest "bye" for
+  // tie-breaks — see lastByeRoundWithAbsence.
+  const lastByeRoundById = new Map<string, number>();
+  const entrantMembers = [...teams.map((t) => [t.id, t.playerIds] as const), ...[...playersById.keys()].filter((id) => !teamIdByPlayerId.has(id)).map((id) => [id, [id]] as const)];
+  for (const [id, memberIds] of entrantMembers) {
+    const last = lastByeRoundWithAbsence(history.get(id)?.lastRound, memberIds.map((m) => playersById.get(m)));
+    if (last != null) lastByeRoundById.set(id, last);
+  }
+  return {
+    lastByeRoundById,
+    previousRoundByeIds: new Set(previous ? byeIdsOf(previous) : []),
   };
 }
 
@@ -702,7 +743,8 @@ export function generateDoublesMatches(
   if (teams.length > 0) {
     const teamPlayersById = new Map(teamPlayers.map((p) => [p.id, p]));
     const teamByeAdjustments = new Map(teams.map((t) => [t.id, teamByeAdjustment(t.playerIds, teamPlayersById)]));
-    return createFixedTeamRound(teams, settings, roundNumber, priorRounds, status, pairingStyle, teamByeAdjustments);
+    const teamMembers = new Map(teams.map((t) => [t.id, t.playerIds.map((id) => teamPlayersById.get(id))]));
+    return createFixedTeamRound(teams, settings, roundNumber, priorRounds, status, pairingStyle, teamByeAdjustments, teamMembers);
   }
   return createRound(players, settings, roundNumber, priorRounds, status, pairingStyle);
 }

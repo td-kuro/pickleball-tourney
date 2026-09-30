@@ -68,6 +68,7 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
   return (
     <section className="card">
       <h2>All Rounds</h2>
+      <p className="hint">Saved schedule — Current Round plays these exact pairings.</p>
       <div className="all-rounds-list">
         {rounds.map((round) => (
           <div key={round.id} className={`all-rounds-entry all-rounds-entry-${round.status}`}>
@@ -99,6 +100,7 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
             <p className="all-rounds-byes">
               {round.byePlayerIds.length > 0 ? `Bye: ${byeLabel(round.byePlayerIds)}` : 'Everyone played this round.'}
             </p>
+            {round.byeNote && <p className="all-rounds-byes">Bye note: {round.byeNote}</p>}
             {joiningPlayerNames(round.roundNumber).map((name) => (
               <p key={name} className="all-rounds-byes">
                 Note: {name} joins from this round
