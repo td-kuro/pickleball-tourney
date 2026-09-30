@@ -1,11 +1,13 @@
-import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingRound, RestAssignment } from '../types';
+import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingRound, RestAssignment, ScoreRecordingMode } from '../types';
 import { calculateFinalStandings, calculateProvisionalStandings, formatSignedPoints } from '../utils/dynamicTeamQualifier';
+import { DTQ_WIN_LOSS_WARNING, POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
 
 interface DynamicTeamQualifierStandingsProps {
   teams: DynamicTeam[];
   rounds: QualifyingRound[];
   restAssignments: RestAssignment[];
   stage: DynamicTeamQualifierStage;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // Standings tab — Provisional Standings while qualifying is still in
@@ -16,7 +18,8 @@ interface DynamicTeamQualifierStandingsProps {
 // opponent win % → head-to-head → capped point differential → total
 // points — see calculateFinalStandings). Both read from the same
 // TeamStanding shape, just ranked differently, so this is one component.
-export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, stage }: DynamicTeamQualifierStandingsProps) {
+export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, stage, scoreRecordingMode }: DynamicTeamQualifierStandingsProps) {
+  const showPoints = scoreRecordingMode === 'full-score';
   const activeTeamIds = teams.filter((t) => t.checkedIn && !t.withdrawn).map((t) => t.id);
   if (activeTeamIds.length === 0) {
     return (
@@ -56,6 +59,11 @@ export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, 
           ? 'Ranked by total wins, then opponent win %, then head-to-head (only when a complete mini round-robin exists among tied teams), then capped point differential, then total points scored.'
           : 'Ranked by win %, then opponent win %, then total wins, then capped point differential — win % (not raw wins) leads because teams may have played different numbers of games due to scheduled rests.'}
       </p>
+      {!showPoints && (
+        <p className="hint error">
+          {POINT_STATS_UNAVAILABLE_NOTE} {DTQ_WIN_LOSS_WARNING}
+        </p>
+      )}
       <div className="leaderboard-scroll">
         <table className="leaderboard-table stats-table">
           <thead>
@@ -68,9 +76,9 @@ export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, 
               <th>Losses</th>
               <th>Win %</th>
               <th>Opp. Win %</th>
-              <th>PF</th>
-              <th>PA</th>
-              <th>Capped +/-</th>
+              {showPoints && <th>PF</th>}
+              {showPoints && <th>PA</th>}
+              {showPoints && <th>Capped +/-</th>}
               <th>Rests</th>
               <th>This Round</th>
             </tr>
@@ -92,9 +100,9 @@ export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, 
                   <td>{standing.losses}</td>
                   <td>{(standing.winPercentage * 100).toFixed(0)}%</td>
                   <td>{(standing.opponentWinPercentage * 100).toFixed(0)}%</td>
-                  <td>{standing.pointsFor}</td>
-                  <td>{standing.pointsAgainst}</td>
-                  <td>{formatSignedPoints(standing.cappedPointDifferential)}</td>
+                  {showPoints && <td>{standing.pointsFor}</td>}
+                  {showPoints && <td>{standing.pointsAgainst}</td>}
+                  {showPoints && <td>{formatSignedPoints(standing.cappedPointDifferential)}</td>}
                   <td>{standing.restCount}</td>
                   <td>{currentRoundStatus(standing.teamId)}</td>
                 </tr>

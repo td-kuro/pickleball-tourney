@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { KingCourtCourtCycle, KingCourtCycle, KingCourtMovementDirection } from '../types';
+import type { KingCourtCourtCycle, KingCourtCycle, KingCourtMovementDirection, ScoreRecordingMode } from '../types';
+import { formatKingCourtRecord } from '../utils/kingCourt';
 
 interface KingCourtMovementPreviewProps {
   cycle: KingCourtCycle;
@@ -8,6 +9,7 @@ interface KingCourtMovementPreviewProps {
   onSetManualTiebreakOrder: (courtNumber: number, orderedPlayerIds: string[]) => void;
   onSetManualMovementOverride: (courtNumber: number, playerId: string, toCourt: number) => void;
   onConfirm: () => void;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 const MOVEMENT_ICON: Record<KingCourtMovementDirection, string> = { up: '⬆️', down: '⬇️', stay: '➖' };
@@ -24,7 +26,9 @@ export function KingCourtMovementPreview({
   onSetManualTiebreakOrder,
   onSetManualMovementOverride,
   onConfirm,
+  scoreRecordingMode,
 }: KingCourtMovementPreviewProps) {
+  const showPoints = scoreRecordingMode === 'full-score';
   const courts = [...cycle.courts].sort((a, b) => b.courtNumber - a.courtNumber);
   const anyTied = courts.some((court) => court.standings.some((standing) => standing.tied));
 
@@ -42,6 +46,7 @@ export function KingCourtMovementPreview({
             court={court}
             nameById={nameById}
             numberOfCourts={numberOfCourts}
+            showPoints={showPoints}
             onSetManualTiebreakOrder={(order) => onSetManualTiebreakOrder(court.courtNumber, order)}
             onSetManualMovementOverride={(playerId, toCourt) => onSetManualMovementOverride(court.courtNumber, playerId, toCourt)}
           />
@@ -49,7 +54,7 @@ export function KingCourtMovementPreview({
       </div>
 
       {anyTied && (
-        <p className="hint error">Some courts have tied players (equal wins and point differential) — use the tiebreak
+        <p className="hint error">Some courts have tied players (equal wins{showPoints ? ' and point differential' : ''}) — use the tiebreak
           controls below to set the order before confirming, if it matters for this movement.</p>
       )}
 
@@ -64,6 +69,7 @@ interface KingCourtMovementCourtCardProps {
   court: KingCourtCourtCycle;
   nameById: Map<string, string>;
   numberOfCourts: number;
+  showPoints: boolean;
   onSetManualTiebreakOrder: (orderedPlayerIds: string[]) => void;
   onSetManualMovementOverride: (playerId: string, toCourt: number) => void;
 }
@@ -72,6 +78,7 @@ function KingCourtMovementCourtCard({
   court,
   nameById,
   numberOfCourts,
+  showPoints,
   onSetManualTiebreakOrder,
   onSetManualMovementOverride,
 }: KingCourtMovementCourtCardProps) {
@@ -105,8 +112,7 @@ function KingCourtMovementCourtCard({
               <span className="kc-movement-icon">{MOVEMENT_ICON[standing.movementDirection]}</span>
               <span className="kc-movement-name">{nameById.get(standing.playerId) ?? 'Unknown player'}</span>
               <span className="kc-movement-record">
-                {standing.wins}W–{standing.losses}L, {standing.pointDifferential > 0 ? '+' : ''}
-                {standing.pointDifferential}
+                {formatKingCourtRecord(standing.wins, standing.losses, standing.pointDifferential, showPoints)}
               </span>
               {standing.tied && <span className="kc-movement-tied">Tied</span>}
               {movement && (

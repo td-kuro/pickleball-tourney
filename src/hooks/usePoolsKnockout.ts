@@ -1,4 +1,4 @@
-import type { KnockoutBracket, Player, Pool, Team, TournamentSettings, TournamentStage } from '../types';
+import type { KnockoutBracket, Player, Pool, ResultSubmission, ScoreRecordingMode, Team, TournamentSettings, TournamentStage } from '../types';
 import {
   addTeamToPool,
   assignPools,
@@ -7,7 +7,10 @@ import {
   formTeams,
   generatePoolMatches,
   isKnockoutComplete,
-  recordKnockoutScore,
+  recordKnockoutResult,
+  recordPoolMatchResult,
+  restoreSkippedPoolMatchesForTeam,
+  skipUnplayedPoolMatchesForTeam,
   smallestPool,
 } from '../utils/poolsKnockout';
 import { useLocalStorage } from './useLocalStorage';
@@ -20,6 +23,7 @@ const TEAMS_KEY = 'pickleball-tourney:pk:teams';
 const POOLS_KEY = 'pickleball-tourney:pk:pools';
 const BRACKET_KEY = 'pickleball-tourney:pk:bracket';
 const STAGE_KEY = 'pickleball-tourney:pk:stage';
+const UNAVAILABLE_TEAMS_KEY = 'pickleball-tourney:pk:unavailableTeamIds';
 
 // Manages Pools & Knockout state, persisted to localStorage, completely
 // independent of useTournament's rounds/plannedRounds (Leaderboard/Social
@@ -29,6 +33,11 @@ export function usePoolsKnockout() {
   const [pools, setPools] = useLocalStorage<Pool[]>(POOLS_KEY, []);
   const [bracket, setBracket] = useLocalStorage<KnockoutBracket | null>(BRACKET_KEY, null);
   const [stage, setStage] = useLocalStorage<TournamentStage>(STAGE_KEY, 'setup');
+  // Teams the organiser has marked unavailable mid-tournament — see
+  // setTeamAvailability. Display/decision state only: whether their pool
+  // matches were actually taken off the schedule is recorded on the matches
+  // themselves (PoolMatch.skipped).
+  const [unavailableTeamIds, setUnavailableTeamIds] = useLocalStorage<string[]>(UNAVAILABLE_TEAMS_KEY, []);
 
   // Called by "Start Matches" when Pools & Knockout is selected: sources
   // teams from both the declared fixed-teams roster (used directly, so
@@ -83,28 +92,47 @@ export function usePoolsKnockout() {
     return { ok: true };
   }
 
-  function setPoolMatchScore(poolId: string, matchId: string, scoreA: number, scoreB: number) {
+  function setPoolMatchResult(poolId: string, matchId: string, result: ResultSubmission) {
     setPools(
       pools.map((pool) =>
         pool.id !== poolId
           ? pool
-          : { ...pool, matches: pool.matches.map((match) => (match.id === matchId ? { ...match, scoreA, scoreB } : match)) },
+          : { ...pool, matches: pool.matches.map((match) => (match.id === matchId ? recordPoolMatchResult(match, result) : match)) },
       ),
     );
   }
 
   // Called once every pool match is complete: seeds the qualified teams
   // and builds the full knockout bracket in one pass.
-  function advanceToKnockout(teamsAdvancingPerPool: number) {
-    setBracket(buildKnockoutBracket(pools, teamsAdvancingPerPool));
+  function advanceToKnockout(teamsAdvancingPerPool: number, scoreRecordingMode: ScoreRecordingMode) {
+    setBracket(buildKnockoutBracket(pools, teamsAdvancingPerPool, scoreRecordingMode));
     setStage('knockout-stage');
   }
 
-  function setKnockoutMatchScore(matchId: string, scoreA: number, scoreB: number) {
+  function setKnockoutMatchResult(matchId: string, result: ResultSubmission) {
     if (!bracket) return;
-    const updated = recordKnockoutScore(bracket, matchId, scoreA, scoreB);
+    const updated = recordKnockoutResult(bracket, matchId, result);
     setBracket(updated);
     if (isKnockoutComplete(updated)) setStage('complete');
+  }
+
+  // Marks a team (a player, in Singles) unavailable/available again. During
+  // the pool stage, `updateSchedule` (only ever true after the organiser
+  // confirms — see PoolsKnockoutPage) takes the team's unplayed pool
+  // matches off the schedule, or restores them when it returns. Matches
+  // with a result are never touched, and once the knockout stage has
+  // started nothing is changed automatically at all — the bracket is fixed.
+  function setTeamAvailability(teamId: string, available: boolean, updateSchedule: boolean) {
+    const nextUnavailable = available ? unavailableTeamIds.filter((id) => id !== teamId) : [...new Set([...unavailableTeamIds, teamId])];
+    setUnavailableTeamIds(nextUnavailable);
+    if (!updateSchedule || stage !== 'pool-stage') return;
+    const unavailableSet = new Set(nextUnavailable);
+    setPools(
+      pools.map((pool) => {
+        if (!pool.teamIds.includes(teamId)) return pool;
+        return available ? restoreSkippedPoolMatchesForTeam(pool, teamId, unavailableSet) : skipUnplayedPoolMatchesForTeam(pool, teamId);
+      }),
+    );
   }
 
   // Clears every bit of Pools & Knockout state. Called alongside
@@ -115,6 +143,7 @@ export function usePoolsKnockout() {
     setPools([]);
     setBracket(null);
     setStage('setup');
+    setUnavailableTeamIds([]);
   }
 
   return {
@@ -123,9 +152,11 @@ export function usePoolsKnockout() {
     bracket,
     stage,
     startPoolStage,
-    setPoolMatchScore,
+    setPoolMatchResult,
     advanceToKnockout,
-    setKnockoutMatchScore,
+    setKnockoutMatchResult,
+    unavailableTeamIds,
+    setTeamAvailability,
     addSinglesTeamMidSession,
     resetPoolsKnockout,
   };

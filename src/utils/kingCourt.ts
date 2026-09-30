@@ -13,9 +13,11 @@ import type {
   KingCourtPlayerStats,
   KingCourtStanding,
   Player,
+  ResultSubmission,
   RoundStatus,
 } from '../types';
-import { isPlayerEligibleForSwap } from './tournament';
+import { hasAnyResult, resolveWinner } from './results';
+import { isPlayerAvailableForScheduling, isPlayerEligibleForSwap } from './tournament';
 
 // --- The fixed 5-game rotation --------------------------------------------
 //
@@ -112,15 +114,35 @@ export interface KingCourtGameResult {
   playerDeltas: Record<string, { win: number; loss: number; pointDifferential: number }>;
 }
 
+// Derived from the scores for a full-score result, or the recorded
+// winnerTeam for a Win/Loss-only one — see ScoreRecordingMode.
 export function getKingCourtGameWinner(game: KingCourtGame): 1 | 2 | undefined {
-  if (game.team1Score == null || game.team2Score == null || game.team1Score === game.team2Score) return undefined;
-  return game.team1Score > game.team2Score ? 1 : 2;
+  return resolveWinner(game.team1Score, game.team2Score, game.winnerTeam, 1 as const, 2 as const);
+}
+
+export function kingCourtGameHasResult(game: KingCourtGame): boolean {
+  return hasAnyResult(game.team1Score, game.team2Score, game.winnerTeam);
+}
+
+// Records either kind of result: a full score stores both scores plus the
+// derived winnerTeam; a Win/Loss-only result stores winnerTeam alone.
+export function recordKingCourtGameResult(game: KingCourtGame, result: ResultSubmission): KingCourtGame {
+  if (result.kind === 'winner') {
+    return { ...game, team1Score: undefined, team2Score: undefined, winnerTeam: result.winner === 'A' ? 1 : 2, status: 'completed' };
+  }
+  const { scoreA: team1Score, scoreB: team2Score } = result;
+  const winnerTeam = team1Score === team2Score ? undefined : team1Score > team2Score ? 1 : 2;
+  return { ...game, team1Score, team2Score, winnerTeam, status: 'completed' };
 }
 
 // Both players on the winning team get +1 win and +margin point
 // differential; both on the losing team get +1 loss and -margin. The
 // resting player, and every player when the game isn't scored yet (or is
-// tied), gets all zeros.
+// tied), gets all zeros. A Win/Loss-only result counts the win/loss with a
+// zero margin — there's no score to take a margin from, so point
+// differential simply never separates players in that mode and ties on
+// wins are flagged for the organiser's manual order (see
+// calculateCourtStandings).
 export function calculateKingCourtGameResult(game: KingCourtGame): KingCourtGameResult {
   const playerDeltas: KingCourtGameResult['playerDeltas'] = {};
   for (const id of [...game.team1PlayerIds, ...game.team2PlayerIds, game.restingPlayerId]) {
@@ -128,11 +150,11 @@ export function calculateKingCourtGameResult(game: KingCourtGame): KingCourtGame
   }
 
   const winnerTeam = getKingCourtGameWinner(game);
-  if (winnerTeam == null || game.team1Score == null || game.team2Score == null) {
+  if (winnerTeam == null) {
     return { winnerTeam: undefined, playerDeltas };
   }
 
-  const margin = Math.abs(game.team1Score - game.team2Score);
+  const margin = game.team1Score != null && game.team2Score != null ? Math.abs(game.team1Score - game.team2Score) : 0;
   const winningIds = winnerTeam === 1 ? game.team1PlayerIds : game.team2PlayerIds;
   const losingIds = winnerTeam === 1 ? game.team2PlayerIds : game.team1PlayerIds;
 
@@ -140,6 +162,15 @@ export function calculateKingCourtGameResult(game: KingCourtGame): KingCourtGame
   for (const id of losingIds) playerDeltas[id] = { win: 0, loss: 1, pointDifferential: -margin };
 
   return { winnerTeam, playerDeltas };
+}
+
+// "3W–2L, +5" — or just "3W–2L" when point differential isn't available
+// (Win/Loss only scoring, see ScoreRecordingMode), so a meaningless "+0"
+// is never shown.
+export function formatKingCourtRecord(wins: number, losses: number, pointDifferential: number, showPoints: boolean): string {
+  const record = `${wins}W–${losses}L`;
+  if (!showPoints) return record;
+  return `${record}, ${pointDifferential > 0 ? '+' : ''}${pointDifferential}`;
 }
 
 // Ranks a court's 5 players by wins, then point differential. `manualOrder`
@@ -313,7 +344,7 @@ export function generateNextKingCourtCycle(
 export function isCurrentGameComplete(cycle: KingCourtCycle): boolean {
   return cycle.courts.every((court) => {
     const game = court.games.find((g) => g.gameNumber === cycle.currentGameNumber);
-    return game != null && game.team1Score != null && game.team2Score != null;
+    return game != null && kingCourtGameHasResult(game);
   });
 }
 
@@ -423,6 +454,35 @@ export function validateNextCycleAssignments(
     };
   }
   return { ok: true };
+}
+
+// Drops anyone who isn't schedulable for `cycleNumber` (Late/Unavailable/
+// Injured/Left Early, or a new joiner not due yet) from the next cycle's
+// seating — King Court never auto-refills a court, so the returned
+// `removedIds` lets the caller explain exactly who left which court before
+// validateNextCycleAssignments reports the shortfall. See
+// useKingCourt.confirmMovementAndAdvance.
+export function dropUnavailableFromNextCycle(
+  assignments: KingCourtPlayerAssignment[],
+  players: Player[],
+  cycleNumber: number,
+): { assignments: KingCourtPlayerAssignment[]; removed: KingCourtPlayerAssignment[] } {
+  const playerById = new Map(players.map((p) => [p.id, p]));
+  const kept: KingCourtPlayerAssignment[] = [];
+  const removed: KingCourtPlayerAssignment[] = [];
+  for (const assignment of assignments) {
+    const player = playerById.get(assignment.playerId);
+    if (player && isPlayerAvailableForScheduling(player, cycleNumber)) kept.push(assignment);
+    else removed.push(assignment);
+  }
+  return { assignments: kept, removed };
+}
+
+// Available players not seated on any court this cycle and not already
+// staged for the next one — King Court's "waiting" pool.
+export function waitingPlayers(players: Player[], cycle: KingCourtCycle | null, staged: KingCourtPlayerAssignment[]): Player[] {
+  const seated = new Set([...(cycle?.courts.flatMap((c) => c.playerIds) ?? []), ...staged.map((a) => a.playerId)]);
+  return players.filter((p) => !seated.has(p.id) && (p.availabilityStatus ?? 'available') === 'available');
 }
 
 // True if `playerId` still has an unplayed game left in `courtNumber` this

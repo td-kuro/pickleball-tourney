@@ -1,6 +1,8 @@
 import { useState, type FormEvent } from 'react';
-import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingMatch, QualifyingRound, RestAssignment } from '../types';
+import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingMatch, QualifyingRound, RestAssignment, ScoreRecordingMode } from '../types';
 import { calculateProvisionalStandings } from '../utils/dynamicTeamQualifier';
+import { SCORE_NOT_RECORDED, scoreRecordingModeLabel } from '../utils/results';
+import { MatchResultEntry } from './MatchResultEntry';
 
 interface DynamicTeamQualifierCurrentRoundProps {
   teams: DynamicTeam[];
@@ -13,6 +15,7 @@ interface DynamicTeamQualifierCurrentRoundProps {
   onGenerateNextRound: () => { ok: true } | { ok: false; reason: string };
   onGenerateMedalBracket: () => void;
   onViewAllRounds: () => void;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // The live/active Dynamic Team Qualifier round, plus the Director Dashboard
@@ -32,6 +35,7 @@ export function DynamicTeamQualifierCurrentRound({
   onGenerateNextRound,
   onGenerateMedalBracket,
   onViewAllRounds,
+  scoreRecordingMode,
 }: DynamicTeamQualifierCurrentRoundProps) {
   const [warning, setWarning] = useState<string | null>(null);
 
@@ -160,6 +164,7 @@ export function DynamicTeamQualifierCurrentRound({
           {!currentRound && closedRound && (
             <p className="hint">Every result is in — click "Generate Next Round" above to continue.</p>
           )}
+          <p className="hint">Scoring: {scoreRecordingModeLabel(scoreRecordingMode)}</p>
           <div className="match-list">
             {displayRound.matches.map((match) => (
               <DynamicTeamMatchCard
@@ -167,6 +172,7 @@ export function DynamicTeamQualifierCurrentRound({
                 match={match}
                 teamALabel={teamLabel(match.teamAId)}
                 teamBLabel={teamLabel(match.teamBId)}
+                scoreMode={scoreRecordingMode}
                 onSetScore={(result) => onSetScore(match.id, result)}
               />
             ))}
@@ -198,6 +204,7 @@ interface DynamicTeamMatchCardProps {
   match: QualifyingMatch;
   teamALabel: string;
   teamBLabel: string;
+  scoreMode: ScoreRecordingMode;
   onSetScore: (result: { scoreA?: number; scoreB?: number; winnerId?: string; goldenPoint?: boolean; forfeit?: boolean }) => void;
 }
 
@@ -206,7 +213,7 @@ interface DynamicTeamMatchCardProps {
 // directly, e.g. "9-8"; this is a record-keeping marker, not an automatic
 // score transformer — see README's "Golden point rule"), and a Forfeit
 // toggle that swaps score inputs for a plain winner pick.
-function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, onSetScore }: DynamicTeamMatchCardProps) {
+function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, scoreMode, onSetScore }: DynamicTeamMatchCardProps) {
   const [scoreA, setScoreA] = useState(match.scoreA != null ? String(match.scoreA) : '');
   const [scoreB, setScoreB] = useState(match.scoreB != null ? String(match.scoreB) : '');
   const [goldenPoint, setGoldenPoint] = useState(match.goldenPoint);
@@ -214,6 +221,10 @@ function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, onSetScore }: Dyn
   const [forfeitWinner, setForfeitWinner] = useState<'A' | 'B'>(match.winnerId === match.teamBId ? 'B' : 'A');
   const [error, setError] = useState<string | null>(null);
   const locked = match.status === 'completed';
+  // Win/Loss only (see ScoreRecordingMode): no score inputs — the winner
+  // buttons record the result straight away. Also used to display a locked
+  // winner-only result, so it's never shown as empty score boxes.
+  const winnerOnly = !match.forfeit && (scoreMode === 'win-loss-only' || (locked && match.scoreA == null && match.winnerId != null));
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -255,6 +266,29 @@ function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, onSetScore }: Dyn
             </button>
           </div>
         </div>
+      ) : winnerOnly ? (
+        <>
+          <div className="match-teams">
+            <div className={match.winnerId === match.teamAId ? 'match-team winner' : 'match-team'}>
+              <span className="match-team-name">{teamALabel}</span>
+            </div>
+            <div className="match-vs">vs</div>
+            <div className={match.winnerId === match.teamBId ? 'match-team winner' : 'match-team'}>
+              <span className="match-team-name">{teamBLabel}</span>
+            </div>
+          </div>
+          {!locked && (
+            <MatchResultEntry
+              mode="win-loss-only"
+              sideALabel={teamALabel}
+              sideBLabel={teamBLabel}
+              currentWinner={match.winnerId === match.teamAId ? 'A' : match.winnerId === match.teamBId ? 'B' : undefined}
+              onSubmit={(result) =>
+                result.kind === 'winner' && onSetScore({ winnerId: result.winner === 'A' ? match.teamAId : match.teamBId })
+              }
+            />
+          )}
+        </>
       ) : (
         <div className="match-teams">
           <div className={match.winnerId === match.teamAId ? 'match-team winner' : 'match-team'}>
@@ -269,7 +303,7 @@ function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, onSetScore }: Dyn
         </div>
       )}
 
-      {!locked && !forfeit && (
+      {!locked && !forfeit && !winnerOnly && (
         <label className="dp-placeholder-toggle">
           <input type="checkbox" checked={goldenPoint} onChange={(event) => setGoldenPoint(event.target.checked)} />
           Golden point
@@ -295,10 +329,11 @@ function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, onSetScore }: Dyn
           Winner: {match.winnerId === match.teamAId ? teamALabel : teamBLabel}
           {match.goldenPoint && ' · Golden point'}
           {match.forfeit && ' · Forfeit'}
+          {!match.forfeit && match.scoreA == null && ` · ${SCORE_NOT_RECORDED}`}
         </p>
       )}
 
-      {!locked && (
+      {!locked && (!winnerOnly || forfeit) && (
         <button type="submit" className="secondary">
           Save Result
         </button>

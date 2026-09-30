@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerAvailabilityStatus } from './types';
-import { AddPlayerMidSessionButton } from './components/AddPlayerMidSessionModal';
 import { CourtSeeding } from './components/CourtSeeding';
 import { DynamicPairingRankings } from './components/DynamicPairingRankings';
 import { DynamicPairingRestingPlayers } from './components/DynamicPairingRestingPlayers';
@@ -15,6 +14,7 @@ import { DynamicTeamQualifierSetup } from './components/DynamicTeamQualifierSetu
 import { DynamicTeamQualifierStandings } from './components/DynamicTeamQualifierStandings';
 import { DynamicTeamRoster } from './components/DynamicTeamRoster';
 import { FinalResults } from './components/FinalResults';
+import { FlashMessage } from './components/FlashMessage';
 import { FixedTeamResults } from './components/FixedTeamResults';
 import { KingCourtCycleHistory } from './components/KingCourtCycleHistory';
 import { KingCourtRoundsPage } from './components/KingCourtRoundsPage';
@@ -37,12 +37,18 @@ import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTournament } from './hooks/useTournament';
+import { availabilityChangeMessage, currentRoundHasResultMessage, isAwayStatus, normalizeReturningByeAdjustments, statusOf } from './utils/availability';
+import { playerHasRemainingGamesOnCourt, waitingPlayers } from './utils/kingCourt';
 import { validatePoolsKnockoutSetup } from './utils/poolsKnockout';
 import {
   activateDueNewJoiners,
+  availabilityStatusLabel,
   canAddLateJoiner,
   canGenerateRound,
   canRegenerateRoundInPlace,
+  computePlayerStats,
+  effectiveScoreRecordingMode,
+  hasMatchResult,
   playersNeededPerMatch,
   revertRestingPlayers,
 } from './utils/tournament';
@@ -75,7 +81,6 @@ function App() {
     addExistingPlayers,
     addPlayerMidSession,
     updatePlayer,
-    setAvailabilityStatus,
     removePlayer,
     removePlayers,
     removeAllPlayers,
@@ -109,7 +114,8 @@ function App() {
     plannedRounds,
     nextRound,
     startSession,
-    setMatchScore,
+    setMatchResult,
+    recordAvailabilityChange,
     resetTournament,
     sessionAdjustments,
     regenerateFutureRounds,
@@ -160,6 +166,10 @@ function App() {
   // Surfaces confirmMovementAndAdvance's validation failure (e.g. a court
   // left short by an availability change) — see KingCourtManageCourts.
   const [kcConfirmError, setKcConfirmError] = useState<string | null>(null);
+  // Confirmation messages for actions whose effect lands on a different
+  // screen (e.g. availability changes regenerating future rounds) — see
+  // FlashMessage. Replaced by each new action, cleared on dismiss.
+  const [flashMessages, setFlashMessages] = useState<string[]>([]);
   const [view, setView] = useState<View>(
     isKingCourt
       ? kingCourt.started
@@ -247,35 +257,112 @@ function App() {
     setView('results');
   }
 
-  // Sets the player's status, then immediately regenerates the still-
-  // 'upcoming' rounds against the updated roster — computed here rather
-  // than read back from `players` state (which won't reflect the change
-  // until the next render) so the two stay in sync within one click. Only
-  // ever wired up for Standard Social Play (see SessionControls,
-  // CurrentRoundView's PlayerActionMenu) — Tournament Mode never calls
-  // this. If the player is actively assigned to the *current* round's
-  // still-unscored match, additionally offers to regenerate that round
-  // right now too (see README's "Mid-session player and court changes") —
-  // 'resting-this-round' is excluded here since that case is handled by
-  // the swap flow instead (pulling in a specific replacement, not a full
-  // regeneration).
-  function handleSetPlayerAvailability(playerId: string, status: PlayerAvailabilityStatus) {
-    setAvailabilityStatus(playerId, status);
-    const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
-    regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
+  // Recorded byes per individual player over rounds actually reached (not
+  // pre-generated upcoming ones) — the input normalizeReturningByeAdjustments
+  // levels a returning player against.
+  function recordedByesLookup(): (playerId: string) => number {
+    const byesById = new Map(computePlayerStats(players, reachedRounds).map((st) => [st.playerId, st.byes]));
+    return (playerId) => byesById.get(playerId) ?? 0;
+  }
 
-    if (status === 'available' || status === 'resting-this-round') return;
+  // Availability change for Standard Social Play and Tournament Leaderboard
+  // (the two formats sharing usePlayers/useTournament). Updates the status,
+  // levels a returning player's bye count (see
+  // normalizeReturningByeAdjustments), regenerates every still-'upcoming'
+  // round against the updated roster (a no-op for Tournament Leaderboard,
+  // which builds each round on demand from whoever is available), logs the
+  // change, and — only if the organiser confirms and the current round has
+  // no result yet — rebuilds the current round too. Computed against a
+  // local copy rather than read back from `players` state (which won't
+  // reflect the change until the next render) so everything stays in sync
+  // within one click. 'resting-this-round' skips the current-round prompt:
+  // that case is handled by the swap flow instead (pulling in a specific
+  // replacement, not a full regeneration).
+  function handleSetPlayerAvailability(playerId: string, status: PlayerAvailabilityStatus) {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+    const oldStatus = statusOf(player);
+    if (oldStatus === status) return;
+
+    const changed = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
+    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedByesLookup());
+    setPlayersBulk(updatedPlayers);
+    const regenerated = regenerateFutureRounds(updatedPlayers, teams, teamPlayers);
+
+    const outcome = regenerated
+      ? 'Future rounds have been updated.'
+      : status === 'available'
+        ? 'They will be included from the next round.'
+        : 'They will be left out of future rounds.';
+    const message = availabilityChangeMessage(player.name, status, availabilityStatusLabel(status), outcome);
+    const messages = [message];
+    recordAvailabilityChange(player, oldStatus, status, message);
+
     const currentRound = rounds.find((round) => round.status === 'current');
-    if (!currentRound) return;
-    const inCurrentMatch = currentRound.matches.some(
-      (match) => match.teamA.playerIds.includes(playerId) || match.teamB.playerIds.includes(playerId),
-    );
-    if (!inCurrentMatch) return;
-    const hasScores = currentRound.matches.some((match) => match.scoreA != null || match.scoreB != null);
-    if (hasScores) return;
-    if (window.confirm('Regenerate the current round with updated player availability? Existing match assignments for this round will change.')) {
-      regenerateCurrentRound(updatedPlayers, teams, teamPlayers);
+    if (currentRound && status !== 'resting-this-round') {
+      const currentMatch = currentRound.matches.find(
+        (match) => match.teamA.playerIds.includes(playerId) || match.teamB.playerIds.includes(playerId),
+      );
+      const canRebuild = canRegenerateRoundInPlace(currentRound);
+      if (isAwayStatus(status) && currentMatch) {
+        if (hasMatchResult(currentMatch)) {
+          messages.push(currentRoundHasResultMessage(player.name));
+        } else if (!canRebuild) {
+          messages.push(`The current round already has results, so it wasn't changed. Swap ${player.name} out from Current Round if needed.`);
+        } else if (
+          window.confirm(`${player.name} is playing in the current round. Regenerate the current round without them? Existing match assignments for this round will change.`)
+        ) {
+          regenerateCurrentRound(updatedPlayers, teams, teamPlayers);
+          messages.push('The current round was regenerated.');
+        } else {
+          messages.push(`The current round was left as is — swap ${player.name} out from Current Round if needed.`);
+        }
+      } else if (status === 'available' && oldStatus !== 'available' && canRebuild) {
+        if (window.confirm(`${player.name} is available again. Also add them to the current round now? The current round has no results yet, so it can be safely regenerated.`)) {
+          regenerateCurrentRound(updatedPlayers, teams, teamPlayers);
+          messages.push(`The current round was regenerated to include ${player.name}.`);
+        }
+      }
     }
+    setFlashMessages(messages);
+  }
+
+  // King Court's availability change. King Court never pre-generates future
+  // cycles and never auto-rewrites the live one (its 5-game rotation is
+  // fixed per court) — so a player going away is left out of the *next*
+  // cycle's seating (see useKingCourt.confirmMovementAndAdvance, which
+  // reports any court that ends up short) and a returning player joins the
+  // waiting pool for the next cycle. Every message says exactly that
+  // instead of claiming rounds were regenerated.
+  function handleSetKingCourtAvailability(playerId: string, status: PlayerAvailabilityStatus) {
+    const player = players.find((p) => p.id === playerId);
+    if (!player) return;
+    const oldStatus = statusOf(player);
+    if (oldStatus === status) return;
+    const updatedPlayers = players.map((p) => (p.id === playerId ? { ...p, availabilityStatus: status } : p));
+    setPlayersBulk(updatedPlayers);
+
+    const cycle = kingCourt.currentCycle;
+    const courtWithGamesLeft = cycle?.courts.find((c) => playerHasRemainingGamesOnCourt(cycle, c.courtNumber, playerId));
+    const outcome =
+      status === 'available'
+        ? 'They are in the waiting pool and can be placed on a court from the next cycle.'
+        : 'They will be left out of future cycles.';
+    const message = availabilityChangeMessage(player.name, status, availabilityStatusLabel(status), outcome);
+    const messages = [message];
+    if (status !== 'available' && courtWithGamesLeft) {
+      messages.push(
+        `${player.name} still has games on Court ${courtWithGamesLeft.courtNumber} this cycle — substitute a waiting player in Manage Courts / Players. The next game can't be scored with them missing, and the next cycle needs exactly 5 valid players on every court.`,
+      );
+    }
+    if (status === 'available') {
+      const waiting = waitingPlayers(updatedPlayers, cycle, kingCourt.assignments);
+      if (waiting.length >= 5) {
+        messages.push(`${waiting.length} players are waiting — enough to add another court of 5. Consider increasing the court count.`);
+      }
+    }
+    kingCourt.recordAvailabilityChange(player, oldStatus, status, message);
+    setFlashMessages(messages);
   }
 
   function handleChangeCourts(newCourts: number, regenerateCurrent: boolean) {
@@ -383,6 +470,29 @@ function App() {
     return poolsKnockout.addSinglesTeamMidSession(fields.name, fields.rating, settings);
   }
 
+  // Pools & Knockout availability (per team — a player, in Singles). The
+  // strictest rotating format: pool-stage schedule changes need explicit
+  // organiser confirmation, and nothing changes automatically once the
+  // knockout bracket exists.
+  function handlePoolsTeamAvailability(teamId: string, available: boolean) {
+    const team = poolsKnockout.teams.find((t) => t.id === teamId);
+    if (!team) return;
+    const inPoolStage = poolsKnockout.stage === 'pool-stage';
+    const updateSchedule =
+      inPoolStage && window.confirm('Pool schedule changes can affect fairness. Regenerate future unplayed pool matches?');
+    poolsKnockout.setTeamAvailability(teamId, available, updateSchedule);
+
+    const status = available ? 'is now available.' : 'has been marked unavailable.';
+    const detail = !inPoolStage
+      ? 'Knockout bracket has started. Player availability changes will not automatically alter completed or active bracket matches.'
+      : updateSchedule
+        ? available
+          ? 'Their skipped pool matches have been restored to the schedule.'
+          : 'Their unplayed pool matches have been taken off the schedule. Completed matches are unchanged.'
+        : 'The pool schedule was not changed.';
+    setFlashMessages([`${team.name} ${status} ${detail}`]);
+  }
+
   function handleReset() {
     const confirmed = window.confirm(
       isKingCourt
@@ -442,6 +552,8 @@ function App() {
         </div>
         <div className="brand-bar" aria-hidden="true" />
       </header>
+
+      <FlashMessage messages={flashMessages} onDismiss={() => setFlashMessages([])} />
 
       <div className="tab-bar">
         <nav className="tabs" aria-label="View">
@@ -613,6 +725,8 @@ function App() {
                   kingCourt.pruneAssignments(players);
                 }}
                 locked={kingCourt.started}
+                scoreRecordingMode={kingCourt.scoreRecordingMode}
+                onScoreRecordingModeChange={kingCourt.setScoreRecordingMode}
               />
 
               {!kingCourt.started && (
@@ -672,6 +786,7 @@ function App() {
                 onAddTeamsBulk={dynamicTeamQualifier.addTeamsBulk}
                 onUpdateTeam={dynamicTeamQualifier.updateTeam}
                 onSetCheckedIn={dynamicTeamQualifier.setCheckedIn}
+                onSetWithdrawn={dynamicTeamQualifier.setWithdrawn}
                 onCheckInAllTeams={dynamicTeamQualifier.checkInAllTeams}
                 onRemoveTeam={dynamicTeamQualifier.removeTeam}
                 onRemoveAllTeams={dynamicTeamQualifier.removeAllTeams}
@@ -738,7 +853,8 @@ function App() {
           sessionAdjustments={kingCourt.sessionAdjustments}
           nextCycleStaging={kingCourt.assignments}
           confirmError={kcConfirmError}
-          onSetGameScore={kingCourt.setGameScore}
+          onSetGameResult={kingCourt.setGameResult}
+          scoreRecordingMode={kingCourt.scoreRecordingMode}
           onAdvanceGame={kingCourt.advanceGame}
           onSetManualTiebreakOrder={kingCourt.setManualTiebreakOrder}
           onSetManualMovementOverride={kingCourt.setManualMovementOverride}
@@ -752,7 +868,7 @@ function App() {
             const result = kingCourt.confirmMovementAndAdvance(updatedPlayers);
             setKcConfirmError(result.ok ? null : result.reason);
           }}
-          onSetAvailability={setAvailabilityStatus}
+          onSetAvailability={handleSetKingCourtAvailability}
           onSubstitute={kingCourt.substitutePlayer}
           onChangeCourts={kingCourt.changeCourtsSession}
           onStageForNextCycle={kingCourt.assignPlayerToCourt}
@@ -760,9 +876,13 @@ function App() {
         />
       )}
 
-      {view === 'kc-standings' && <KingCourtStandings players={players} cycles={kingCourt.cycles} />}
+      {view === 'kc-standings' && (
+        <KingCourtStandings players={players} cycles={kingCourt.cycles} scoreRecordingMode={kingCourt.scoreRecordingMode} />
+      )}
 
-      {view === 'kc-history' && <KingCourtCycleHistory players={players} cycles={kingCourt.cycles} />}
+      {view === 'kc-history' && (
+        <KingCourtCycleHistory players={players} cycles={kingCourt.cycles} scoreRecordingMode={kingCourt.scoreRecordingMode} />
+      )}
 
       {view === 'dp-rounds' && started && (
         <DynamicPairingRoundsPage
@@ -770,18 +890,24 @@ function App() {
           currentRound={dynamicPairing.currentRound}
           players={dynamicPairing.players}
           teams={dynamicPairing.teams}
-          onSetScore={(courtNumber, score1, score2) => {
+          onSetResult={(courtNumber, result) => {
             if (!dynamicPairing.currentRound) return;
-            dynamicPairing.setCourtScore(dynamicPairing.currentRound.id, courtNumber, score1, score2);
+            dynamicPairing.setCourtResult(dynamicPairing.currentRound.id, courtNumber, result);
           }}
+          scoreRecordingMode={dynamicPairing.settings.scoreRecordingMode}
           onGenerateNextRound={dynamicPairing.generateNextRound}
-          onSetAvailability={dynamicPairing.setAvailabilityStatus}
+          onSetAvailability={(playerId, status) => setFlashMessages(dynamicPairing.setAvailabilityStatus(playerId, status))}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
         />
       )}
 
       {view === 'dp-rankings' && started && (
-        <DynamicPairingRankings players={dynamicPairing.players} teams={dynamicPairing.teams} rounds={dynamicPairing.rounds} />
+        <DynamicPairingRankings
+          players={dynamicPairing.players}
+          teams={dynamicPairing.teams}
+          rounds={dynamicPairing.rounds}
+          scoreRecordingMode={dynamicPairing.settings.scoreRecordingMode}
+        />
       )}
 
       {view === 'dp-resting' && started && (
@@ -792,7 +918,7 @@ function App() {
           currentRound={dynamicPairing.currentRound}
           numberOfCourts={dynamicPairing.settings.numberOfCourts}
           sessionAdjustments={dynamicPairing.sessionAdjustments}
-          onSetAvailability={dynamicPairing.setAvailabilityStatus}
+          onSetAvailability={(playerId, status) => setFlashMessages(dynamicPairing.setAvailabilityStatus(playerId, status))}
           onChangeCourts={dynamicPairing.changeCourtCount}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
           onAddPlayerMidSession={dynamicPairing.addPlayerMidSession}
@@ -815,6 +941,14 @@ function App() {
           onCloseRound={dynamicTeamQualifier.closeCurrentRound}
           onGenerateNextRound={dynamicTeamQualifier.generateNextRound}
           onGenerateMedalBracket={dynamicTeamQualifier.startMedalBracket}
+          scoreRecordingMode={dynamicTeamQualifier.settings.scoreRecordingMode}
+          onSetTeamUnavailableForReview={(teamId, unavailable) => {
+            dynamicTeamQualifier.setTeamUnavailableForReview(teamId, unavailable);
+            const team = dynamicTeamQualifier.teams.find((t) => t.id === teamId);
+            setFlashMessages([
+              `${team?.displayName ?? 'Team'} ${unavailable ? 'has been flagged unavailable' : 'is available again'}. Dynamic Team Qualifier uses a locked team schedule. Future schedule requires director review.`,
+            ]);
+          }}
         />
       )}
 
@@ -824,6 +958,7 @@ function App() {
           rounds={dynamicTeamQualifier.rounds}
           restAssignments={dynamicTeamQualifier.restAssignments}
           stage={dynamicTeamQualifier.stage}
+          scoreRecordingMode={dynamicTeamQualifier.settings.scoreRecordingMode}
         />
       )}
 
@@ -831,7 +966,8 @@ function App() {
         <DynamicTeamQualifierMedalBracket
           bracket={dynamicTeamQualifier.medalBracket}
           teams={dynamicTeamQualifier.teams}
-          onSetScore={dynamicTeamQualifier.setBracketScore}
+          onSetResult={dynamicTeamQualifier.setBracketResult}
+          scoreRecordingMode={dynamicTeamQualifier.settings.scoreRecordingMode}
         />
       )}
 
@@ -849,10 +985,15 @@ function App() {
             stage={poolsKnockout.stage}
             matchType={settings.matchType}
             teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
-            onSetPoolMatchScore={poolsKnockout.setPoolMatchScore}
-            onAdvanceToKnockout={() => poolsKnockout.advanceToKnockout(settings.poolKnockoutSettings.teamsAdvancingPerPool)}
-            onSetKnockoutScore={poolsKnockout.setKnockoutMatchScore}
+            onSetPoolMatchResult={poolsKnockout.setPoolMatchResult}
+            onAdvanceToKnockout={() =>
+              poolsKnockout.advanceToKnockout(settings.poolKnockoutSettings.teamsAdvancingPerPool, settings.scoreRecordingMode)
+            }
+            onSetKnockoutResult={poolsKnockout.setKnockoutMatchResult}
             onAddPlayerMidSession={handleAddPlayerMidSessionPoolsKnockout}
+            scoreRecordingMode={settings.scoreRecordingMode}
+            unavailableTeamIds={poolsKnockout.unavailableTeamIds}
+            onSetTeamAvailability={handlePoolsTeamAvailability}
           />
         ) : (
           <>
@@ -870,17 +1011,24 @@ function App() {
                 // applied before generating so the new round's scheduling
                 // sees both immediately, not one round late.
                 const upcomingRoundNumber = (rounds.find((round) => round.status === 'current')?.roundNumber ?? 0) + 1;
-                const updatedPlayers = activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber);
+                // Anyone becoming available right now (a due new joiner, a
+                // player back from resting) starts level on byes — see
+                // normalizeReturningByeAdjustments.
+                const updatedPlayers = normalizeReturningByeAdjustments(
+                  players,
+                  activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber),
+                  recordedByesLookup(),
+                );
                 if (updatedPlayers !== players) setPlayersBulk(updatedPlayers);
                 nextRound(updatedPlayers, teams, teamPlayers);
               }}
               onFinishSession={handleFinishSession}
-              onSetScore={setMatchScore}
+              onSetResult={setMatchResult}
               teams={teams}
-              onSetAvailability={settings.playMode === 'social' ? handleSetPlayerAvailability : undefined}
-              onSwap={settings.playMode === 'social' ? handleSwapPlayer : undefined}
+              onSetAvailability={handleSetPlayerAvailability}
+              onSwap={handleSwapPlayer}
             />
-            {settings.playMode === 'social' && (
+            {(settings.playMode === 'social' || settings.tournamentFormat === 'leaderboard') && (
               <SessionControls
                 players={players}
                 teams={teams}
@@ -893,25 +1041,9 @@ function App() {
                 onChangeCourts={handleChangeCourts}
                 onSwap={handleSwapPlayer}
                 onAddPlayerMidSession={handleAddPlayerMidSession}
+                addPlayerDisabledReason={canAddLateJoiner(settings).ok ? undefined : 'Late joiners are disabled for this tournament.'}
+                title={settings.playMode === 'tournament' ? 'Tournament Controls' : 'Session Controls'}
               />
-            )}
-            {/* Tournament Leaderboard: deliberately just the one action
-                (not the full Session Controls — availability/swap/court
-                changes were never wired up for Tournament Mode and stay
-                out of scope here) — see canAddLateJoiner for the "Allow
-                late joiners" gate. */}
-            {settings.playMode === 'tournament' && settings.tournamentFormat === 'leaderboard' && (
-              <section className="card">
-                <h2>Session Controls</h2>
-                {!settings.allowLateJoiners ? (
-                  <p className="hint error">Late joiners are disabled for this tournament.</p>
-                ) : (
-                  <AddPlayerMidSessionButton
-                    onAdd={handleAddPlayerMidSession}
-                    offerCurrentRoundJoin={!!rounds.find((round) => round.status === 'current')}
-                  />
-                )}
-              </section>
             )}
           </>
         ))}
@@ -924,6 +1056,7 @@ function App() {
             pools={poolsKnockout.pools}
             bracket={poolsKnockout.bracket}
             teamsAdvancingPerPool={settings.poolKnockoutSettings.teamsAdvancingPerPool}
+            scoreRecordingMode={settings.scoreRecordingMode}
           />
         ) : isFixedTeams ? (
           <FixedTeamResults teams={teams} rounds={reachedRounds} settings={settings} />
@@ -931,7 +1064,7 @@ function App() {
           // Stats only reflect rounds actually reached (current/completed)
           // — Social Play pre-generates "upcoming" rounds it hasn't played
           // yet, and those shouldn't count toward byes/games-played/etc.
-          <Leaderboard players={effectivePlayers} rounds={reachedRounds} />
+          <Leaderboard players={effectivePlayers} rounds={reachedRounds} scoreRecordingMode={effectiveScoreRecordingMode(settings)} />
         ) : (
           <PlayerStats players={effectivePlayers} rounds={reachedRounds} settings={settings} />
         ))}

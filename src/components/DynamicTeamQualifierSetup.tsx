@@ -1,6 +1,8 @@
 import type { ChangeEvent } from 'react';
 import type { DynamicTeamQualifierSettings } from '../types';
+import { DTQ_WIN_LOSS_WARNING } from '../utils/results';
 import { CourtSelector } from './CourtSelector';
+import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 interface DynamicTeamQualifierSetupProps {
   settings: DynamicTeamQualifierSettings;
@@ -143,6 +145,13 @@ export function DynamicTeamQualifierSetup({ settings, onChangeSettings, started 
         Once teams are checked in below, the Teams card shows a live preview of the resulting rest schedule — see how
         it actually turns out before you commit, and shuffle it if you want a different one.
       </p>
+
+      <ScoreRecordingSelector
+        idPrefix="dtq"
+        value={settings.scoreRecordingMode}
+        onChange={(scoreRecordingMode) => onChangeSettings({ ...settings, scoreRecordingMode })}
+        winLossConfirmation={DTQ_WIN_LOSS_WARNING}
+      />
     </section>
   );
 }

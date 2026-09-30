@@ -19,6 +19,7 @@ import type {
   PlayerStats,
   Round,
   RoundStatus,
+  ScoreRecordingMode,
   Team,
   TeamInstance,
   TeamStats,
@@ -36,6 +37,7 @@ import {
   type MeetingCounts,
   shuffled,
 } from './tournament';
+import { teamByeAdjustment } from './availability';
 
 // A generic "who's playing" unit: 1 player id for a Singles competitor, 2
 // for a doubles side (fixed team or temporary partnership). Every style
@@ -197,14 +199,35 @@ export interface LeaderboardRow {
   rank: number;
 }
 
-export function calculateLeaderboardStats(players: Player[], rounds: Round[]): LeaderboardRow[] {
+// Win % over games actually decided — a player with no results yet sits at
+// 0, not NaN.
+function winRate(wins: number, losses: number): number {
+  return wins + losses > 0 ? wins / (wins + losses) : 0;
+}
+
+// `scoreRecordingMode` 'win-loss-only' drops the point-based tiebreakers
+// (points never accrue in that mode, so they'd only reward whoever happened
+// to play full-score games earlier in a switched session) in favour of win
+// % and games played — see ScoreRecordingMode.
+export function calculateLeaderboardStats(
+  players: Player[],
+  rounds: Round[],
+  scoreRecordingMode: ScoreRecordingMode = 'full-score',
+): LeaderboardRow[] {
   const statsByPlayer = new Map(computePlayerStats(players, rounds).map((s) => [s.playerId, s]));
+  const winLossOnly = scoreRecordingMode === 'win-loss-only';
   const sorted = players
     .map((player) => ({ player, stats: statsByPlayer.get(player.id)! }))
     .sort((a, b) => {
       if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
-      if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
-      if (b.stats.pointDifferential !== a.stats.pointDifferential) return b.stats.pointDifferential - a.stats.pointDifferential;
+      if (winLossOnly) {
+        const rateDiff = winRate(b.stats.wins, b.stats.losses) - winRate(a.stats.wins, a.stats.losses);
+        if (rateDiff !== 0) return rateDiff;
+        if (b.stats.matchesPlayed !== a.stats.matchesPlayed) return b.stats.matchesPlayed - a.stats.matchesPlayed;
+      } else if (b.stats.totalPoints !== a.stats.totalPoints) return b.stats.totalPoints - a.stats.totalPoints;
+      if (!winLossOnly && b.stats.pointDifferential !== a.stats.pointDifferential) {
+        return b.stats.pointDifferential - a.stats.pointDifferential;
+      }
       if (a.stats.byes !== b.stats.byes) return a.stats.byes - b.stats.byes;
       const ratingA = a.player.rating ?? -Infinity;
       const ratingB = b.player.rating ?? -Infinity;
@@ -222,14 +245,25 @@ export interface TeamLeaderboardRow {
 // Same precedence as calculateLeaderboardStats, applied to fixed Teams
 // (pointsFor stands in for "total points", pointDifference for point
 // differential — see TeamStats).
-export function calculateTeamLeaderboardStats(teams: Team[], rounds: Round[]): TeamLeaderboardRow[] {
+export function calculateTeamLeaderboardStats(
+  teams: Team[],
+  rounds: Round[],
+  scoreRecordingMode: ScoreRecordingMode = 'full-score',
+): TeamLeaderboardRow[] {
   const statsByTeam = new Map(computeTeamStats(teams, rounds).map((s) => [s.teamId, s]));
+  const winLossOnly = scoreRecordingMode === 'win-loss-only';
   const sorted = teams
     .map((team) => ({ team, stats: statsByTeam.get(team.id)! }))
     .sort((a, b) => {
       if (b.stats.wins !== a.stats.wins) return b.stats.wins - a.stats.wins;
-      if (b.stats.pointsFor !== a.stats.pointsFor) return b.stats.pointsFor - a.stats.pointsFor;
-      if (b.stats.pointDifference !== a.stats.pointDifference) return b.stats.pointDifference - a.stats.pointDifference;
+      if (winLossOnly) {
+        const rateDiff = winRate(b.stats.wins, b.stats.losses) - winRate(a.stats.wins, a.stats.losses);
+        if (rateDiff !== 0) return rateDiff;
+        if (b.stats.gamesPlayed !== a.stats.gamesPlayed) return b.stats.gamesPlayed - a.stats.gamesPlayed;
+      } else {
+        if (b.stats.pointsFor !== a.stats.pointsFor) return b.stats.pointsFor - a.stats.pointsFor;
+        if (b.stats.pointDifference !== a.stats.pointDifference) return b.stats.pointDifference - a.stats.pointDifference;
+      }
       if (a.stats.byes !== b.stats.byes) return a.stats.byes - b.stats.byes;
       const ratingA = a.team.rating ?? -Infinity;
       const ratingB = b.team.rating ?? -Infinity;
@@ -538,8 +572,23 @@ export function generateMixedDoublesRound(
   const playingSlots = usableCourts * 4;
   const byeSlotsNeeded = totalSlots - playingSlots;
 
-  const playerByeCounts = new Map(computePlayerStats(allIndividuals, priorRounds).map((s) => [s.playerId, s.byes]));
-  const teamByeCounts = new Map(computeTeamStats(teams, priorRounds).map((s) => [s.teamId, s.byes]));
+  // Recorded byes plus any late-return normalisation — see
+  // Player.byeCountAdjustment. A fixed team takes its members' larger
+  // adjustment, since it rests as one unit.
+  const individualsById = new Map(allIndividuals.map((p) => [p.id, p]));
+  const playerByeCounts = new Map(
+    computePlayerStats(allIndividuals, priorRounds).map((s) => [
+      s.playerId,
+      s.byes + (individualsById.get(s.playerId)?.byeCountAdjustment ?? 0),
+    ]),
+  );
+  const teamById = new Map(teams.map((t) => [t.id, t]));
+  const teamByeCounts = new Map(
+    computeTeamStats(teams, priorRounds).map((s) => [
+      s.teamId,
+      s.byes + teamByeAdjustment(teamById.get(s.teamId)?.playerIds ?? [], individualsById),
+    ]),
+  );
 
   const { byeTeamIds, splitTeamIds, byePlayerIds, playingTeams, playingIndividuals } = selectByeParticipants(
     players,
@@ -553,7 +602,7 @@ export function generateMixedDoublesRound(
   const { opponents, teammates } = buildMatchHistory(priorRounds);
 
   const rankByPlayerId =
-    pairingStyle === 'leaderboard-based' ? rankMap(calculateLeaderboardStats(allIndividuals, priorRounds)) : undefined;
+    pairingStyle === 'leaderboard-based' ? rankMap(calculateLeaderboardStats(allIndividuals, priorRounds, settings.scoreRecordingMode)) : undefined;
 
   const tempTeams = buildTemporaryTeamsFromIndividuals(playingIndividuals, teammates, pairingStyle, rankByPlayerId);
   const allUnits = mergeFixedTeamsAndTemporaryTeams(playingTeams, tempTeams);
@@ -651,7 +700,9 @@ export function generateDoublesMatches(
     return generateMixedDoublesRound(players, teams, teamPlayers, settings, roundNumber, priorRounds, status, pairingStyle);
   }
   if (teams.length > 0) {
-    return createFixedTeamRound(teams, settings, roundNumber, priorRounds, status, pairingStyle);
+    const teamPlayersById = new Map(teamPlayers.map((p) => [p.id, p]));
+    const teamByeAdjustments = new Map(teams.map((t) => [t.id, teamByeAdjustment(t.playerIds, teamPlayersById)]));
+    return createFixedTeamRound(teams, settings, roundNumber, priorRounds, status, pairingStyle, teamByeAdjustments);
   }
   return createRound(players, settings, roundNumber, priorRounds, status, pairingStyle);
 }

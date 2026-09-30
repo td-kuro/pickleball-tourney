@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
+import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus, ResultSubmission, ScoreRecordingMode } from '../types';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
 
@@ -10,7 +10,8 @@ interface DynamicPairingRoundsPageProps {
   currentRound: DynamicPairingRound | undefined;
   players: Player[];
   teams: DynamicPairingTeam[];
-  onSetScore: (courtNumber: number, score1: number, score2: number) => void;
+  onSetResult: (courtNumber: number, result: ResultSubmission) => void;
+  scoreRecordingMode: ScoreRecordingMode;
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
@@ -31,7 +32,8 @@ export function DynamicPairingRoundsPage({
   currentRound,
   players,
   teams,
-  onSetScore,
+  onSetResult,
+  scoreRecordingMode,
   onGenerateNextRound,
   onSetAvailability,
   onSwap,
@@ -65,7 +67,8 @@ export function DynamicPairingRoundsPage({
           rounds={rounds}
           players={players}
           teams={teams}
-          onSetScore={onSetScore}
+          onSetResult={onSetResult}
+          scoreRecordingMode={scoreRecordingMode}
           onGenerateNextRound={onGenerateNextRound}
           onSetAvailability={onSetAvailability}
           onSwap={onSwap}

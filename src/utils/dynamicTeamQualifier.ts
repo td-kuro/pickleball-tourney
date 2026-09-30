@@ -29,8 +29,12 @@ import type {
   QualifyingRound,
   QualifyingRoundStatus,
   RestAssignment,
+  ResultSubmission,
   TeamStanding,
 } from '../types';
+// Type-only-dependency leaf module shared by every mode — not another
+// mode's logic, so this file's isolation still holds.
+import { DEFAULT_SCORE_RECORDING_MODE, resolveWinner } from './results';
 
 export const DEFAULT_DYNAMIC_TEAM_QUALIFIER_SETTINGS: DynamicTeamQualifierSettings = {
   divisionName: '',
@@ -46,7 +50,16 @@ export const DEFAULT_DYNAMIC_TEAM_QUALIFIER_SETTINGS: DynamicTeamQualifierSettin
   bracketWinBy: 2,
   bracketCap: 15,
   randomSeed: makeRandomSeed(),
+  scoreRecordingMode: DEFAULT_SCORE_RECORDING_MODE,
 };
+
+// A counted qualifying result's winner: scored, or Win/Loss only (see
+// ScoreRecordingMode). Forfeits are deliberately excluded — they've never
+// counted toward standings in this format, and still don't.
+function countedWinnerId(match: QualifyingMatch): string | undefined {
+  if (match.forfeit) return undefined;
+  return resolveWinner(match.scoreA, match.scoreB, match.winnerId, match.teamAId, match.teamBId);
+}
 
 // A fresh, genuinely random seed — used once at Setup time and again each
 // time the organiser clicks "Regenerate Rest Schedule" (see
@@ -397,25 +410,30 @@ export function calculateProvisionalStandings(
   const opponentsByTeam = new Map<string, string[]>(teamIds.map((id) => [id, []]));
 
   for (const match of matches) {
-    if (match.scoreA == null || match.scoreB == null || match.scoreA === match.scoreB) continue;
+    const winnerId = countedWinnerId(match);
+    if (winnerId == null) continue;
     const a = accByTeam.get(match.teamAId);
     const b = accByTeam.get(match.teamBId);
     if (!a || !b) continue;
 
     a.gamesPlayed += 1;
     b.gamesPlayed += 1;
-    a.pointsFor += match.scoreA;
-    a.pointsAgainst += match.scoreB;
-    b.pointsFor += match.scoreB;
-    b.pointsAgainst += match.scoreA;
-    a.totalPointsScored += match.scoreA;
-    b.totalPointsScored += match.scoreB;
+    // A Win/Loss-only result counts the game and the win/loss but no
+    // points — point differential simply can't separate those teams.
+    if (match.scoreA != null && match.scoreB != null) {
+      a.pointsFor += match.scoreA;
+      a.pointsAgainst += match.scoreB;
+      b.pointsFor += match.scoreB;
+      b.pointsAgainst += match.scoreA;
+      a.totalPointsScored += match.scoreA;
+      b.totalPointsScored += match.scoreB;
 
-    const cappedA = calculateCappedPointDifferential(match.scoreA, match.scoreB);
-    a.cappedPointDifferential += cappedA;
-    b.cappedPointDifferential -= cappedA;
+      const cappedA = calculateCappedPointDifferential(match.scoreA, match.scoreB);
+      a.cappedPointDifferential += cappedA;
+      b.cappedPointDifferential -= cappedA;
+    }
 
-    if (match.scoreA > match.scoreB) {
+    if (winnerId === match.teamAId) {
       a.wins += 1;
       b.losses += 1;
     } else {
@@ -492,7 +510,7 @@ function resolveHeadToHeadGroup(group: TeamStanding[], matches: QualifyingMatch[
 
   const idsInGroup = new Set(group.map((s) => s.teamId));
   const withinGroupMatches = matches.filter(
-    (m) => idsInGroup.has(m.teamAId) && idsInGroup.has(m.teamBId) && m.scoreA != null && m.scoreB != null && m.scoreA !== m.scoreB,
+    (m) => idsInGroup.has(m.teamAId) && idsInGroup.has(m.teamBId) && countedWinnerId(m) != null,
   );
   const expectedPairs = (group.length * (group.length - 1)) / 2;
   const seenPairs = new Set(withinGroupMatches.map((m) => [m.teamAId, m.teamBId].sort().join('|')));
@@ -502,7 +520,7 @@ function resolveHeadToHeadGroup(group: TeamStanding[], matches: QualifyingMatch[
 
   const miniWins = new Map<string, number>(group.map((s) => [s.teamId, 0]));
   for (const match of withinGroupMatches) {
-    const winnerId = match.scoreA! > match.scoreB! ? match.teamAId : match.teamBId;
+    const winnerId = countedWinnerId(match)!;
     miniWins.set(winnerId, (miniWins.get(winnerId) ?? 0) + 1);
   }
 
@@ -798,13 +816,15 @@ export function processQualifyingResult(
   match: QualifyingMatch,
   result: { scoreA?: number; scoreB?: number; winnerId?: string; goldenPoint?: boolean; forfeit?: boolean },
 ): QualifyingMatch {
-  const winnerId = result.forfeit
-    ? result.winnerId
-    : result.scoreA != null && result.scoreB != null && result.scoreA !== result.scoreB
-      ? result.scoreA > result.scoreB
-        ? match.teamAId
-        : match.teamBId
-      : undefined;
+  // Forfeit or Win/Loss only: the recorded winner. Full score: derived.
+  const winnerId =
+    result.forfeit || (result.scoreA == null && result.scoreB == null)
+      ? result.winnerId
+      : result.scoreA != null && result.scoreB != null && result.scoreA !== result.scoreB
+        ? result.scoreA > result.scoreB
+          ? match.teamAId
+          : match.teamBId
+        : undefined;
 
   return {
     ...match,
@@ -975,14 +995,25 @@ function bracketMatchKey(label: MedalBracketMatchLabel): 'semifinal1' | 'semifin
 // *second* semifinal completes (not one at a time), since either semifinal
 // finishing first still has to wait for its counterpart. Completing the
 // Gold or Bronze Match records the final placements directly.
-export function processBracketResult(bracket: MedalBracket, label: MedalBracketMatchLabel, scoreA: number, scoreB: number): MedalBracket {
+// Accepts a full score (no ties) or a Win/Loss-only winner — see
+// ScoreRecordingMode.
+export function processBracketResult(bracket: MedalBracket, label: MedalBracketMatchLabel, result: ResultSubmission): MedalBracket {
   const key = bracketMatchKey(label);
   const target = bracket[key];
-  if (target.teamAId == null || target.teamBId == null || scoreA === scoreB) return bracket;
+  if (target.teamAId == null || target.teamBId == null) return bracket;
+  if (result.kind === 'score' && result.scoreA === result.scoreB) return bracket;
 
-  const winnerId = scoreA > scoreB ? target.teamAId : target.teamBId;
-  const loserId = scoreA > scoreB ? target.teamBId : target.teamAId;
-  const completed: MedalBracketMatch = { ...target, scoreA, scoreB, winnerId, loserId, status: 'completed' };
+  const teamAWon = result.kind === 'score' ? result.scoreA > result.scoreB : result.winner === 'A';
+  const winnerId = teamAWon ? target.teamAId : target.teamBId;
+  const loserId = teamAWon ? target.teamBId : target.teamAId;
+  const completed: MedalBracketMatch = {
+    ...target,
+    scoreA: result.kind === 'score' ? result.scoreA : undefined,
+    scoreB: result.kind === 'score' ? result.scoreB : undefined,
+    winnerId,
+    loserId,
+    status: 'completed',
+  };
 
   let next: MedalBracket = { ...bracket, [key]: completed };
 

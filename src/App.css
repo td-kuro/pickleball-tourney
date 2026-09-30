@@ -1478,6 +1478,57 @@ button.danger:hover:not(:disabled) {
   margin-bottom: 16px;
 }
 
+.flash-message {
+  border-color: var(--accent-border);
+  background: var(--accent-bg);
+}
+
+.flash-message p {
+  margin: 2px 0;
+}
+
+/* Shared result entry (see MatchResultEntry) — full-score inputs or the
+   Win/Loss-only "Who won?" buttons, rendered below a card's team names. */
+.match-result-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.match-result-entry-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.match-result-entry .toggle-group .toggle-option {
+  white-space: normal;
+}
+
+.match-result-entry-scores {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.match-result-entry-scores label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  font-size: 13px;
+}
+
+.match-result-entry-scores input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--bg);
+  color: var(--text-h);
+}
+
 .modal-overlay {
   position: fixed;
   inset: 0;

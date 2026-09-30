@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import type { AddPlayerMidSessionResult, KnockoutBracket, MatchType, MidSessionJoinTiming, Pool, Team, TournamentStage } from '../types';
+import type {
+  AddPlayerMidSessionResult,
+  KnockoutBracket,
+  MatchType,
+  MidSessionJoinTiming,
+  Pool,
+  ResultSubmission,
+  ScoreRecordingMode,
+  Team,
+  TournamentStage,
+} from '../types';
 import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
 import { KnockoutBracketView } from './KnockoutBracketView';
 import { PoolStageView } from './PoolStageView';
@@ -13,10 +23,13 @@ interface PoolsKnockoutPageProps {
   stage: TournamentStage;
   matchType: MatchType;
   teamsAdvancingPerPool: number;
-  onSetPoolMatchScore: (poolId: string, matchId: string, scoreA: number, scoreB: number) => void;
+  onSetPoolMatchResult: (poolId: string, matchId: string, result: ResultSubmission) => void;
   onAdvanceToKnockout: () => void;
-  onSetKnockoutScore: (matchId: string, scoreA: number, scoreB: number) => void;
+  onSetKnockoutResult: (matchId: string, result: ResultSubmission) => void;
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
+  scoreRecordingMode: ScoreRecordingMode;
+  unavailableTeamIds: string[];
+  onSetTeamAvailability: (teamId: string, available: boolean) => void;
 }
 
 // Parent for the "Tournament" tab in Pools & Knockout: a Pool Stage /
@@ -31,11 +44,15 @@ export function PoolsKnockoutPage({
   stage,
   matchType,
   teamsAdvancingPerPool,
-  onSetPoolMatchScore,
+  onSetPoolMatchResult,
   onAdvanceToKnockout,
-  onSetKnockoutScore,
+  onSetKnockoutResult,
   onAddPlayerMidSession,
+  scoreRecordingMode,
+  unavailableTeamIds,
+  onSetTeamAvailability,
 }: PoolsKnockoutPageProps) {
+  const unavailable = new Set(unavailableTeamIds);
   const [subView, setSubView] = useState<PoolsKnockoutSubView>(stage === 'pool-stage' ? 'pool' : 'knockout');
 
   // See canAddTeamMidSession in utils/poolsKnockout.ts for the stage rule
@@ -68,6 +85,35 @@ export function PoolsKnockoutPage({
         </section>
       )}
 
+      {stage !== 'setup' && (
+        <section className="card">
+          <h2>{matchType === 'singles' ? 'Player' : 'Team'} Availability</h2>
+          <p className="hint">
+            {stage === 'pool-stage'
+              ? 'Pools & Knockout uses a fixed round-robin schedule, so changing availability only reschedules unplayed pool matches if you confirm — matches with a result are never changed.'
+              : 'Knockout bracket has started. Player availability changes will not automatically alter completed or active bracket matches.'}
+          </p>
+          <div className="player-list">
+            {teams.map((team) => {
+              const isUnavailable = unavailable.has(team.id);
+              return (
+                <div key={team.id} className="player-row availability-row">
+                  <span className="player-row-name availability-row-name">{team.name}</span>
+                  <span className={isUnavailable ? 'status-badge status-badge-danger' : 'status-badge'}>
+                    {isUnavailable ? 'Unavailable' : 'Available'}
+                  </span>
+                  <div className="availability-actions">
+                    <button type="button" className="secondary" onClick={() => onSetTeamAvailability(team.id, isUnavailable)}>
+                      {isUnavailable ? 'Make available' : 'Mark unavailable'}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <div className="rounds-subnav">
         <div className="toggle-group rounds-toggle" role="group" aria-label="Tournament view">
           <button
@@ -94,11 +140,20 @@ export function PoolsKnockoutPage({
           pools={pools}
           teamsAdvancingPerPool={teamsAdvancingPerPool}
           knockoutStarted={stage !== 'pool-stage'}
-          onSetScore={onSetPoolMatchScore}
+          onSetResult={onSetPoolMatchResult}
           onAdvanceToKnockout={onAdvanceToKnockout}
+          scoreRecordingMode={scoreRecordingMode}
         />
       ) : (
-        bracket && <KnockoutBracketView bracket={bracket} teams={teams} onSetScore={onSetKnockoutScore} />
+        bracket && (
+          <KnockoutBracketView
+            bracket={bracket}
+            teams={teams}
+            onSetResult={onSetKnockoutResult}
+            scoreRecordingMode={scoreRecordingMode}
+            unavailableTeamIds={unavailableTeamIds}
+          />
+        )
       )}
     </>
   );

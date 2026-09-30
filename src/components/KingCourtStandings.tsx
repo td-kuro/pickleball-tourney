@@ -1,16 +1,19 @@
-import type { KingCourtCycle, Player } from '../types';
+import type { KingCourtCycle, Player, ScoreRecordingMode } from '../types';
 import { calculateCourtStandings, computeKingCourtPlayerStats } from '../utils/kingCourt';
+import { POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
 
 interface KingCourtStandingsProps {
   players: Player[];
   cycles: KingCourtCycle[];
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // The "Standings" tab: cumulative session stats for every player (across
 // every cycle so far), plus the current cycle's per-court standings —
 // live-updating even mid-cycle, since calculateCourtStandings works off
 // whatever games are scored so far, not just a finished cycle.
-export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps) {
+export function KingCourtStandings({ players, cycles, scoreRecordingMode }: KingCourtStandingsProps) {
+  const showPoints = scoreRecordingMode === 'full-score';
   if (players.length === 0 || cycles.length === 0) {
     return (
       <section className="card">
@@ -35,7 +38,10 @@ export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps)
     <>
       <section className="card">
         <h2>Session Stats</h2>
-        <p className="hint">Cumulative totals across every cycle so far, ranked by wins then point differential.</p>
+        <p className="hint">
+          Cumulative totals across every cycle so far, ranked by wins{showPoints ? ' then point differential' : ''}.
+        </p>
+        {!showPoints && <p className="hint">{POINT_STATS_UNAVAILABLE_NOTE}</p>}
         <div className="leaderboard-scroll">
           <table className="leaderboard-table">
             <thead>
@@ -44,7 +50,7 @@ export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps)
                 <th>Court</th>
                 <th>Wins</th>
                 <th>Losses</th>
-                <th>+/-</th>
+                {showPoints && <th>+/-</th>}
                 <th>Played</th>
                 <th>Rested</th>
               </tr>
@@ -56,10 +62,12 @@ export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps)
                   <td>{currentCourtByPlayer.get(player.id) ?? '—'}</td>
                   <td>{stats.totalWins}</td>
                   <td>{stats.totalLosses}</td>
-                  <td>
-                    {stats.totalPointDifferential > 0 ? '+' : ''}
-                    {stats.totalPointDifferential}
-                  </td>
+                  {showPoints && (
+                    <td>
+                      {stats.totalPointDifferential > 0 ? '+' : ''}
+                      {stats.totalPointDifferential}
+                    </td>
+                  )}
                   <td>{stats.gamesPlayed}</td>
                   <td>{stats.gamesRested}</td>
                 </tr>
@@ -86,7 +94,7 @@ export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps)
                         <th>Player</th>
                         <th>W</th>
                         <th>L</th>
-                        <th>+/-</th>
+                        {showPoints && <th>+/-</th>}
                       </tr>
                     </thead>
                     <tbody>
@@ -96,10 +104,12 @@ export function KingCourtStandings({ players, cycles }: KingCourtStandingsProps)
                           <td>{nameById.get(standing.playerId) ?? 'Unknown player'}</td>
                           <td>{standing.wins}</td>
                           <td>{standing.losses}</td>
-                          <td>
-                            {standing.pointDifferential > 0 ? '+' : ''}
-                            {standing.pointDifferential}
-                          </td>
+                          {showPoints && (
+                            <td>
+                              {standing.pointDifferential > 0 ? '+' : ''}
+                              {standing.pointDifferential}
+                            </td>
+                          )}
                         </tr>
                       ))}
                     </tbody>

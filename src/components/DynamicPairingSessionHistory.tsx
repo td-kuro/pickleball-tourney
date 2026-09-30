@@ -54,7 +54,7 @@ export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairin
                 </div>
                 <p className="all-rounds-byes">
                   {round.courts.length} court{round.courts.length === 1 ? '' : 's'} ·{' '}
-                  {round.courts.filter((c) => c.status === 'completed').length}/{round.courts.length} scored ·{' '}
+                  {round.courts.filter((c) => c.status === 'completed').length}/{round.courts.length} with results ·{' '}
                   {round.restingPlayerIds.length} resting
                 </p>
               </div>

@@ -1,4 +1,14 @@
-import type { Player, Round, SessionAdjustment, SessionAdjustmentType, Team, TournamentSettings } from '../types';
+import type {
+  Player,
+  PlayerAvailabilityStatus,
+  ResultSubmission,
+  Round,
+  SessionAdjustment,
+  SessionAdjustmentType,
+  Team,
+  TournamentSettings,
+} from '../types';
+import { availabilityAdjustmentType } from '../utils/availability';
 import { generateLeaderboardRound } from '../utils/pairing';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
 import {
@@ -9,6 +19,7 @@ import {
   filterSchedulableRoster,
   swapPlayerInRound,
 } from '../utils/tournament';
+import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:settings';
@@ -33,6 +44,7 @@ const defaultSettings: TournamentSettings = {
   pairingStyle: 'balanced',
   socialFormat: 'standard-social',
   allowLateJoiners: true,
+  scoreRecordingMode: DEFAULT_SCORE_RECORDING_MODE,
 };
 
 // Backfills `status` for rounds saved by a version of the app from before
@@ -64,6 +76,7 @@ export function useTournament() {
     pairingStyle: storedSettings.pairingStyle ?? 'balanced',
     socialFormat: storedSettings.socialFormat ?? 'standard-social',
     allowLateJoiners: storedSettings.allowLateJoiners ?? true,
+    scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode),
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
@@ -75,15 +88,25 @@ export function useTournament() {
   // TournamentSettings. See README's "Mid-session player and court changes".
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
-  function updateSettings(next: TournamentSettings) {
-    setSettings(next);
+  // Functional update, so several events logged in one handler (e.g. an
+  // availability change that also regenerates future rounds) all survive
+  // rather than each overwriting the last from the same stale snapshot.
+  function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
+    const entry: SessionAdjustment = { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields };
+    setSessionAdjustments((prev) => [...prev, entry]);
   }
 
-  function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
-    setSessionAdjustments([
-      ...sessionAdjustments,
-      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
-    ]);
+  function updateSettings(next: TournamentSettings) {
+    setSettings(next);
+    // Only worth recording once a session is actually under way — before
+    // that it's just setup.
+    if (next.scoreRecordingMode !== settings.scoreRecordingMode && rounds.length > 0) {
+      logAdjustment('score-mode-changed', {
+        oldValue: settings.scoreRecordingMode,
+        newValue: next.scoreRecordingMode,
+        note: `Score recording changed to ${scoreRecordingModeLabel(next.scoreRecordingMode)}.`,
+      });
+    }
   }
 
   // The one place every round of Leaderboard/Social Play actually gets
@@ -213,19 +236,43 @@ export function useTournament() {
     setRounds([...withCompleted, newRound]);
   }
 
-  function setMatchScore(roundId: string, matchId: string, scoreA: number, scoreB: number) {
+  // Records either kind of result (see ScoreRecordingMode) — a full score
+  // clears any earlier winner-only marker and vice versa, so a result is
+  // never both at once.
+  function setMatchResult(roundId: string, matchId: string, result: ResultSubmission) {
+    const round = rounds.find((r) => r.id === roundId);
     setRounds(
-      rounds.map((round) =>
-        round.id !== roundId
-          ? round
+      rounds.map((r) =>
+        r.id !== roundId
+          ? r
           : {
-              ...round,
-              matches: round.matches.map((match) =>
-                match.id === matchId ? { ...match, scoreA, scoreB } : match,
+              ...r,
+              matches: r.matches.map((match) =>
+                match.id !== matchId
+                  ? match
+                  : result.kind === 'score'
+                    ? { ...match, scoreA: result.scoreA, scoreB: result.scoreB, winner: undefined }
+                    : { ...match, scoreA: undefined, scoreB: undefined, winner: result.winner },
               ),
             },
       ),
     );
+    logAdjustment('result-entered', {
+      roundNumber: round?.roundNumber,
+      note: result.kind === 'score' ? `Score ${result.scoreA}–${result.scoreB} recorded.` : 'Winner recorded (score not recorded).',
+    });
+  }
+
+  // Logs a mid-session availability change (the status itself lives on the
+  // player — see App.tsx's handleSetPlayerAvailability).
+  function recordAvailabilityChange(player: Player, oldStatus: PlayerAvailabilityStatus, newStatus: PlayerAvailabilityStatus, note: string) {
+    logAdjustment(availabilityAdjustmentType(newStatus), {
+      playerIds: [player.id],
+      roundNumber: rounds.find((r) => r.status === 'current')?.roundNumber,
+      oldValue: oldStatus,
+      newValue: newStatus,
+      note,
+    });
   }
 
   // --- Mid-session player/court changes ------------------------------------
@@ -247,13 +294,17 @@ export function useTournament() {
   // exactly as they are) — called after a player's availability changes,
   // the court count changes, or a new player is added, so future rounds
   // actually reflect the new state.
-  function regenerateFutureRounds(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []) {
+  // Returns whether anything was actually regenerated — false when there's
+  // no pre-generated tail at all (Tournament Leaderboard, which builds each
+  // round on demand from whoever is available at that moment).
+  function regenerateFutureRounds(players: Player[], teams: Team[] = [], teamPlayers: Player[] = []): boolean {
     const kept = rounds.filter((round) => round.status !== 'upcoming');
     const upcomingCount = rounds.length - kept.length;
-    if (upcomingCount === 0) return;
+    if (upcomingCount === 0) return false;
 
     setRounds(buildUpcomingTail(settings, kept, upcomingCount, players, teams, teamPlayers));
     logAdjustment('future-rounds-regenerated');
+    return true;
   }
 
   // Regenerates the *current* round itself (in place — same roundNumber),
@@ -317,8 +368,7 @@ export function useTournament() {
     const currentIndex = rounds.findIndex((round) => round.status === 'current');
     if (regenerateCurrent && currentIndex !== -1) {
       const current = rounds[currentIndex];
-      const hasAnyScore = current.matches.some((match) => match.scoreA != null || match.scoreB != null);
-      if (!hasAnyScore) {
+      if (canRegenerateRoundInPlace(current)) {
         const before = rounds.slice(0, currentIndex);
         const freshCurrent = generateRoundWith(nextSettings, players, teams, teamPlayers, current.roundNumber, before, 'current');
         const upcomingCount = rounds.filter((round) => round.status === 'upcoming').length;
@@ -369,7 +419,8 @@ export function useTournament() {
     plannedRounds,
     nextRound,
     startSession,
-    setMatchScore,
+    setMatchResult,
+    recordAvailabilityChange,
     resetTournament,
     sessionAdjustments,
     regenerateFutureRounds,

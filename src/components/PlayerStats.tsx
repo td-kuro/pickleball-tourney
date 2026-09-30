@@ -1,5 +1,6 @@
 import type { Player, Round, TournamentSettings } from '../types';
-import { availabilityStatusLabel, computePlayerStats, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
+import { POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
+import { arePointStatsShown, availabilityStatusLabel, computePlayerStats, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
 
 interface PlayerStatsProps {
   players: Player[];
@@ -21,7 +22,8 @@ export function PlayerStats({ players, rounds, settings }: PlayerStatsProps) {
     );
   }
 
-  const showPoints = isScoringEnabled(settings);
+  const showPoints = arePointStatsShown(settings);
+  const pointsHiddenByWinLoss = isScoringEnabled(settings) && !showPoints;
   const showWinLoss = isWinLossTracked(settings);
   const showPartners = settings.matchType === 'doubles';
 
@@ -39,6 +41,7 @@ export function PlayerStats({ players, rounds, settings }: PlayerStatsProps) {
       <p className="hint">
         Casual session stats, focused on fair rotation and game time — not a competitive ranking.
       </p>
+      {pointsHiddenByWinLoss && <p className="hint">{POINT_STATS_UNAVAILABLE_NOTE}</p>}
       <div className="leaderboard-scroll">
         <table className="leaderboard-table stats-table">
           <thead>

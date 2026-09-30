@@ -1,5 +1,15 @@
 import { useState, type FormEvent } from 'react';
-import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus } from '../types';
+import type {
+  DynamicPairingCourtAssignment,
+  DynamicPairingRound,
+  DynamicPairingTeam,
+  Player,
+  PlayerAvailabilityStatus,
+  ResultSubmission,
+  ScoreRecordingMode,
+} from '../types';
+import { isWinLossOnlyResult, scoreRecordingModeLabel } from '../utils/results';
+import { MatchResultEntry } from './MatchResultEntry';
 import {
   dynamicPairingAvailabilityLabel,
   getMatchGenderType,
@@ -17,7 +27,8 @@ interface DynamicPairingCurrentRoundProps {
   rounds: DynamicPairingRound[];
   players: Player[];
   teams: DynamicPairingTeam[];
-  onSetScore: (courtNumber: number, score1: number, score2: number) => void;
+  onSetResult: (courtNumber: number, result: ResultSubmission) => void;
+  scoreRecordingMode: ScoreRecordingMode;
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
@@ -38,7 +49,8 @@ export function DynamicPairingCurrentRound({
   rounds,
   players,
   teams,
-  onSetScore,
+  onSetResult,
+  scoreRecordingMode,
   onGenerateNextRound,
   onSetAvailability,
   onSwap,
@@ -151,8 +163,9 @@ export function DynamicPairingCurrentRound({
           )}
         </div>
         {round && !allScored && (
-          <p className="hint error">Enter scores for every court before generating the next round.</p>
+          <p className="hint error">Enter a result for every court before generating the next round.</p>
         )}
+        {round && <p className="hint">Scoring: {scoreRecordingModeLabel(scoreRecordingMode)}</p>}
         {round && <p className="hint">Pairing basis: {rankingBasisLabel(round)}</p>}
         {round && round.phase === 'grading' && (
           <p className="hint">Rotation note: {round.rotationNote ?? 'No repeat opponents.'}</p>
@@ -181,7 +194,8 @@ export function DynamicPairingCurrentRound({
                 genderTypeLabel={matchGenderLabel(court.team1PlayerIds, court.team2PlayerIds)}
                 renderTeam1={() => renderPlayerNames(court.team1PlayerIds)}
                 renderTeam2={() => renderPlayerNames(court.team2PlayerIds)}
-                onSetScore={(score1, score2) => onSetScore(court.courtNumber, score1, score2)}
+                scoreMode={scoreRecordingMode}
+                onSetResult={(result) => onSetResult(court.courtNumber, result)}
               />
             ))}
           </div>
@@ -230,7 +244,8 @@ interface DynamicPairingCourtCardProps {
   genderTypeLabel: string | null;
   renderTeam1: () => React.ReactNode;
   renderTeam2: () => React.ReactNode;
-  onSetScore: (score1: number, score2: number) => void;
+  scoreMode: ScoreRecordingMode;
+  onSetResult: (result: ResultSubmission) => void;
 }
 
 function DynamicPairingCourtCard({
@@ -242,12 +257,48 @@ function DynamicPairingCourtCard({
   genderTypeLabel,
   renderTeam1,
   renderTeam2,
-  onSetScore,
+  scoreMode,
+  onSetResult,
 }: DynamicPairingCourtCardProps) {
   const [score1, setScore1] = useState(court.score1 != null ? String(court.score1) : '');
   const [score2, setScore2] = useState(court.score2 != null ? String(court.score2) : '');
   const [error, setError] = useState<string | null>(null);
   const locked = court.status === 'completed';
+
+  // Win/Loss only: no score inputs at all, just "Who won?" — also used to
+  // show a locked winner-only result recorded under that mode, so it's
+  // never rendered as blank score boxes or a fake 0-0.
+  if (scoreMode === 'win-loss-only' || isWinLossOnlyResult(court.score1, court.score2, court.winnerTeam)) {
+    return (
+      <div className="match-card">
+        <div className="match-header">
+          Court {court.courtNumber}
+          {genderTypeLabel && <span className="dp-side-badge dp-gender-match-badge"> {genderTypeLabel}</span>}
+        </div>
+        <div className="match-teams">
+          <div className={court.winnerTeam === 1 ? 'match-team winner' : 'match-team'}>
+            {renderTeam1()}
+            {team1Badge && <span className="dp-side-badge">{team1Badge}</span>}
+          </div>
+          <div className="match-vs">vs</div>
+          <div className={court.winnerTeam === 2 ? 'match-team winner' : 'match-team'}>
+            {renderTeam2()}
+            {team2Badge && <span className="dp-side-badge">{team2Badge}</span>}
+          </div>
+        </div>
+        <MatchResultEntry
+          mode="win-loss-only"
+          sideALabel={team1Label}
+          sideBLabel={team2Label}
+          initialScoreA={court.score1}
+          initialScoreB={court.score2}
+          currentWinner={court.winnerTeam === 1 ? 'A' : court.winnerTeam === 2 ? 'B' : undefined}
+          locked={locked}
+          onSubmit={onSetResult}
+        />
+      </div>
+    );
+  }
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
@@ -266,7 +317,7 @@ function DynamicPairingCourtCard({
       return;
     }
     setError(null);
-    onSetScore(parsed1, parsed2);
+    onSetResult({ kind: 'score', scoreA: parsed1, scoreB: parsed2 });
   }
 
   return (

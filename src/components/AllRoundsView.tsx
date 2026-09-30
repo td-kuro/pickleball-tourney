@@ -1,4 +1,5 @@
 import type { Player, Round, RoundStatus, Team, TournamentSettings } from '../types';
+import { describeResult } from '../utils/results';
 import { getMatchWinner, isScoringEnabled, teamKey } from '../utils/tournament';
 
 interface AllRoundsViewProps {
@@ -82,20 +83,14 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
                 {round.matches.map((match) => {
                   const teamALabel = teamLabel(match.teamA.playerIds);
                   const teamBLabel = teamLabel(match.teamB.playerIds);
-                  const winner = getMatchWinner(match);
-                  const hasScore = match.scoreA != null && match.scoreB != null;
+                  const result = describeResult(teamALabel, teamBLabel, match.scoreA, match.scoreB, getMatchWinner(match));
 
                   return (
                     <li key={match.id} className="all-rounds-match">
                       <span>
                         Court {match.court}: {teamALabel} vs {teamBLabel}
                       </span>
-                      {showScoring && hasScore && (
-                        <span className="all-rounds-score">
-                          {match.scoreA}–{match.scoreB}
-                          {winner && ` · Winner: ${winner === 'A' ? teamALabel : teamBLabel}`}
-                        </span>
-                      )}
+                      {showScoring && result && <span className="all-rounds-score">{result}</span>}
                     </li>
                   );
                 })}

@@ -103,7 +103,27 @@ export interface Player {
   // rest of the session — a permanent audit marker, unlike availabilityStatus
   // (which changes) or effectiveFromRound (only meaningful until reached).
   addedMidSession?: boolean;
+  // Added to this player's *recorded* bye/rest count whenever a fair-bye
+  // engine picks who sits out (never shown in stats). Set when the player
+  // returns to 'available' mid-session so they start level with the current
+  // minimum rather than being picked for bye after bye to "catch up" on
+  // rounds they missed while late/unavailable — see
+  // normalizeReturningByeAdjustments in utils/availability.ts.
+  byeCountAdjustment?: number;
 }
+
+// Whether a session records full scores or just who won — see
+// utils/results.ts. A winner-only result is always "winner set, scores
+// absent" on whichever result shape the mode already uses (Match.winner,
+// DynamicPairingCourtAssignment.winnerTeam, KingCourtGame.winnerTeam,
+// PoolMatch.winnerId, ...), so full-score results recorded earlier in the
+// same session stay valid if the mode is switched mid-session.
+export type ScoreRecordingMode = 'full-score' | 'win-loss-only';
+
+// What a result-entry form hands back to a mode's setter — see
+// MatchResultEntry. 'A'/'B' are the form's own two sides, which each mode
+// maps onto its own side identifiers (team1/team2, teamAId/teamBId, ...).
+export type ResultSubmission = { kind: 'score'; scoreA: number; scoreB: number } | { kind: 'winner'; winner: 'A' | 'B' };
 
 // One mid-session change worth surfacing back to the organiser — a light,
 // practical audit trail (not exhaustive event sourcing): each Social Play
@@ -111,16 +131,15 @@ export interface Player {
 // rather than a full history browser, per the design brief's "prefer
 // simple, reliable behaviour over complex automation".
 export type SessionAdjustmentType =
-  | 'player-rested'
-  | 'player-left'
-  | 'player-injured'
-  | 'player-unavailable'
-  | 'player-made-available'
+  | 'player-marked-unavailable'
+  | 'player-marked-available'
   | 'player-swapped'
   | 'court-count-changed'
   | 'future-rounds-regenerated'
   | 'team-split'
-  | 'player-added-mid-session';
+  | 'player-added-mid-session'
+  | 'score-mode-changed'
+  | 'result-entered';
 
 export interface SessionAdjustment {
   id: string;
@@ -223,6 +242,10 @@ export interface Match {
   teamB: MatchSide;
   scoreA?: number;
   scoreB?: number;
+  // Win/Loss-only result (see ScoreRecordingMode) — scores stay absent. For
+  // a full-score result the winner is always derived from the scores
+  // instead (see getMatchWinner), so this is never set alongside them.
+  winner?: 'A' | 'B';
 }
 
 // 'upcoming' rounds are pre-generated placeholders (Social Play — see
@@ -338,6 +361,9 @@ export interface TournamentSettings {
   // they don't need a setting for it. Default true — casual leaderboard
   // tournaments generally want to let stragglers join in.
   allowLateJoiners: boolean;
+  // Shared by Standard Social Play (only when socialScoringMode is
+  // 'scoresAndWins'), Tournament Leaderboard, and Pools & Knockout.
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // A fixed competitor for the whole tournament/session (unlike the ad-hoc
@@ -387,6 +413,13 @@ export interface PoolMatch {
   teamBId: string;
   scoreA?: number;
   scoreB?: number;
+  // Win/Loss-only result — see Match.winner.
+  winnerId?: string;
+  // Organiser-confirmed: one of this match's teams became unavailable, so
+  // the (still unplayed) match is taken off the schedule rather than
+  // deleted — restorable if the team returns. Never set on a match that
+  // already has a result. See skipUnplayedPoolMatchesForTeam.
+  skipped?: boolean;
 }
 
 // A single pool's round-robin standings, derived from its matches — see
@@ -624,6 +657,9 @@ export interface DynamicPairingSettings {
   // dynamicPairingSocial.ts). Minimum 0; empty/invalid input in the UI
   // falls back to the default of 1.
   rankingLagRounds: number;
+  // See ScoreRecordingMode. Settings saved by an older version lack it —
+  // useDynamicPairingSocial backfills 'full-score' on read.
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // Aggregated, per-game (not raw-total) stats for one player across the
@@ -639,8 +675,14 @@ export interface DynamicPairingPlayerStats {
   pointsFor: number;
   pointsAgainst: number;
   pointDifferential: number;
+  // Games with an actual score recorded — a Win/Loss-only result counts
+  // toward gamesPlayed/wins/losses but not here, so the point averages
+  // below are never diluted by games that had no points to record.
+  scoredGamesPlayed: number;
   // Per-game rates, not raw totals — see calculateDynamicPairingStats.
   // Safe against divide-by-zero: all 0 when gamesPlayed is 0.
+  // winPercentage is over gamesPlayed; the two point averages are over
+  // scoredGamesPlayed.
   winPercentage: number;
   averagePointDifferential: number;
   averagePointsScored: number;
@@ -918,6 +960,10 @@ export interface DynamicTeamQualifierSettings {
   // (not reused) each time the organiser clicks "Regenerate Rest Schedule",
   // so a fresh attempt actually produces a different schedule.
   randomSeed: number;
+  // See ScoreRecordingMode — 'win-loss-only' needs explicit organiser
+  // confirmation here, since this format's official tiebreaks use point
+  // differential. Backfilled to 'full-score' for older saved settings.
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // A fixed doubles competitor for the whole qualifier — the ranking and
@@ -948,6 +994,12 @@ export interface DynamicTeam {
   // team has a completed qualifying match — see lockPartnersForPlayedTeams.
   // Emergency substitution with an audit trail is a future placeholder.
   partnerLocked: boolean;
+  // Set once qualifying has started and the director flags this team as
+  // unavailable: the locked schedule is deliberately NOT changed
+  // automatically — this only surfaces a "needs director review" warning on
+  // every affected future round. Cleared when the team is flagged available
+  // again. Pre-start, `withdrawn` above is the functional equivalent.
+  unavailableNeedsReview?: boolean;
 }
 
 // One team's scheduled rest for one qualifying round — the full set for

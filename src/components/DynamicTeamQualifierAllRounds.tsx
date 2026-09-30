@@ -1,5 +1,6 @@
 import type { DynamicTeam, MedalBracket, MedalBracketMatch, QualifyingRound, QualifyingRoundStatus } from '../types';
 import { getAllRoundsForDisplay, qualifyingRoundStatusLabel } from '../utils/dynamicTeamQualifier';
+import { SCORE_NOT_RECORDED } from '../utils/results';
 
 const STATUS_CLASS: Record<QualifyingRoundStatus, string> = {
   upcoming: 'status-badge',
@@ -77,6 +78,10 @@ export function DynamicTeamQualifierAllRounds({ teams, rounds, medalBracket }: D
                             {match.goldenPoint && ' · Golden point'}
                             {match.winnerId && ` · Winner: ${match.winnerId === match.teamAId ? teamAName : teamBName}`}
                           </span>
+                        ) : match.winnerId ? (
+                          <span className="all-rounds-score">
+                            Winner: {match.winnerId === match.teamAId ? teamAName : teamBName} · {SCORE_NOT_RECORDED}
+                          </span>
                         ) : (
                           <span className="all-rounds-score">Score not yet entered</span>
                         )}
@@ -144,11 +149,17 @@ function MedalBracketSummary({ bracket, teamLabel }: MedalBracketSummaryProps) {
                   <span>
                     {teamAName} vs {teamBName}
                   </span>
-                  {match.scoreA != null && match.scoreB != null && (
+                  {match.scoreA != null && match.scoreB != null ? (
                     <span className="all-rounds-score">
                       {match.scoreA}–{match.scoreB}
                       {match.winnerId && ` · Winner: ${match.winnerId === match.teamAId ? teamAName : teamBName}`}
                     </span>
+                  ) : (
+                    match.winnerId && (
+                      <span className="all-rounds-score">
+                        Winner: {match.winnerId === match.teamAId ? teamAName : teamBName} · {SCORE_NOT_RECORDED}
+                      </span>
+                    )
                   )}
                 </li>
               </ul>

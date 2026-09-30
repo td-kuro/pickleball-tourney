@@ -16,6 +16,7 @@ import {
   getPlayerGender,
 } from '../utils/dynamicPairingSocial';
 import { CourtSelector } from './CourtSelector';
+import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 const MOVEMENT_LIMITS: CourtMovementLimit[] = ['unrestricted', 'max-1', 'max-2'];
 // 'resting-this-round' isn't offered here deliberately — it's a live,
@@ -285,6 +286,12 @@ export function DynamicPairingSetup({
             </p>
           )}
         </div>
+
+        <ScoreRecordingSelector
+          idPrefix="dp"
+          value={settings.scoreRecordingMode}
+          onChange={(scoreRecordingMode) => onChangeSettings({ ...settings, scoreRecordingMode })}
+        />
 
         <div className="form-row">
           <span>Score confirmation</span>

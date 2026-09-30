@@ -1467,13 +1467,95 @@ time (gated on scores being entered), same as before.
 
 Real-world sessions change mid-stream — someone arrives late, goes home
 early, gets injured, or wants to sit out a round; a court frees up or
-becomes unavailable. All three Social Play modes (**Standard Social
-Play**, **Dynamic Pairing Social**, **5-Player King Court**) let the
-organiser handle this live, without losing a player's completed stats or
-history. Tournament Mode doesn't have most of this (availability/swap/
-court-count controls are Social Play only) — except **adding a brand-new
-player mid-tournament**, which Tournament Leaderboard also supports; see
-below.
+becomes unavailable. Every mode lets the organiser handle this live,
+without losing a player's completed stats or history. **Standard Social
+Play**, **Dynamic Pairing Social**, **Tournament Leaderboard**, and
+**5-Player King Court** get the full set of controls; **Pools & Knockout**
+and **Dynamic Team Qualifier** have stricter, confirmation-gated
+versions because their schedules are structurally fixed — see
+"Availability changes update future rounds automatically" below.
+
+### Availability changes update future rounds automatically
+
+Marking a player **Late**, **Unavailable**, **Injured**, or **Left
+Early** — or back to **Available** — updates the schedule immediately,
+wherever it's safe to do so. The one rule every mode follows: **completed
+rounds, locked rounds, and a current round that already has any result
+are never changed automatically.** Everything else is fair game:
+
+- **Standard Social Play** — every still-**Upcoming** round is regenerated
+  against the updated roster (fair bye rotation and partner/opponent
+  variety re-applied), so an unavailable player disappears from every
+  future round and a returning player is folded back in.
+- **Dynamic Pairing Social** — same, for every Upcoming and **Pending
+  Results** round: game lag, fixed teams, gender-aware pairing, the
+  no-repeat-opponent rule and bye fairness all re-apply, since it's the
+  normal generator re-run. If the player is on a **fixed team**, you'll
+  see *"Thai is part of a fixed team. This team will be unavailable for
+  future rounds unless updated."* — the team sits out as a unit until both
+  members are available again (or you split the team).
+- **Tournament Leaderboard** — now has the same **Tournament Controls**
+  (availability, swap, courts) as Social Play. Tournament rounds are
+  generated one at a time, so the next round is simply built from
+  whoever's available. Completed matches and leaderboard stats never
+  change. With **Allow late joiners** off, adding a *new* player stays
+  blocked, but existing players can still change availability.
+- **5-Player King Court** — every court needs exactly 5 valid players, and
+  the current cycle's 5-game rotation is never rewritten. A player going
+  away is left out of the **next** cycle's seating (and any staged
+  placement for them is dropped); if they still have games this cycle,
+  you're told to substitute a waiting player. "Move Players & Start Next
+  Cycle" then names who was left out and which court is short, so you
+  can place a waiting player there. A returning player joins the waiting
+  pool; once 5 or more are waiting, you're told there's enough for
+  another court.
+- **Pools & Knockout** — availability is per team (a player, in Singles),
+  from the **Availability** card on the Tournament tab. During the pool
+  stage you're asked *"Pool schedule changes can affect fairness.
+  Regenerate future unplayed pool matches?"* — confirm to take the team's
+  unplayed pool matches off the schedule (they're **skipped**, not
+  deleted, and restored exactly if the team comes back and you confirm
+  again); decline to leave the schedule alone. Once the knockout bracket
+  exists: *"Knockout bracket has started. Player availability changes
+  will not automatically alter completed or active bracket matches."* —
+  affected bracket matches are flagged, never changed.
+- **Dynamic Team Qualifier** — before qualifying starts, **Withdraw**
+  (on the team roster) simply leaves a team out of the schedule generated
+  at Start. After that the schedule is locked: **Flag unavailable** on the
+  Rounds tab marks the team *"needs director review"* for each future
+  round it's still in, with *"Dynamic Team Qualifier uses a locked team
+  schedule. Future schedule requires director review."* — no round is
+  changed automatically.
+
+Every change shows a confirmation such as *"Thai has been marked
+unavailable. Future rounds have been updated."* or *"Thai is now
+available. Future rounds have been updated."* at the top of the page, and
+is logged as a `player-marked-unavailable` / `player-marked-available`
+session adjustment (with old/new status, round number, and note).
+
+**The current round.** If the player is in the current round and it has
+no result anywhere yet, you're asked whether to regenerate it now
+(Standard Social Play, Tournament Leaderboard, Dynamic Pairing Social).
+If their match already has a result: *"Current round already has a
+result. Thai will be removed from future rounds only."* A player made
+available again is never forced into the current round — you're offered
+the option only while it has no results, and a swap is always available
+otherwise.
+
+**Late players are handled fairly.** Byes/rests are counted from rounds
+actually played, so a player who missed rounds while late or unavailable
+has fewer recorded byes than everyone else — and every fair-bye engine
+gives the next bye to whoever has the fewest. Left alone, a late arrival
+would be benched on their very first round back. Instead, the moment a
+player becomes available mid-session (made available, a new joiner's
+round arriving, or back from resting), their bye count is levelled to the
+current minimum among the other available players — e.g. if everyone
+else has 1 bye, Kim joins with an effective count of 1. This only feeds
+bye selection (see `normalizeReturningByeAdjustments` in
+`src/utils/availability.ts` and `Player.byeCountAdjustment`); Byes/Rests
+columns in stats still show exactly what happened, and no wins, losses,
+or points are invented — a returning player's play stats stay neutral
+until they actually play.
 
 ### Clicking a player's name in Current Round
 
@@ -1531,13 +1613,13 @@ swap in, the menu says so instead of offering the option.
 ### Marking a status change on someone playing right now
 
 Marking an *actively playing* player Late, Unavailable, Left Early, or
-Injured (Standard Social Play only) also asks — separately from that
-status's own confirmation — *"Regenerate the current round with updated
-player availability? Existing match assignments for this round will
-change."* Confirm to have the current round reshuffle around the change
-immediately (only offered while it still has no scores); decline and it
-takes effect from the next round instead, same as everywhere else. Future
-**Upcoming** rounds update either way, with the usual notice.
+Injured (Standard Social Play, Tournament Leaderboard, Dynamic Pairing
+Social) also asks — separately from that status's own confirmation —
+*"Thai is playing in the current round. Regenerate the current round
+without them?"* Confirm to have the current round reshuffle around the
+change immediately (only offered while it still has no results); decline
+and it takes effect from the next round instead. Future **Upcoming**
+rounds update either way.
 
 ### Adding a player mid-session
 
@@ -1638,6 +1720,55 @@ below), a genuine spare player to substitute in only exists if the roster
 has more people than the courts currently seat. If none exists, the
 organiser resolves it manually — play the court short-handed, or use the
 Movement Preview's per-player override once the cycle finishes.
+
+## Score Recording: full score or Win/Loss only
+
+Every mode that records results has a **Score Recording** setting on its
+setup screen (Standard Social Play shows it when scoring is **Track Scores
+and Wins**; it doesn't apply to No Scoring or Track Scores Only):
+
+- **Full score** (default) — enter both scores; the winner, Points For/
+  Against, point differential, wins and losses are all derived from them.
+  Exactly the behaviour every mode had before this setting existed.
+- **Win/Loss only** — just tap who won (*"Who won?"*). No score inputs at
+  all, so moving between games is faster. Wins, losses, games played and
+  win % update normally; **Points For/Against, point differential and
+  point averages aren't available** — those columns are hidden with the
+  note *"Point stats are unavailable because this session is using
+  win/loss only scoring."* Results show as *"Thai / Alex beat Ben / Sarah ·
+  Score not recorded"* — never a fake 0–0.
+
+**Current Round** always shows which is in force (*"Scoring: Full score"*
+/ *"Scoring: Win/Loss only"*). The setting can be changed mid-session:
+results already recorded stay valid either way (a result is simply
+"scores present" or "winner only"), and the change is logged as a
+`score-mode-changed` session adjustment. Every result entry is logged as
+`result-entered`.
+
+**Ranking without scores.** Anywhere point differential normally breaks
+ties, Win/Loss only falls back cleanly instead of crashing or rewarding
+whoever happened to play a scored game earlier:
+
+- **Tournament Leaderboard** — wins, then win %, then games played, then
+  fewest byes, then rating (PF/PA/+/- hidden, a Win % column added).
+- **Dynamic Pairing Social** — already ranked by win % first; point
+  averages are now taken over *scored* games only, so they're simply
+  inactive in Win/Loss only and game-lag ranking keeps working.
+- **Pools & Knockout** — pool standings rank by wins, then head-to-head,
+  then original pool order, with the note *"Point differential is not
+  available in Win/Loss only mode."*
+- **5-Player King Court** — court standings rank by wins; ties (common
+  without point differential) are flagged for the organiser's existing
+  manual tiebreak order.
+- **Dynamic Team Qualifier** — its official tiebreaks use capped point
+  differential, so switching to Win/Loss only asks you to confirm first:
+  *"This format normally uses point differential. Win/loss only may
+  reduce tiebreak accuracy."* Forfeits still don't count toward standings,
+  exactly as before.
+
+The shared entry component is `MatchResultEntry`
+(`src/components/MatchResultEntry.tsx`); the result helpers
+(`resolveWinner`, `describeResult`, ...) live in `src/utils/results.ts`.
 
 ## What it does
 

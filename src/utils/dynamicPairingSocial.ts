@@ -38,7 +38,13 @@ import type {
   Player,
   PlayerAvailabilityStatus,
   PlayerGender,
+  ResultSubmission,
 } from '../types';
+// Tiny type-only-dependency leaf modules shared by every mode (see their
+// own file headers) — not another mode's logic, so this file's isolation
+// from utils/tournament.ts/pairing.ts/poolsKnockout.ts/kingCourt.ts holds.
+import { teamByeAdjustment } from './availability';
+import { hasAnyResult, resolveWinner } from './results';
 
 // --- Capacity ---------------------------------------------------------
 
@@ -107,13 +113,24 @@ export function canGenerateDynamicPairingRound(
     return { ok: false, reason: 'Every player needs a name before starting matches.' };
   }
   if (currentRound && !isDynamicPairingRoundComplete(currentRound)) {
-    return { ok: false, reason: 'Enter scores for every court in the current round before generating the next one.' };
+    return { ok: false, reason: 'Enter a result for every court in the current round before generating the next one.' };
   }
   return { ok: true };
 }
 
+// The winner of a court, whichever way the result was recorded — derived
+// from score1/score2 for a full score, or the recorded winnerTeam for a
+// Win/Loss-only result (see ScoreRecordingMode).
+export function courtWinner(court: DynamicPairingCourtAssignment): 1 | 2 | undefined {
+  return resolveWinner(court.score1, court.score2, court.winnerTeam, 1 as const, 2 as const);
+}
+
+export function courtHasResult(court: DynamicPairingCourtAssignment): boolean {
+  return hasAnyResult(court.score1, court.score2, court.winnerTeam);
+}
+
 export function isDynamicPairingRoundComplete(round: DynamicPairingRound): boolean {
-  return round.courts.every((c) => c.score1 != null && c.score2 != null);
+  return round.courts.every(courtHasResult);
 }
 
 // True once the grading phase is fully behind us — i.e. there's no more
@@ -146,6 +163,7 @@ function emptyStats(playerId: string): DynamicPairingPlayerStats {
     pointsFor: 0,
     pointsAgainst: 0,
     pointDifferential: 0,
+    scoredGamesPlayed: 0,
     winPercentage: 0,
     averagePointDifferential: 0,
     averagePointsScored: 0,
@@ -217,8 +235,8 @@ export function calculateDynamicPairingStats(
 
       updatePartnerOpponentHistory(statsById, court);
 
-      if (court.score1 == null || court.score2 == null || court.score1 === court.score2) continue;
-      const winnerTeam = court.score1 > court.score2 ? 1 : 2;
+      const winnerTeam = courtWinner(court);
+      if (winnerTeam == null) continue;
       applyGameResult(statsById, court.team1PlayerIds, court.score1, court.score2, winnerTeam === 1);
       applyGameResult(statsById, court.team2PlayerIds, court.score2, court.score1, winnerTeam === 2);
     }
@@ -239,30 +257,47 @@ export function calculateDynamicPairingStats(
 
   for (const s of statsById.values()) {
     s.winPercentage = s.gamesPlayed > 0 ? s.wins / s.gamesPlayed : 0;
-    s.averagePointDifferential = s.gamesPlayed > 0 ? s.pointDifferential / s.gamesPlayed : 0;
-    s.averagePointsScored = s.gamesPlayed > 0 ? s.pointsFor / s.gamesPlayed : 0;
+    s.averagePointDifferential = s.scoredGamesPlayed > 0 ? s.pointDifferential / s.scoredGamesPlayed : 0;
+    s.averagePointsScored = s.scoredGamesPlayed > 0 ? s.pointsFor / s.scoredGamesPlayed : 0;
   }
 
   return Array.from(statsById.values());
 }
 
+// Scores are absent for a Win/Loss-only result: the game and the win/loss
+// still count, but nothing is added to the point totals.
 function applyGameResult(
   statsById: Map<string, DynamicPairingPlayerStats>,
   playerIds: string[],
-  ownScore: number,
-  opponentScore: number,
+  ownScore: number | undefined,
+  opponentScore: number | undefined,
   won: boolean,
 ) {
   for (const id of playerIds) {
     const s = statsById.get(id);
     if (!s) continue;
     s.gamesPlayed += 1;
-    s.pointsFor += ownScore;
-    s.pointsAgainst += opponentScore;
-    s.pointDifferential += ownScore - opponentScore;
+    if (ownScore != null && opponentScore != null) {
+      s.scoredGamesPlayed += 1;
+      s.pointsFor += ownScore;
+      s.pointsAgainst += opponentScore;
+      s.pointDifferential += ownScore - opponentScore;
+    }
     if (won) s.wins += 1;
     else s.losses += 1;
   }
+}
+
+// Rest-selection input only: recorded rests plus any late-return
+// normalisation (see Player.byeCountAdjustment). Never used for displayed
+// stats, which always show rests exactly as they happened.
+function withByeAdjustment(
+  stats: DynamicPairingPlayerStats,
+  playerIds: string[],
+  playersById: Map<string, Player>,
+): DynamicPairingPlayerStats {
+  const adjustment = teamByeAdjustment(playerIds, playersById);
+  return adjustment > 0 ? { ...stats, totalRests: stats.totalRests + adjustment } : stats;
 }
 
 // Head-to-head result between two players across every completed match
@@ -274,11 +309,11 @@ export function getPlayerHeadToHead(aId: string, bId: string, rounds: DynamicPai
   let bWins = 0;
   for (const round of rounds) {
     for (const court of round.courts) {
-      if (court.score1 == null || court.score2 == null || court.score1 === court.score2) continue;
+      const winnerTeam = courtWinner(court);
+      if (winnerTeam == null) continue;
       const aTeam = court.team1PlayerIds.includes(aId) ? 1 : court.team2PlayerIds.includes(aId) ? 2 : 0;
       const bTeam = court.team1PlayerIds.includes(bId) ? 1 : court.team2PlayerIds.includes(bId) ? 2 : 0;
       if (aTeam === 0 || bTeam === 0 || aTeam === bTeam) continue; // not opponents this match
-      const winnerTeam = court.score1 > court.score2 ? 1 : 2;
       if (aTeam === winnerTeam) aWins += 1;
       else bWins += 1;
     }
@@ -881,13 +916,13 @@ export function getEntrantHeadToHead(aId: string, bId: string, rounds: DynamicPa
   let bWins = 0;
   for (const round of rounds) {
     for (const court of round.courts) {
-      if (court.score1 == null || court.score2 == null || court.score1 === court.score2) continue;
+      const winnerTeam = courtWinner(court);
+      if (winnerTeam == null) continue;
       const side1 = entrantIdsForSide(court, 1);
       const side2 = entrantIdsForSide(court, 2);
       const aSide = side1.includes(aId) ? 1 : side2.includes(aId) ? 2 : 0;
       const bSide = side1.includes(bId) ? 1 : side2.includes(bId) ? 2 : 0;
       if (aSide === 0 || bSide === 0 || aSide === bSide) continue;
-      const winnerTeam = court.score1 > court.score2 ? 1 : 2;
       if (aSide === winnerTeam) aWins += 1;
       else bWins += 1;
     }
@@ -1085,7 +1120,9 @@ export function generateDynamicPairingRound(
   const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : undefined;
   const lastRoundRestingIds = new Set(lastRound?.restingPlayerIds ?? []);
 
-  const { restingIds, activeIds } = selectRestingPlayers(availablePlayers, stats, courtsUsed, lastRoundRestingIds);
+  const playersByIdForRest = new Map(players.map((p) => [p.id, p]));
+  const restStats = stats.map((st) => withByeAdjustment(st, [st.playerId], playersByIdForRest));
+  const { restingIds, activeIds } = selectRestingPlayers(availablePlayers, restStats, courtsUsed, lastRoundRestingIds);
   const activeSet = new Set(activeIds);
 
   // Grading already returned above — every round reaching this point is a
@@ -1158,7 +1195,7 @@ export function generateDynamicPairingRound(
     courts,
     restingPlayerIds: restingIds,
     rankingBasis: basis,
-    byeFairnessNote: computeByeFairnessNote(restingIds, activeIds, statsById),
+    byeFairnessNote: computeByeFairnessNote(restingIds, activeIds, new Map(restStats.map((st) => [st.playerId, st]))),
     createdAt: Date.now(),
   };
 }
@@ -1416,7 +1453,10 @@ export function generateRotationAwareGradingRound(
   const playerStats = calculateDynamicPairingStats(players, priorRounds);
   const playerStatsById = new Map(playerStats.map((s) => [s.playerId, s]));
   const entrantStatsById = new Map(
-    eligibleEntrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
+    eligibleEntrants.map((e) => [
+      e.id,
+      withByeAdjustment(playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0]), e.playerIds, playersById),
+    ]),
   );
 
   const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : undefined;
@@ -1522,7 +1562,10 @@ export function generateDynamicPairingRoundWithTeams(
   const playerStats = calculateDynamicPairingStats(players, priorRounds);
   const playerStatsById = new Map(playerStats.map((s) => [s.playerId, s]));
   const entrantStatsById = new Map(
-    availableEntrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
+    availableEntrants.map((e) => [
+      e.id,
+      withByeAdjustment(playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0]), e.playerIds, playersById),
+    ]),
   );
 
   const lastRound = priorRounds.length > 0 ? priorRounds[priorRounds.length - 1] : undefined;
@@ -1589,25 +1632,25 @@ export function generateDynamicPairingRoundForEntrants(
 
 // Applies a submitted score to one court within a round. Returns a new
 // Round object (immutable update, same pattern as the rest of the app).
-export function processDynamicPairingScore(
+// Records either kind of result (see ScoreRecordingMode): a full score
+// stores both scores plus the derived winnerTeam; a Win/Loss-only result
+// stores winnerTeam alone and clears any earlier scores, so the court is
+// never both at once.
+export function processDynamicPairingResult(
   round: DynamicPairingRound,
   courtNumber: number,
-  score1: number,
-  score2: number,
+  result: ResultSubmission,
 ): DynamicPairingRound {
   return {
     ...round,
-    courts: round.courts.map((court) =>
-      court.courtNumber === courtNumber
-        ? {
-            ...court,
-            score1,
-            score2,
-            winnerTeam: score1 === score2 ? undefined : score1 > score2 ? 1 : 2,
-            status: 'completed',
-          }
-        : court,
-    ),
+    courts: round.courts.map((court) => {
+      if (court.courtNumber !== courtNumber) return court;
+      if (result.kind === 'winner') {
+        return { ...court, score1: undefined, score2: undefined, winnerTeam: result.winner === 'A' ? 1 : 2, status: 'completed' };
+      }
+      const { scoreA: score1, scoreB: score2 } = result;
+      return { ...court, score1, score2, winnerTeam: score1 === score2 ? undefined : score1 > score2 ? 1 : 2, status: 'completed' };
+    }),
   };
 }
 
@@ -1803,8 +1846,7 @@ export function regenerateCurrentDynamicPairingRound(
   const currentIndex = rounds.findIndex((r) => r.status === 'current');
   if (currentIndex === -1) return null;
   const current = rounds[currentIndex];
-  const hasAnyScore = current.courts.some((c) => c.score1 != null || c.score2 != null);
-  if (hasAnyScore) return null;
+  if (current.courts.some(courtHasResult)) return null;
 
   const before = rounds.slice(0, currentIndex);
   const after = rounds.slice(currentIndex + 1); // always 'upcoming' pre-generated rounds, if any — discarded and rebuilt below
@@ -1843,8 +1885,8 @@ export function canSwapPlayerInDynamicPairingRound(
   if (!court) {
     return { ok: false, reason: 'That player is not assigned to a court this round.' };
   }
-  if (court.score1 != null || court.score2 != null) {
-    return { ok: false, reason: "That court's score is already submitted — swaps are only allowed before that." };
+  if (courtHasResult(court)) {
+    return { ok: false, reason: "That court's result is already submitted — swaps are only allowed before that." };
   }
   const side = court.team1PlayerIds.includes(activePlayerId) ? court.team1PlayerIds : court.team2PlayerIds;
   if (isDynamicPairingFixedTeamSide(side, teams)) {

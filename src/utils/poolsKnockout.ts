@@ -15,10 +15,13 @@ import type {
   PoolKnockoutSettings,
   PoolMatch,
   PoolStanding,
+  ResultSubmission,
+  ScoreRecordingMode,
   Team,
   TournamentSettings,
   TournamentStage,
 } from '../types';
+import { hasAnyResult, resolveWinner } from './results';
 
 export const DEFAULT_POOL_KNOCKOUT_SETTINGS: PoolKnockoutSettings = {
   numberOfPools: 2,
@@ -252,8 +255,57 @@ export function smallestPool(pools: Pool[]): Pool | undefined {
   return [...pools].sort((a, b) => a.teamIds.length - b.teamIds.length)[0];
 }
 
+// Winner of a pool match, whichever way it was recorded (see
+// ScoreRecordingMode). A tied full score has no winner, same as before.
+export function poolMatchWinnerId(match: PoolMatch): string | undefined {
+  return resolveWinner(match.scoreA, match.scoreB, match.winnerId, match.teamAId, match.teamBId);
+}
+
+export function poolMatchHasResult(match: PoolMatch): boolean {
+  return hasAnyResult(match.scoreA, match.scoreB, match.winnerId);
+}
+
+// Records either kind of result — a full score clears any winner-only
+// marker and vice versa.
+export function recordPoolMatchResult(match: PoolMatch, result: ResultSubmission): PoolMatch {
+  if (result.kind === 'score') return { ...match, scoreA: result.scoreA, scoreB: result.scoreB, winnerId: undefined };
+  return { ...match, scoreA: undefined, scoreB: undefined, winnerId: result.winner === 'A' ? match.teamAId : match.teamBId };
+}
+
+// Skipped matches (see skipUnplayedPoolMatchesForTeam) are off the
+// schedule, so they never hold a pool open.
 export function isPoolComplete(pool: Pool): boolean {
-  return pool.matches.length > 0 && pool.matches.every((match) => match.scoreA != null && match.scoreB != null);
+  const active = pool.matches.filter((match) => !match.skipped);
+  return pool.matches.length > 0 && active.every(poolMatchHasResult);
+}
+
+// --- Team availability during the pool stage ------------------------------
+// Pools & Knockout is the strictest rotating format: its schedule is a
+// fixed round-robin, so an availability change only ever touches it when
+// the organiser explicitly confirms (see usePoolsKnockout.setTeamAvailability).
+// Unplayed matches are *skipped*, never deleted, so they can be restored
+// exactly if the team comes back; anything with a result is never touched.
+
+export function skipUnplayedPoolMatchesForTeam(pool: Pool, teamId: string): Pool {
+  return {
+    ...pool,
+    matches: pool.matches.map((match) =>
+      (match.teamAId === teamId || match.teamBId === teamId) && !poolMatchHasResult(match) ? { ...match, skipped: true } : match,
+    ),
+  };
+}
+
+// Restores a returning team's skipped matches — except against an opponent
+// that is itself still unavailable.
+export function restoreSkippedPoolMatchesForTeam(pool: Pool, teamId: string, unavailableTeamIds: Set<string>): Pool {
+  return {
+    ...pool,
+    matches: pool.matches.map((match) => {
+      if (!match.skipped || (match.teamAId !== teamId && match.teamBId !== teamId)) return match;
+      const opponentId = match.teamAId === teamId ? match.teamBId : match.teamAId;
+      return unavailableTeamIds.has(opponentId) ? match : { ...match, skipped: false };
+    }),
+  };
 }
 
 export function allPoolsComplete(pools: Pool[]): boolean {
@@ -282,44 +334,54 @@ function bumpHeadToHead(counts: Map<string, Map<string, number>>, winnerId: stri
 // simplification for a first version); then highest Points For; and
 // finally each team's original position in the pool, which Array.sort's
 // stability preserves for free by returning 0.
+// In Win/Loss only mode (see ScoreRecordingMode) there are no points to
+// compare, so the order is wins, then head-to-head, then original pool
+// position.
 function compareStandings(
   a: TeamAggregate,
   b: TeamAggregate,
   headToHead: Map<string, Map<string, number>>,
+  winLossOnly: boolean,
 ): number {
   if (b.wins !== a.wins) return b.wins - a.wins;
 
   const aDiff = a.pointsFor - a.pointsAgainst;
   const bDiff = b.pointsFor - b.pointsAgainst;
-  if (bDiff !== aDiff) return bDiff - aDiff;
+  if (!winLossOnly && bDiff !== aDiff) return bDiff - aDiff;
 
   const aBeatB = headToHead.get(a.teamId)?.get(b.teamId) ?? 0;
   const bBeatA = headToHead.get(b.teamId)?.get(a.teamId) ?? 0;
   if (aBeatB !== bBeatA) return bBeatA - aBeatB;
 
-  if (b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
+  if (!winLossOnly && b.pointsFor !== a.pointsFor) return b.pointsFor - a.pointsFor;
 
   return 0;
 }
 
-export function computePoolStandings(pool: Pool, teamsAdvancingPerPool: number): PoolStanding[] {
+export function computePoolStandings(
+  pool: Pool,
+  teamsAdvancingPerPool: number,
+  scoreRecordingMode: ScoreRecordingMode = 'full-score',
+): PoolStanding[] {
   const aggregates = new Map<string, TeamAggregate>(
     pool.teamIds.map((id) => [id, { teamId: id, wins: 0, losses: 0, pointsFor: 0, pointsAgainst: 0 }]),
   );
   const headToHead = new Map<string, Map<string, number>>(pool.teamIds.map((id) => [id, new Map()]));
 
   for (const match of pool.matches) {
-    if (match.scoreA == null || match.scoreB == null || match.scoreA === match.scoreB) continue;
+    const winnerId = poolMatchWinnerId(match);
+    if (winnerId == null) continue;
     const a = aggregates.get(match.teamAId);
     const b = aggregates.get(match.teamBId);
     if (!a || !b) continue;
 
-    a.pointsFor += match.scoreA;
-    a.pointsAgainst += match.scoreB;
-    b.pointsFor += match.scoreB;
-    b.pointsAgainst += match.scoreA;
+    // A Win/Loss-only result counts the win/loss but adds no points.
+    a.pointsFor += match.scoreA ?? 0;
+    a.pointsAgainst += match.scoreB ?? 0;
+    b.pointsFor += match.scoreB ?? 0;
+    b.pointsAgainst += match.scoreA ?? 0;
 
-    if (match.scoreA > match.scoreB) {
+    if (winnerId === match.teamAId) {
       a.wins += 1;
       b.losses += 1;
       bumpHeadToHead(headToHead, match.teamAId, match.teamBId);
@@ -330,7 +392,8 @@ export function computePoolStandings(pool: Pool, teamsAdvancingPerPool: number):
     }
   }
 
-  const ranked = pool.teamIds.map((id) => aggregates.get(id)!).sort((x, y) => compareStandings(x, y, headToHead));
+  const winLossOnly = scoreRecordingMode === 'win-loss-only';
+  const ranked = pool.teamIds.map((id) => aggregates.get(id)!).sort((x, y) => compareStandings(x, y, headToHead, winLossOnly));
 
   return ranked.map((agg, index) => ({
     teamId: agg.teamId,
@@ -356,10 +419,10 @@ interface SeededTeam {
 // within their own pool (every 1st-place finisher outranks every 2nd-place
 // finisher, and so on), then — within the same pool rank — by the same
 // wins / point-difference / Points For order used for pool standings.
-function seedQualifiedTeams(pools: Pool[], teamsAdvancingPerPool: number): SeededTeam[] {
+function seedQualifiedTeams(pools: Pool[], teamsAdvancingPerPool: number, scoreRecordingMode: ScoreRecordingMode): SeededTeam[] {
   const seeded: SeededTeam[] = [];
   for (const pool of pools) {
-    for (const standing of computePoolStandings(pool, teamsAdvancingPerPool)) {
+    for (const standing of computePoolStandings(pool, teamsAdvancingPerPool, scoreRecordingMode)) {
       if (!standing.qualifiesForKnockout) continue;
       seeded.push({
         teamId: standing.teamId,
@@ -434,8 +497,12 @@ function forwardLoserToThirdPlace(bracket: KnockoutBracket, completed: KnockoutM
 // the top seeds, so the strongest teams get the automatic pass), wires
 // every round's matches to forward their winner into the next round, and
 // wires the semifinals to forward their loser into a 3rd Place Match.
-export function buildKnockoutBracket(pools: Pool[], teamsAdvancingPerPool: number): KnockoutBracket {
-  const seeded = seedQualifiedTeams(pools, teamsAdvancingPerPool);
+export function buildKnockoutBracket(
+  pools: Pool[],
+  teamsAdvancingPerPool: number,
+  scoreRecordingMode: ScoreRecordingMode = 'full-score',
+): KnockoutBracket {
+  const seeded = seedQualifiedTeams(pools, teamsAdvancingPerPool, scoreRecordingMode);
   const bracketSize = nextPowerOfTwo(seeded.length);
   // Real teams fill the best seeds (index 0 = strongest); the rest are
   // byes. Pairing seed i against seed (bracketSize - 1 - i) below means a
@@ -507,22 +574,27 @@ function findKnockoutMatch(bracket: KnockoutBracket, matchId: string): KnockoutM
   return bracket.rounds.flatMap((round) => round.matches).find((match) => match.id === matchId);
 }
 
-// Records a knockout score, determines the winner (ties aren't allowed —
-// see the score form's validation), forwards the winner (and, for
-// semifinals, the loser) to their next match, and — if this was the Final
-// or the 3rd Place Match — records the final placements.
-export function recordKnockoutScore(
-  bracket: KnockoutBracket,
-  matchId: string,
-  scoreA: number,
-  scoreB: number,
-): KnockoutBracket {
+// Records a knockout result — a full score (ties aren't allowed — see the
+// score form's validation) or a Win/Loss-only winner (see
+// ScoreRecordingMode) — forwards the winner (and, for semifinals, the
+// loser) to their next match, and — if this was the Final or the 3rd Place
+// Match — records the final placements.
+export function recordKnockoutResult(bracket: KnockoutBracket, matchId: string, result: ResultSubmission): KnockoutBracket {
   const target = findKnockoutMatch(bracket, matchId);
-  if (!target || target.teamAId == null || target.teamBId == null || scoreA === scoreB) return bracket;
+  if (!target || target.teamAId == null || target.teamBId == null) return bracket;
+  if (result.kind === 'score' && result.scoreA === result.scoreB) return bracket;
 
-  const winnerId = scoreA > scoreB ? target.teamAId : target.teamBId;
-  const loserId = scoreA > scoreB ? target.teamBId : target.teamAId;
-  const completed: KnockoutMatch = { ...target, scoreA, scoreB, winnerId, loserId, status: 'completed' };
+  const teamAWon = result.kind === 'score' ? result.scoreA > result.scoreB : result.winner === 'A';
+  const winnerId = teamAWon ? target.teamAId : target.teamBId;
+  const loserId = teamAWon ? target.teamBId : target.teamAId;
+  const completed: KnockoutMatch = {
+    ...target,
+    scoreA: result.kind === 'score' ? result.scoreA : undefined,
+    scoreB: result.kind === 'score' ? result.scoreB : undefined,
+    winnerId,
+    loserId,
+    status: 'completed',
+  };
   const isThirdPlace = bracket.thirdPlaceMatch?.id === matchId;
 
   let next: KnockoutBracket = isThirdPlace

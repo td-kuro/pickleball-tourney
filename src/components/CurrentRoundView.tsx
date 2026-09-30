@@ -1,7 +1,19 @@
 import { useState, type FormEvent } from 'react';
-import type { Match, Player, PlayerAvailabilityStatus, Round, Team, TournamentSettings } from '../types';
-import { availabilityStatusLabel, canGenerateRound, getMatchWinner, isScoringEnabled, socialScoringModeLabel, teamKey } from '../utils/tournament';
+import type { Match, Player, PlayerAvailabilityStatus, ResultSubmission, Round, ScoreRecordingMode, Team, TournamentSettings } from '../types';
+import { scoreRecordingModeLabel } from '../utils/results';
+import {
+  availabilityStatusLabel,
+  canGenerateRound,
+  effectiveScoreRecordingMode,
+  getMatchWinner,
+  hasMatchResult,
+  isScoringEnabled,
+  isWinLossTracked,
+  socialScoringModeLabel,
+  teamKey,
+} from '../utils/tournament';
 import { ByeList } from './ByeList';
+import { MatchResultEntry } from './MatchResultEntry';
 import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActionMenu';
 
 // Looks up whether a match side's playerIds correspond to a declared fixed
@@ -21,14 +33,13 @@ interface CurrentRoundViewProps {
   plannedRounds: number | null;
   onNextRound: () => void;
   onFinishSession: () => void;
-  onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
+  onSetResult: (roundId: string, matchId: string, result: ResultSubmission) => void;
   // Only relevant (and only ever non-empty) for Doubles with at least one
   // fixed team — used both by canGenerateRound (validating team names) and
   // to badge fixed-team sides on match cards (see fixedTeamNameFor above).
   teams?: Team[];
-  // Social Play only (Tournament Mode never passes these — see App.tsx) —
-  // clicking a player's name opens PlayerActionMenu instead of the name
-  // just being static text. Individual players only; a fixed-team side
+  // Standard Social Play and Tournament Leaderboard — clicking a player's
+  // name opens PlayerActionMenu instead of the name just being static text. Individual players only; a fixed-team side
   // stays plain text with its FixedTeamTag, same scope boundary
   // SessionControls/PlayerAvailabilityControls already use (fixed teams
   // can't be split by a swap — see isFixedTeamSide).
@@ -45,7 +56,7 @@ export function CurrentRoundView({
   plannedRounds,
   onNextRound,
   onFinishSession,
-  onSetScore,
+  onSetResult,
   teams = [],
   onSetAvailability,
   onSwap,
@@ -58,9 +69,10 @@ export function CurrentRoundView({
   const currentRound = rounds.find((round) => round.status === 'current');
   const generateCheck = canGenerateRound(players, settings, currentRound, teams);
   const showScoring = isScoringEnabled(settings);
-  // Clickable player names/PlayerActionMenu are Social Play only — see
-  // this component's file comment.
-  const isSocialPlay = settings.playMode === 'social' && !!onSetAvailability && !!onSwap;
+  const scoreMode = effectiveScoreRecordingMode(settings);
+  // Clickable player names/PlayerActionMenu — only when the caller wired up
+  // availability/swap actions (see this component's props comment).
+  const isSocialPlay = !!onSetAvailability && !!onSwap;
 
   const isFinalPlannedRound = plannedRounds != null && currentRound?.roundNumber === plannedRounds;
   const isPastPlannedRounds = plannedRounds != null && (currentRound?.roundNumber ?? 0) >= plannedRounds;
@@ -101,7 +113,7 @@ export function CurrentRoundView({
     const side = match.teamA.playerIds.includes(playerId) ? match.teamA : match.teamB;
     const teammateIds = side.playerIds.filter((id) => id !== playerId);
     const teammateNames = teammateIds.map((id) => playerNameById.get(id) ?? 'Unknown player');
-    const scored = match.scoreA != null || match.scoreB != null;
+    const scored = hasMatchResult(match);
     const lines = [
       `Court ${match.court}`,
       teammateNames.length > 0 ? `Playing with ${teammateNames.join(' & ')}` : 'Playing this round',
@@ -110,7 +122,7 @@ export function CurrentRoundView({
       return { contextLines: lines, replacement: undefined };
     }
     if (scored) {
-      lines.push('This match already has a score — edit or reset the score before changing players.');
+      lines.push('This match already has a result — edit or reset it before changing players.');
       return { contextLines: lines, replacement: undefined };
     }
     return {
@@ -159,6 +171,7 @@ export function CurrentRoundView({
                 ? 'Tournament Mode'
                 : `Social Play — ${socialScoringModeLabel(settings.socialScoringMode)}`}
             </span>
+            {isWinLossTracked(settings) && <p className="hint">Scoring: {scoreRecordingModeLabel(scoreMode)}</p>}
           </div>
           {!isPastPlannedRounds && (
             <button type="button" className="cta-button" onClick={onNextRound} disabled={!generateCheck.ok}>
@@ -200,7 +213,8 @@ export function CurrentRoundView({
                 renderTeamA={() => renderPlayerNames(match.teamA.playerIds, fixedTeamNameFor(match.teamA.playerIds, teams))}
                 renderTeamB={() => renderPlayerNames(match.teamB.playerIds, fixedTeamNameFor(match.teamB.playerIds, teams))}
                 showScoring={showScoring}
-                onSetScore={(scoreA, scoreB) => onSetScore(currentRound.id, match.id, scoreA, scoreB)}
+                scoreMode={scoreMode}
+                onSetResult={(result) => onSetResult(currentRound.id, match.id, result)}
               />
             ))}
           </div>
@@ -239,33 +253,57 @@ interface MatchCardProps {
   renderTeamA: () => React.ReactNode;
   renderTeamB: () => React.ReactNode;
   showScoring: boolean;
-  onSetScore: (scoreA: number, scoreB: number) => void;
+  scoreMode: ScoreRecordingMode;
+  onSetResult: (result: ResultSubmission) => void;
 }
 
 function FixedTeamTag() {
   return <span className="fixed-team-tag">Fixed Team</span>;
 }
 
-function MatchCard({ match, teamALabel, teamBLabel, teamAFixedName, teamBFixedName, renderTeamA, renderTeamB, showScoring, onSetScore }: MatchCardProps) {
-  if (!showScoring) {
+function MatchCard({
+  match,
+  teamALabel,
+  teamBLabel,
+  teamAFixedName,
+  teamBFixedName,
+  renderTeamA,
+  renderTeamB,
+  showScoring,
+  scoreMode,
+  onSetResult,
+}: MatchCardProps) {
+  if (!showScoring || scoreMode === 'win-loss-only') {
+    const winner = getMatchWinner(match);
     return (
       <div className="match-card">
         <div className="match-header">Court {match.court}</div>
         <div className="match-teams">
-          <div className="match-team">
+          <div className={winner === 'A' ? 'match-team winner' : 'match-team'}>
             <div className="match-team-name-row">
               {renderTeamA()}
               {teamAFixedName && <FixedTeamTag />}
             </div>
           </div>
           <div className="match-vs">vs</div>
-          <div className="match-team">
+          <div className={winner === 'B' ? 'match-team winner' : 'match-team'}>
             <div className="match-team-name-row">
               {renderTeamB()}
               {teamBFixedName && <FixedTeamTag />}
             </div>
           </div>
         </div>
+        {showScoring && (
+          <MatchResultEntry
+            mode="win-loss-only"
+            sideALabel={teamALabel}
+            sideBLabel={teamBLabel}
+            initialScoreA={match.scoreA}
+            initialScoreB={match.scoreB}
+            currentWinner={winner}
+            onSubmit={onSetResult}
+          />
+        )}
       </div>
     );
   }
@@ -279,7 +317,7 @@ function MatchCard({ match, teamALabel, teamBLabel, teamAFixedName, teamBFixedNa
       teamBFixedName={teamBFixedName}
       renderTeamA={renderTeamA}
       renderTeamB={renderTeamB}
-      onSetScore={onSetScore}
+      onSetScore={(scoreA, scoreB) => onSetResult({ kind: 'score', scoreA, scoreB })}
     />
   );
 }

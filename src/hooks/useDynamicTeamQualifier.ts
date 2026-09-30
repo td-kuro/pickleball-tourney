@@ -8,7 +8,9 @@ import type {
   MedalBracketMatchLabel,
   QualifyingRound,
   RestAssignment,
+  ResultSubmission,
 } from '../types';
+import { normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
 import {
   DEFAULT_DYNAMIC_TEAM_QUALIFIER_SETTINGS,
   calculateFinalStandings,
@@ -57,7 +59,15 @@ function teamDisplayName(teamName: string, playerAName: string, playerBName: str
 // this hook drives, and README.md's "Dynamic Team Qualifier" section for the
 // full stage-by-stage write-up.
 export function useDynamicTeamQualifier() {
-  const [settings, setSettings] = useLocalStorage<DynamicTeamQualifierSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_TEAM_QUALIFIER_SETTINGS);
+  const [storedSettings, setSettings] = useLocalStorage<DynamicTeamQualifierSettings>(
+    SETTINGS_KEY,
+    DEFAULT_DYNAMIC_TEAM_QUALIFIER_SETTINGS,
+  );
+  // Backfill for settings saved before Score Recording existed.
+  const settings: DynamicTeamQualifierSettings = {
+    ...storedSettings,
+    scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode),
+  };
   const [teams, setTeams] = useLocalStorage<DynamicTeam[]>(TEAMS_KEY, []);
   const [restAssignments, setRestAssignments] = useLocalStorage<RestAssignment[]>(REST_KEY, []);
   const [rounds, setRounds] = useLocalStorage<QualifyingRound[]>(ROUNDS_KEY, []);
@@ -146,8 +156,31 @@ export function useDynamicTeamQualifier() {
     setTeams([]);
   }
 
+  function logAudit(eventType: string, fields: { oldValue?: string; newValue?: string; reason?: string } = {}) {
+    const event: AuditEvent = { id: makeAuditId(), timestamp: Date.now(), eventType, ...fields };
+    setAuditEvents((prev) => [...prev, event]);
+  }
+
   function updateSettings(next: DynamicTeamQualifierSettings) {
     setSettings(next);
+    if (next.scoreRecordingMode !== settings.scoreRecordingMode && started) {
+      logAudit('score-mode-changed', {
+        oldValue: settings.scoreRecordingMode,
+        newValue: next.scoreRecordingMode,
+        reason: `Score recording changed to ${scoreRecordingModeLabel(next.scoreRecordingMode)}.`,
+      });
+    }
+  }
+
+  // Once qualifying has started, the schedule is locked: flagging a team
+  // unavailable never rewrites any round — it only marks the team for
+  // director review (see DynamicTeam.unavailableNeedsReview), surfaced on
+  // every future round they're still scheduled in. Before the start, use
+  // setWithdrawn instead, which simply leaves the team out of the schedule
+  // that's generated when qualifying begins.
+  function setTeamUnavailableForReview(id: string, unavailable: boolean) {
+    setTeams(teams.map((t) => (t.id === id ? { ...t, unavailableNeedsReview: unavailable || undefined } : t)));
+    logAudit(unavailable ? 'team-marked-unavailable' : 'team-marked-available', { newValue: id, reason: 'Needs director review' });
   }
 
   // Rolls a genuinely fresh random seed — every *use* of a seed elsewhere is
@@ -227,9 +260,9 @@ export function useDynamicTeamQualifier() {
     setStage('medal-bracket');
   }
 
-  function setBracketScore(label: MedalBracketMatchLabel, scoreA: number, scoreB: number) {
+  function setBracketResult(label: MedalBracketMatchLabel, result: ResultSubmission) {
     if (!medalBracket) return;
-    const updated = processBracketResult(medalBracket, label, scoreA, scoreB);
+    const updated = processBracketResult(medalBracket, label, result);
     setMedalBracket(updated);
     if (isMedalBracketComplete(updated)) setStage('complete');
   }
@@ -275,7 +308,8 @@ export function useDynamicTeamQualifier() {
     closeCurrentRound,
     generateNextRound,
     startMedalBracket,
-    setBracketScore,
+    setBracketResult,
+    setTeamUnavailableForReview,
     resetDynamicTeamQualifier,
   };
 }

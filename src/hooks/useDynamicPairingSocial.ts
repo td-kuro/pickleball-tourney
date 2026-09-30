@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import type {
   AddPlayerMidSessionResult,
   DynamicPairingRound,
@@ -8,12 +8,18 @@ import type {
   Player,
   PlayerAvailabilityStatus,
   PlayerGender,
+  ResultSubmission,
   SessionAdjustment,
   SessionAdjustmentType,
 } from '../types';
+import { availabilityAdjustmentType, availabilityChangeMessage, currentRoundHasResultMessage, isAwayStatus, normalizeReturningByeAdjustments, statusOf } from '../utils/availability';
+import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
 import {
+  calculateDynamicPairingStats,
   canGenerateDynamicPairingRound,
   canSwapPlayerInDynamicPairingRound,
+  courtHasResult,
+  dynamicPairingAvailabilityLabel,
   dynamicPairingTeamDisplayName,
   extendDynamicPairingLookahead,
   generateDynamicPairingRoundForEntrants,
@@ -21,7 +27,8 @@ import {
   isAwaitingSkillReview,
   isGradingPhaseComplete,
   lockCompletedRound,
-  processDynamicPairingScore,
+  playedDynamicPairingRounds,
+  processDynamicPairingResult,
   regenerateCurrentDynamicPairingRound,
   regenerateUpcomingRoundsForEntrants,
   swapPlayerInDynamicPairingRound,
@@ -61,6 +68,7 @@ export const DEFAULT_DYNAMIC_PAIRING_SETTINGS: DynamicPairingSettings = {
   maxCourtMovement: 'max-1',
   scoreConfirmationRequired: false,
   rankingLagRounds: 1,
+  scoreRecordingMode: DEFAULT_SCORE_RECORDING_MODE,
 };
 
 function makePlayerId(salt = 0): string {
@@ -73,7 +81,14 @@ function makePlayerId(salt = 0): string {
 // affected by, any other mode. See utils/dynamicPairingSocial.ts for the
 // pairing/ranking/rest logic this hook drives.
 export function useDynamicPairingSocial() {
-  const [settings, setSettings] = useLocalStorage<DynamicPairingSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_PAIRING_SETTINGS);
+  const [storedSettings, setSettings] = useLocalStorage<DynamicPairingSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_PAIRING_SETTINGS);
+  // Backfill for settings saved before Score Recording existed.
+  // Memoised so its identity only changes when the stored settings do (the
+  // self-heal effect below depends on it).
+  const settings: DynamicPairingSettings = useMemo(
+    () => ({ ...storedSettings, scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode) }),
+    [storedSettings],
+  );
   const [players, setPlayers] = useLocalStorage<Player[]>(PLAYERS_KEY, []);
   // Fixed teams — see DynamicPairingTeam. References ids already in
   // `players` above rather than owning a separate roster (unlike
@@ -86,11 +101,12 @@ export function useDynamicPairingSocial() {
   const [rounds, setRounds] = useLocalStorage<DynamicPairingRound[]>(ROUNDS_KEY, []);
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
+  // Functional update, so several events logged in one handler (e.g. a
+  // court-count change that also regenerates future rounds) all survive
+  // rather than each overwriting the last from the same stale snapshot.
   function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
-    setSessionAdjustments([
-      ...sessionAdjustments,
-      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
-    ]);
+    const entry: SessionAdjustment = { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields };
+    setSessionAdjustments((prev) => [...prev, entry]);
   }
 
   const started = rounds.length > 0;
@@ -126,6 +142,22 @@ export function useDynamicPairingSocial() {
 
   function updateSettings(next: DynamicPairingSettings) {
     setSettings(next);
+    if (next.scoreRecordingMode !== settings.scoreRecordingMode && started) {
+      logAdjustment('score-mode-changed', {
+        oldValue: settings.scoreRecordingMode,
+        newValue: next.scoreRecordingMode,
+        note: `Score recording changed to ${scoreRecordingModeLabel(next.scoreRecordingMode)}.`,
+      });
+    }
+  }
+
+  // Recorded rests per player over rounds actually reached — the input
+  // normalizeReturningByeAdjustments levels a returning player against.
+  function recordedRestsLookup(): (playerId: string) => number {
+    const restsById = new Map(
+      calculateDynamicPairingStats(players, playedDynamicPairingRounds(rounds)).map((st) => [st.playerId, st.totalRests]),
+    );
+    return (playerId) => restsById.get(playerId) ?? 0;
   }
 
   // Quickly generates `count` blank player slots so the organiser can fill
@@ -171,20 +203,68 @@ export function useDynamicPairingSocial() {
   // Mid-session availability change — its own setter (not updatePlayer,
   // which replaces name/rating/startingSeed wholesale and would wipe them)
   // so it only ever touches this one field. See README's "Mid-session
-  // player and court changes". Regenerates the still-'upcoming' pre-
-  // generated grading rounds against the updated roster immediately —
-  // Round 4+ needs no such regeneration, since generateDynamicPairingRound
-  // already filters by isPlayerAvailable on every call (this format has
-  // always excluded unavailable players from scheduling, from the very
-  // first version — see that function).
-  function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus) {
-    const updatedPlayers = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
+  // player and court changes". Levels a returning player's rest count
+  // (see normalizeReturningByeAdjustments), regenerates every still-
+  // 'upcoming'/'pending-results' round against the updated roster (game
+  // lag, fixed teams, gender-aware pairing and bye fairness all re-apply,
+  // since it's the normal generator re-run), logs the change, and — only if
+  // the organiser confirms and the current round has no result anywhere —
+  // rebuilds the current round too. Locked/completed rounds are never
+  // touched. Returns the user-facing messages describing what happened.
+  function setAvailabilityStatus(id: string, status: PlayerAvailabilityStatus): string[] {
+    const player = players.find((p) => p.id === id);
+    if (!player) return [];
+    const oldStatus = statusOf(player);
+    if (oldStatus === status) return [];
+
+    const changed = players.map((p) => (p.id === id ? { ...p, availabilityStatus: status } : p));
+    const updatedPlayers = normalizeReturningByeAdjustments(players, changed, recordedRestsLookup());
     setPlayers(updatedPlayers);
-    const regenerated = regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
-    if (regenerated !== rounds) {
-      setRounds(regenerated);
+    let nextRounds = regenerateUpcomingRoundsForEntrants(updatedPlayers, teams, settings, rounds);
+    if (nextRounds !== rounds) {
       logAdjustment('future-rounds-regenerated', { note: 'Future rounds were regenerated due to player/court changes.' });
     }
+
+    const message = availabilityChangeMessage(player.name, status, dynamicPairingAvailabilityLabel(status));
+    const messages = [message];
+    const team = teams.find((t) => t.playerIds.includes(id));
+    if (team && isAwayStatus(status)) {
+      messages.push(`${player.name} is part of a fixed team. This team will be unavailable for future rounds unless updated.`);
+    }
+
+    if (currentRound && status !== 'resting-this-round') {
+      const court = currentRound.courts.find((c) => c.playerIds.includes(id));
+      const roundHasResult = currentRound.courts.some(courtHasResult);
+      if (isAwayStatus(status) && court) {
+        if (courtHasResult(court)) {
+          messages.push(currentRoundHasResultMessage(player.name));
+        } else if (roundHasResult) {
+          messages.push(`The current round already has results, so it wasn't changed. Swap ${player.name} out from Current Round if needed.`);
+        } else if (
+          window.confirm(`${player.name} is playing in the current round. Regenerate the current round without them? Existing court assignments for this round will change.`)
+        ) {
+          nextRounds = regenerateCurrentDynamicPairingRound(updatedPlayers, teams, settings, rounds) ?? nextRounds;
+          messages.push('The current round was regenerated.');
+        } else {
+          messages.push(`The current round was left as is — swap ${player.name} out from Current Round if needed.`);
+        }
+      } else if (status === 'available' && oldStatus !== 'available' && !roundHasResult) {
+        if (window.confirm(`${player.name} is available again. Also add them to the current round now? The current round has no results yet, so it can be safely regenerated.`)) {
+          nextRounds = regenerateCurrentDynamicPairingRound(updatedPlayers, teams, settings, rounds) ?? nextRounds;
+          messages.push(`The current round was regenerated to include ${player.name}.`);
+        }
+      }
+    }
+
+    if (nextRounds !== rounds) setRounds(nextRounds);
+    logAdjustment(availabilityAdjustmentType(status), {
+      playerIds: [id],
+      roundNumber: currentRound?.roundNumber,
+      oldValue: oldStatus,
+      newValue: status,
+      note: message,
+    });
+    return messages;
   }
 
   // "Change Courts": updates numberOfCourts, then regenerates whichever
@@ -403,7 +483,13 @@ export function useDynamicPairingSocial() {
     // has now arrived becomes 'available' at the same moment — see
     // activateDueNewJoiners.
     const upcomingRoundNumber = currentRound.roundNumber + 1;
-    const updatedPlayers = activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber);
+    // Anyone becoming available right now starts level on rests — see
+    // normalizeReturningByeAdjustments.
+    const updatedPlayers = normalizeReturningByeAdjustments(
+      players,
+      activateDueNewJoiners(revertRestingPlayers(players), upcomingRoundNumber),
+      recordedRestsLookup(),
+    );
     if (updatedPlayers !== players) setPlayers(updatedPlayers);
 
     const check = canGenerateDynamicPairingRound(updatedPlayers, settings, currentRound);
@@ -429,10 +515,16 @@ export function useDynamicPairingSocial() {
     }
   }
 
-  function setCourtScore(roundId: string, courtNumber: number, score1: number, score2: number) {
-    setRounds(
-      rounds.map((round) => (round.id === roundId ? processDynamicPairingScore(round, courtNumber, score1, score2) : round)),
-    );
+  function setCourtResult(roundId: string, courtNumber: number, result: ResultSubmission) {
+    const round = rounds.find((r) => r.id === roundId);
+    setRounds(rounds.map((r) => (r.id === roundId ? processDynamicPairingResult(r, courtNumber, result) : r)));
+    logAdjustment('result-entered', {
+      roundNumber: round?.roundNumber,
+      note:
+        result.kind === 'score'
+          ? `Court ${courtNumber}: score ${result.scoreA}–${result.scoreB} recorded.`
+          : `Court ${courtNumber}: winner recorded (score not recorded).`,
+    });
   }
 
   // Full session wipe for "Reset Dynamic Pairing Social" — clears the
@@ -468,7 +560,7 @@ export function useDynamicPairingSocial() {
     gradingPhaseComplete,
     startSession,
     generateNextRound,
-    setCourtScore,
+    setCourtResult,
     changeCourtCount,
     swapPlayerInCurrentRound,
     sessionAdjustments,

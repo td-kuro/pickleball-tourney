@@ -1,5 +1,6 @@
 import type { KingCourtCycle, Player, RoundStatus } from '../types';
 import { getKingCourtGameStatus, getKingCourtGameWinner } from '../utils/kingCourt';
+import { describeResult } from '../utils/results';
 
 interface KingCourtAllRoundsViewProps {
   players: Player[];
@@ -59,9 +60,15 @@ export function KingCourtAllRoundsView({ players, cycles }: KingCourtAllRoundsVi
                         const game = court.games.find((g) => g.gameNumber === gameNumber);
                         if (!game) return null;
                         const winner = getKingCourtGameWinner(game);
-                        const hasScore = game.team1Score != null && game.team2Score != null;
                         const team1Label = teamLabel(game.team1PlayerIds);
                         const team2Label = teamLabel(game.team2PlayerIds);
+                        const result = describeResult(
+                          team1Label,
+                          team2Label,
+                          game.team1Score,
+                          game.team2Score,
+                          winner === 1 ? 'A' : winner === 2 ? 'B' : undefined,
+                        );
 
                         return (
                           <li key={court.courtNumber} className="all-rounds-match">
@@ -69,12 +76,7 @@ export function KingCourtAllRoundsView({ players, cycles }: KingCourtAllRoundsVi
                               Court {court.courtNumber}: {team1Label} vs {team2Label}, Rest:{' '}
                               {nameById.get(game.restingPlayerId) ?? 'Unknown player'}
                             </span>
-                            {hasScore && (
-                              <span className="all-rounds-score">
-                                {game.team1Score}–{game.team2Score}
-                                {winner && ` · Winner: ${winner === 1 ? team1Label : team2Label}`}
-                              </span>
-                            )}
+                            {result && <span className="all-rounds-score">{result}</span>}
                           </li>
                         );
                       })}

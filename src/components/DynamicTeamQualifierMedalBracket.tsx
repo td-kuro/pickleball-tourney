@@ -1,10 +1,12 @@
-import { useState, type FormEvent } from 'react';
-import type { DynamicTeam, MedalBracket, MedalBracketMatch, MedalBracketMatchLabel } from '../types';
+import type { DynamicTeam, MedalBracket, MedalBracketMatch, MedalBracketMatchLabel, ResultSubmission, ScoreRecordingMode } from '../types';
+import { SCORE_NOT_RECORDED } from '../utils/results';
+import { MatchResultEntry } from './MatchResultEntry';
 
 interface DynamicTeamQualifierMedalBracketProps {
   bracket: MedalBracket | null;
   teams: DynamicTeam[];
-  onSetScore: (label: MedalBracketMatchLabel, scoreA: number, scoreB: number) => void;
+  onSetResult: (label: MedalBracketMatchLabel, result: ResultSubmission) => void;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // Semis / Gold / Bronze bracket for the top 4 final-standings teams — see
@@ -12,7 +14,7 @@ interface DynamicTeamQualifierMedalBracketProps {
 // (they're independent courts, unlike a normal single-elimination
 // bracket's strictly one "current" match at a time); Gold and Bronze stay
 // "Upcoming" until both semifinals are complete.
-export function DynamicTeamQualifierMedalBracket({ bracket, teams, onSetScore }: DynamicTeamQualifierMedalBracketProps) {
+export function DynamicTeamQualifierMedalBracket({ bracket, teams, onSetResult, scoreRecordingMode }: DynamicTeamQualifierMedalBracketProps) {
   if (!bracket) {
     return (
       <section className="card">
@@ -41,7 +43,8 @@ export function DynamicTeamQualifierMedalBracket({ bracket, teams, onSetScore }:
               match={match}
               teamAName={teamLabel(match.teamAId)}
               teamBName={teamLabel(match.teamBId)}
-              onSetScore={(scoreA, scoreB) => onSetScore(match.label, scoreA, scoreB)}
+              scoreMode={scoreRecordingMode}
+              onSetResult={(result) => onSetResult(match.label, result)}
             />
           </div>
         </section>
@@ -54,10 +57,11 @@ interface MedalBracketMatchCardProps {
   match: MedalBracketMatch;
   teamAName: string;
   teamBName: string;
-  onSetScore: (scoreA: number, scoreB: number) => void;
+  scoreMode: ScoreRecordingMode;
+  onSetResult: (result: ResultSubmission) => void;
 }
 
-function MedalBracketMatchCard({ match, teamAName, teamBName, onSetScore }: MedalBracketMatchCardProps) {
+function MedalBracketMatchCard({ match, teamAName, teamBName, scoreMode, onSetResult }: MedalBracketMatchCardProps) {
   if (match.status === 'upcoming') {
     return (
       <div className="match-card">
@@ -93,62 +97,26 @@ function MedalBracketMatchCard({ match, teamAName, teamBName, onSetScore }: Meda
             </span>
           </div>
         </div>
-        <p className="hint winner-hint">Winner: {match.winnerId === match.teamAId ? teamAName : teamBName}</p>
+        <p className="hint winner-hint">
+          Winner: {match.winnerId === match.teamAId ? teamAName : teamBName}
+          {match.scoreA == null ? ` · ${SCORE_NOT_RECORDED}` : ''}
+        </p>
       </div>
     );
   }
 
-  return <MedalBracketScoreForm teamAName={teamAName} teamBName={teamBName} onSetScore={onSetScore} />;
-}
-
-interface MedalBracketScoreFormProps {
-  teamAName: string;
-  teamBName: string;
-  onSetScore: (scoreA: number, scoreB: number) => void;
-}
-
-function MedalBracketScoreForm({ teamAName, teamBName, onSetScore }: MedalBracketScoreFormProps) {
-  const [scoreA, setScoreA] = useState('');
-  const [scoreB, setScoreB] = useState('');
-  const [error, setError] = useState<string | null>(null);
-
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const parsedA = Number(scoreA);
-    const parsedB = Number(scoreB);
-    if (scoreA.trim() === '' || scoreB.trim() === '' || Number.isNaN(parsedA) || Number.isNaN(parsedB)) {
-      setError('Enter a valid score for both teams.');
-      return;
-    }
-    if (parsedA < 0 || parsedB < 0) {
-      setError('Scores cannot be negative.');
-      return;
-    }
-    if (parsedA === parsedB) {
-      setError('Bracket matches need a winner — scores cannot be tied.');
-      return;
-    }
-    setError(null);
-    onSetScore(parsedA, parsedB);
-  }
-
   return (
-    <form className="match-card" onSubmit={handleSubmit}>
+    <div className="match-card">
       <div className="match-teams">
         <div className="match-team">
           <span className="match-team-name">{teamAName}</span>
-          <input type="number" min={0} value={scoreA} onChange={(event) => setScoreA(event.target.value)} aria-label={`${teamAName} score`} />
         </div>
         <div className="match-vs">vs</div>
         <div className="match-team">
           <span className="match-team-name">{teamBName}</span>
-          <input type="number" min={0} value={scoreB} onChange={(event) => setScoreB(event.target.value)} aria-label={`${teamBName} score`} />
         </div>
       </div>
-      {error && <p className="hint error">{error}</p>}
-      <button type="submit" className="secondary">
-        Save Score
-      </button>
-    </form>
+      <MatchResultEntry mode={scoreMode} sideALabel={teamAName} sideBLabel={teamBName} onSubmit={onSetResult} />
+    </div>
   );
 }

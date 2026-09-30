@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from 'react';
-import type { KingCourtCourtCycle } from '../types';
+import type { KingCourtCourtCycle, ResultSubmission, ScoreRecordingMode } from '../types';
 import { getKingCourtGameWinner } from '../utils/kingCourt';
+import { MatchResultEntry } from './MatchResultEntry';
 
 interface KingCourtGameCardProps {
   court: KingCourtCourtCycle;
   gameNumber: number;
   nameById: Map<string, string>;
-  onSetScore: (team1Score: number, team2Score: number) => void;
+  scoreMode: ScoreRecordingMode;
+  onSetResult: (result: ResultSubmission) => void;
   // Clicking any player's name (including the resting player) opens
   // PlayerActionMenu — see KingCourtView.
   onSelectPlayer: (playerId: string) => void;
@@ -17,7 +19,7 @@ interface KingCourtGameCardProps {
 // component a `key` that changes with the game/cycle number where it's
 // rendered (see KingCourtView) so its local score-input state doesn't
 // leak between games.
-export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore, onSelectPlayer }: KingCourtGameCardProps) {
+export function KingCourtGameCard({ court, gameNumber, nameById, scoreMode, onSetResult, onSelectPlayer }: KingCourtGameCardProps) {
   const game = court.games.find((g) => g.gameNumber === gameNumber);
   const [team1Score, setTeam1Score] = useState(game?.team1Score != null ? String(game.team1Score) : '');
   const [team2Score, setTeam2Score] = useState(game?.team2Score != null ? String(game.team2Score) : '');
@@ -61,7 +63,40 @@ export function KingCourtGameCard({ court, gameNumber, nameById, onSetScore, onS
     }
 
     setError(null);
-    onSetScore(parsed1, parsed2);
+    onSetResult({ kind: 'score', scoreA: parsed1, scoreB: parsed2 });
+  }
+
+  // Win/Loss only: tap the winning pair — no score inputs. See
+  // ScoreRecordingMode; the resulting standings rank by wins, with ties
+  // flagged for the organiser's manual order.
+  if (scoreMode === 'win-loss-only') {
+    return (
+      <div className="match-card">
+        <div className="match-header">
+          Court {court.courtNumber} — Game {gameNumber} of 5
+        </div>
+        <p className="hint kc-resting-hint">
+          Resting:{' '}
+          <button type="button" className="player-name-link" onClick={() => onSelectPlayer(game.restingPlayerId)}>
+            {nameById.get(game.restingPlayerId) ?? 'Unknown player'}
+          </button>
+        </p>
+        <div className="match-teams">
+          <div className={winner === 1 ? 'match-team winner' : 'match-team'}>{renderPlayerNames(game.team1PlayerIds)}</div>
+          <div className="match-vs">vs</div>
+          <div className={winner === 2 ? 'match-team winner' : 'match-team'}>{renderPlayerNames(game.team2PlayerIds)}</div>
+        </div>
+        <MatchResultEntry
+          mode="win-loss-only"
+          sideALabel={teamLabel(game.team1PlayerIds)}
+          sideBLabel={teamLabel(game.team2PlayerIds)}
+          initialScoreA={game.team1Score}
+          initialScoreB={game.team2Score}
+          currentWinner={winner === 1 ? 'A' : winner === 2 ? 'B' : undefined}
+          onSubmit={onSetResult}
+        />
+      </div>
+    );
   }
 
   return (

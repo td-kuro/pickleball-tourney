@@ -1,10 +1,12 @@
-import type { DynamicPairingRound, DynamicPairingTeam, Player } from '../types';
+import type { DynamicPairingRound, DynamicPairingTeam, Player, ScoreRecordingMode } from '../types';
 import { calculateEntrantRankings, formatSignedPoints, playedDynamicPairingRounds } from '../utils/dynamicPairingSocial';
+import { POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
 
 interface DynamicPairingRankingsProps {
   players: Player[];
   teams: DynamicPairingTeam[];
   rounds: DynamicPairingRound[];
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // Current standings — see calculateEntrantRankings in
@@ -20,7 +22,8 @@ interface DynamicPairingRankingsProps {
 // the organiser enters scores. Deliberately excludes pre-generated-but-
 // 'upcoming' rounds (see playedDynamicPairingRounds) — those haven't been
 // played yet, so they must not affect anyone's win/loss record.
-export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairingRankingsProps) {
+export function DynamicPairingRankings({ players, teams, rounds, scoreRecordingMode }: DynamicPairingRankingsProps) {
+  const showPoints = scoreRecordingMode === 'full-score';
   if (players.length === 0) {
     return (
       <section className="card">
@@ -48,8 +51,10 @@ export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairin
       <p className="hint">
         Ranked by win %, then average point differential, then average points scored, then head-to-head, skill
         level, starting seed, and previous rank as tiebreakers. A fixed team is ranked as one unit — see README's
-        "Fixed teams".
+        "Fixed teams". In Win/Loss only mode the point-based steps simply never separate anyone, so win % and
+        head-to-head decide.
       </p>
+      {!showPoints && <p className="hint">{POINT_STATS_UNAVAILABLE_NOTE}</p>}
       <div className="leaderboard-scroll">
         <table className="leaderboard-table stats-table">
           <thead>
@@ -61,11 +66,11 @@ export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairin
               <th>Wins</th>
               <th>Losses</th>
               <th>Win %</th>
-              <th>PF</th>
-              <th>PA</th>
-              <th>+/-</th>
-              <th>Avg +/-</th>
-              <th>Avg Pts</th>
+              {showPoints && <th>PF</th>}
+              {showPoints && <th>PA</th>}
+              {showPoints && <th>+/-</th>}
+              {showPoints && <th>Avg +/-</th>}
+              {showPoints && <th>Avg Pts</th>}
               <th>Rests</th>
               <th>Court</th>
               <th>Prev #</th>
@@ -93,11 +98,11 @@ export function DynamicPairingRankings({ players, teams, rounds }: DynamicPairin
                 <td>{stats.wins}</td>
                 <td>{stats.losses}</td>
                 <td>{(stats.winPercentage * 100).toFixed(0)}%</td>
-                <td>{stats.pointsFor}</td>
-                <td>{stats.pointsAgainst}</td>
-                <td>{formatSignedPoints(stats.pointDifferential)}</td>
-                <td>{formatSignedPoints(stats.averagePointDifferential)}</td>
-                <td>{stats.averagePointsScored.toFixed(1)}</td>
+                {showPoints && <td>{stats.pointsFor}</td>}
+                {showPoints && <td>{stats.pointsAgainst}</td>}
+                {showPoints && <td>{formatSignedPoints(stats.pointDifferential)}</td>}
+                {showPoints && <td>{formatSignedPoints(stats.averagePointDifferential)}</td>}
+                {showPoints && <td>{stats.averagePointsScored.toFixed(1)}</td>}
                 <td>{stats.totalRests}</td>
                 <td>{stats.currentCourt ?? '—'}</td>
                 <td>{stats.previousRank ?? '—'}</td>

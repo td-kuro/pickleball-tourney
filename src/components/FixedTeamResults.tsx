@@ -1,6 +1,7 @@
 import type { Round, Team, TournamentSettings } from '../types';
 import { calculateTeamLeaderboardStats } from '../utils/pairing';
-import { isScoringEnabled, isWinLossTracked } from '../utils/tournament';
+import { POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
+import { arePointStatsShown, effectiveScoreRecordingMode, isScoringEnabled, isWinLossTracked } from '../utils/tournament';
 
 interface FixedTeamResultsProps {
   teams: Team[];
@@ -26,14 +27,15 @@ export function FixedTeamResults({ teams, rounds, settings }: FixedTeamResultsPr
     );
   }
 
-  const showPoints = isScoringEnabled(settings);
+  const showPoints = arePointStatsShown(settings);
+  const pointsHiddenByWinLoss = isScoringEnabled(settings) && !showPoints;
   const showWinLoss = isWinLossTracked(settings);
 
   // calculateTeamLeaderboardStats already sorts by wins, then points, then
   // point difference, then byes, then rating — for Social Play (Dedicated
   // Pairing Stats, not ranked) we still use it for the stats themselves but
   // display rows in team-creation order instead of the computed rank.
-  const rankedRows = calculateTeamLeaderboardStats(teams, rounds);
+  const rankedRows = calculateTeamLeaderboardStats(teams, rounds, effectiveScoreRecordingMode(settings));
   const rows = isTournament ? rankedRows : teams.map((team) => ({ team, stats: rankedRows.find((r) => r.team.id === team.id)!.stats, rank: 0 }));
 
   return (
@@ -41,9 +43,12 @@ export function FixedTeamResults({ teams, rounds, settings }: FixedTeamResultsPr
       <h2>{heading}</h2>
       <p className="hint">
         {isTournament
-          ? 'Fixed teams stay together for the whole tournament — ranked by wins, then point difference, then Points For.'
+          ? showPoints
+            ? 'Fixed teams stay together for the whole tournament — ranked by wins, then Points For, then point difference.'
+            : 'Fixed teams stay together for the whole tournament — ranked by wins, then win %, then games played.'
           : 'Dedicated Pairing — practice pairs that stay together for the session, shown for information rather than a competitive ranking.'}
       </p>
+      {pointsHiddenByWinLoss && <p className="hint">{POINT_STATS_UNAVAILABLE_NOTE}</p>}
       <div className="leaderboard-scroll">
         <table className="leaderboard-table stats-table">
           <thead>

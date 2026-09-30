@@ -1,13 +1,26 @@
-import type { KingCourtCycle, KingCourtPlayerAssignment, Player, SessionAdjustment, SessionAdjustmentType } from '../types';
+import type {
+  KingCourtCycle,
+  KingCourtPlayerAssignment,
+  Player,
+  PlayerAvailabilityStatus,
+  ResultSubmission,
+  ScoreRecordingMode,
+  SessionAdjustment,
+  SessionAdjustmentType,
+} from '../types';
+import { availabilityAdjustmentType } from '../utils/availability';
+import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
 import {
   applyCourtMovement,
   applyMovementDirections,
   buildKingCourtPartnerHistory,
   calculateCourtStandings,
+  dropUnavailableFromNextCycle,
   generateMovementPreview,
   generateNextKingCourtCycle,
   isCourtFull,
   isCurrentGameComplete,
+  recordKingCourtGameResult,
   substitutePlayerInCycle,
   validateNextCycleAssignments,
 } from '../utils/kingCourt';
@@ -17,6 +30,7 @@ const COURTS_KEY = 'pickleball-tourney:kc:numberOfCourts';
 const ASSIGNMENTS_KEY = 'pickleball-tourney:kc:assignments';
 const CYCLES_KEY = 'pickleball-tourney:kc:cycles';
 const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:kc:sessionAdjustments';
+const SCORE_RECORDING_MODE_KEY = 'pickleball-tourney:kc:scoreRecordingMode';
 
 const DEFAULT_COURTS = 2;
 
@@ -34,15 +48,50 @@ export function useKingCourt() {
   const [assignments, setAssignments] = useLocalStorage<KingCourtPlayerAssignment[]>(ASSIGNMENTS_KEY, []);
   const [cycles, setCycles] = useLocalStorage<KingCourtCycle[]>(CYCLES_KEY, []);
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
+  const [storedScoreRecordingMode, setStoredScoreRecordingMode] = useLocalStorage<ScoreRecordingMode>(
+    SCORE_RECORDING_MODE_KEY,
+    DEFAULT_SCORE_RECORDING_MODE,
+  );
+  const scoreRecordingMode = normalizeScoreRecordingMode(storedScoreRecordingMode);
 
   const started = cycles.length > 0;
   const currentCycle = cycles.length > 0 ? cycles[cycles.length - 1] : null;
 
+  // Functional update, so several events logged in one handler all survive.
   function logAdjustment(type: SessionAdjustmentType, fields: Partial<SessionAdjustment> = {}) {
-    setSessionAdjustments([
-      ...sessionAdjustments,
-      { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields },
-    ]);
+    const entry: SessionAdjustment = { id: makeAdjustmentId(), type, playerIds: [], timestamp: Date.now(), ...fields };
+    setSessionAdjustments((prev) => [...prev, entry]);
+  }
+
+  function setScoreRecordingMode(mode: ScoreRecordingMode) {
+    if (mode === scoreRecordingMode) return;
+    setStoredScoreRecordingMode(mode);
+    if (started) {
+      logAdjustment('score-mode-changed', {
+        cycleNumber: currentCycle?.cycleNumber,
+        oldValue: scoreRecordingMode,
+        newValue: mode,
+        note: `Score recording changed to ${scoreRecordingModeLabel(mode)}.`,
+      });
+    }
+  }
+
+  // Logs an availability change (the status itself lives on the shared
+  // usePlayers roster — see App.tsx's handleSetKingCourtAvailability) and,
+  // for a player going away, drops them from next-cycle staging so a
+  // stale placement can't seat them. Current-cycle games are never touched
+  // automatically — the organiser substitutes explicitly.
+  function recordAvailabilityChange(player: Player, oldStatus: PlayerAvailabilityStatus, newStatus: PlayerAvailabilityStatus, note: string) {
+    if (newStatus !== 'available' && assignments.some((a) => a.playerId === player.id)) {
+      setAssignments(assignments.filter((a) => a.playerId !== player.id));
+    }
+    logAdjustment(availabilityAdjustmentType(newStatus), {
+      playerIds: [player.id],
+      cycleNumber: currentCycle?.cycleNumber,
+      oldValue: oldStatus,
+      newValue: newStatus,
+      note,
+    });
   }
 
   // Records a mid-session Add Player action — see App.tsx's
@@ -128,7 +177,7 @@ export function useKingCourt() {
 
   // --- Scoring / game progression ------------------------------------------
 
-  function setGameScore(courtNumber: number, gameNumber: number, team1Score: number, team2Score: number) {
+  function setGameResult(courtNumber: number, gameNumber: number, result: ResultSubmission) {
     if (!currentCycle) return;
     setCycles(
       cycles.map((cycle, index) =>
@@ -141,9 +190,7 @@ export function useKingCourt() {
                   ? court
                   : {
                       ...court,
-                      games: court.games.map((game) =>
-                        game.gameNumber !== gameNumber ? game : { ...game, team1Score, team2Score, status: 'completed' },
-                      ),
+                      games: court.games.map((game) => (game.gameNumber !== gameNumber ? game : recordKingCourtGameResult(game, result))),
                     },
               ),
             },
@@ -251,10 +298,28 @@ export function useKingCourt() {
     // computed movement destination.
     const movedIds = new Set(movedAssignments.map((a) => a.playerId));
     const manualAdditions = assignments.filter((a) => !movedIds.has(a.playerId));
-    const nextAssignments = [...movedAssignments, ...manualAdditions];
+    // Anyone marked Late/Unavailable/Injured/Left Early since their court's
+    // movement was computed is left out of the next cycle rather than
+    // silently seated — the resulting shortfall is reported below so the
+    // organiser can place a waiting player instead.
+    const { assignments: nextAssignments, removed } = dropUnavailableFromNextCycle(
+      [...movedAssignments, ...manualAdditions],
+      players,
+      currentCycle.cycleNumber + 1,
+    );
 
     const check = validateNextCycleAssignments(nextAssignments, numberOfCourts);
-    if (!check.ok) return check;
+    if (!check.ok) {
+      if (removed.length === 0) return check;
+      const nameById = new Map(players.map((p) => [p.id, p.name]));
+      const removedText = removed
+        .map((a) => `${nameById.get(a.playerId) ?? 'A player'} (Court ${a.courtNumber})`)
+        .join(', ');
+      return {
+        ok: false,
+        reason: `${removedText} ${removed.length === 1 ? 'is' : 'are'} unavailable and won't play the next cycle. ${check.reason} Add a waiting player to that court below, or mark them available again.`,
+      };
+    }
 
     const completed = cycles.map((cycle, index) => (index !== cycles.length - 1 ? cycle : { ...cycle, status: 'completed' as const }));
     const partnerHistory = buildKingCourtPartnerHistory(completed);
@@ -283,6 +348,7 @@ export function useKingCourt() {
     setAssignments([]);
     setCycles([]);
     setSessionAdjustments([]);
+    setStoredScoreRecordingMode(DEFAULT_SCORE_RECORDING_MODE);
   }
 
   return {
@@ -297,7 +363,10 @@ export function useKingCourt() {
     currentCycle,
     started,
     startCycle1,
-    setGameScore,
+    setGameResult,
+    scoreRecordingMode,
+    setScoreRecordingMode,
+    recordAvailabilityChange,
     advanceGame,
     substitutePlayer,
     sessionAdjustments,

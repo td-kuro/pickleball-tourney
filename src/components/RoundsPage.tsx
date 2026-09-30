@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { Player, PlayerAvailabilityStatus, Round, Team, TournamentSettings } from '../types';
+import type { Player, PlayerAvailabilityStatus, ResultSubmission, Round, Team, TournamentSettings } from '../types';
 import { AllRoundsView } from './AllRoundsView';
 import { CurrentRoundView } from './CurrentRoundView';
 
@@ -12,7 +12,7 @@ interface RoundsPageProps {
   plannedRounds: number | null;
   onNextRound: () => void;
   onFinishSession: () => void;
-  onSetScore: (roundId: string, matchId: string, scoreA: number, scoreB: number) => void;
+  onSetResult: (roundId: string, matchId: string, result: ResultSubmission) => void;
   // Only relevant (and only ever non-empty) for Doubles + Fixed Teams —
   // canGenerateRound needs it to validate "enough teams", see
   // CurrentRoundView. Defaults to empty so callers outside Fixed Teams
@@ -39,7 +39,7 @@ export function RoundsPage({
   plannedRounds,
   onNextRound,
   onFinishSession,
-  onSetScore,
+  onSetResult,
   teams = [],
   onSetAvailability,
   onSwap,
@@ -75,7 +75,7 @@ export function RoundsPage({
           plannedRounds={plannedRounds}
           onNextRound={onNextRound}
           onFinishSession={onFinishSession}
-          onSetScore={onSetScore}
+          onSetResult={onSetResult}
           teams={teams}
           onSetAvailability={onSetAvailability}
           onSwap={onSwap}

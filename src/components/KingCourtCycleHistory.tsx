@@ -1,13 +1,16 @@
-import type { KingCourtCycle, Player } from '../types';
+import type { KingCourtCycle, Player, ScoreRecordingMode } from '../types';
+import { formatKingCourtRecord } from '../utils/kingCourt';
 
 interface KingCourtCycleHistoryProps {
   players: Player[];
   cycles: KingCourtCycle[];
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // The "Cycle History" tab: a read-only, most-recent-first list of every
 // completed cycle's final standings and movement, per court.
-export function KingCourtCycleHistory({ players, cycles }: KingCourtCycleHistoryProps) {
+export function KingCourtCycleHistory({ players, cycles, scoreRecordingMode }: KingCourtCycleHistoryProps) {
+  const showPoints = scoreRecordingMode === 'full-score';
   const completed = cycles.filter((cycle) => cycle.status === 'completed');
   const nameById = new Map(players.map((p) => [p.id, p.name]));
 
@@ -40,8 +43,7 @@ export function KingCourtCycleHistory({ players, cycles }: KingCourtCycleHistory
                             {standing.rank}. {nameById.get(standing.playerId) ?? 'Unknown player'}
                           </span>
                           <span className="kc-movement-record">
-                            {standing.wins}W–{standing.losses}L, {standing.pointDifferential > 0 ? '+' : ''}
-                            {standing.pointDifferential}
+                            {formatKingCourtRecord(standing.wins, standing.losses, standing.pointDifferential, showPoints)}
                           </span>
                           {movement && <span className="hint">→ Court {movement.toCourt}</span>}
                         </li>

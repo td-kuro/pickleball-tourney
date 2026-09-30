@@ -1,5 +1,7 @@
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
+import { describeResult } from '../utils/results';
 import {
+  courtWinner,
   entrantIdsForSide,
   getMatchGenderType,
   matchGenderTypeLabel,
@@ -31,6 +33,11 @@ interface DynamicPairingAllRoundsProps {
 // placeholder — no courts yet, just a note on which round's results it's
 // still waiting for — see extendDynamicPairingLookahead in
 // utils/dynamicPairingSocial.ts.
+function courtWinnerSide(court: DynamicPairingCourtAssignment): 'A' | 'B' | undefined {
+  const winner = courtWinner(court);
+  return winner === 1 ? 'A' : winner === 2 ? 'B' : undefined;
+}
+
 export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRoundsProps) {
   if (rounds.length === 0) {
     return (
@@ -91,7 +98,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                       const team2Label = teamLabel(court.team2PlayerIds);
                       const badge1 = sideBadge(court, 1);
                       const badge2 = sideBadge(court, 2);
-                      const hasScore = court.score1 != null && court.score2 != null;
+                      const result = describeResult(team1Label, team2Label, court.score1, court.score2, courtWinnerSide(court));
                       const genderType = getMatchGenderType(court.team1PlayerIds, court.team2PlayerIds, playersById);
                       return (
                         <li key={court.courtNumber} className="all-rounds-match">
@@ -103,12 +110,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                               <span className="dp-side-badge dp-gender-match-badge"> {matchGenderTypeLabel(genderType)}</span>
                             )}
                           </span>
-                          {hasScore && (
-                            <span className="all-rounds-score">
-                              {court.score1}–{court.score2}
-                              {court.winnerTeam && ` · Winner: ${court.winnerTeam === 1 ? team1Label : team2Label}`}
-                            </span>
-                          )}
+                          {result && <span className="all-rounds-score">{result}</span>}
                         </li>
                       );
                     })}

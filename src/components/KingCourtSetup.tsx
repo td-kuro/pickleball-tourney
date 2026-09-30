@@ -1,7 +1,8 @@
-import type { Player } from '../types';
+import type { Player, ScoreRecordingMode } from '../types';
 import { validateKingCourtSetup } from '../utils/kingCourt';
 import { CourtSelector } from './CourtSelector';
 import { PlayerList } from './PlayerList';
+import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 interface KingCourtSetupProps {
   players: Player[];
@@ -15,6 +16,8 @@ interface KingCourtSetupProps {
   // that point, same spirit as Tournament Format locking once Start
   // Matches is clicked (see TournamentSetup).
   locked: boolean;
+  scoreRecordingMode: ScoreRecordingMode;
+  onScoreRecordingModeChange: (mode: ScoreRecordingMode) => void;
 }
 
 // Setup tab content, part 1 (see CourtSeeding for part 2): number of
@@ -31,6 +34,8 @@ export function KingCourtSetup({
   numberOfCourts,
   onNumberOfCourtsChange,
   locked,
+  scoreRecordingMode,
+  onScoreRecordingModeChange,
 }: KingCourtSetupProps) {
   const setupCheck = validateKingCourtSetup(players, numberOfCourts);
 
@@ -57,6 +62,7 @@ export function KingCourtSetup({
             ? `${players.length} players ready for ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'}.`
             : setupCheck.reason}
         </p>
+        <ScoreRecordingSelector idPrefix="kc" value={scoreRecordingMode} onChange={onScoreRecordingModeChange} />
       </section>
 
       {!locked && (

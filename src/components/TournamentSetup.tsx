@@ -17,6 +17,7 @@ import {
   validateSessionTiming,
 } from '../utils/tournament';
 import { CourtSelector } from './CourtSelector';
+import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 interface TournamentSetupProps {
   settings: TournamentSettings;
@@ -240,6 +241,15 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
         </div>
       )}
 
+      {!isKingCourt &&
+        settings.playMode === 'tournament' &&
+        (settings.tournamentFormat === 'leaderboard' || settings.tournamentFormat === 'pools-knockout') && (
+          <ScoreRecordingSelector
+            idPrefix="tournament"
+            value={settings.scoreRecordingMode}
+            onChange={(scoreRecordingMode) => onChange({ ...settings, scoreRecordingMode })}
+          />
+        )}
     </section>
   );
 }
@@ -303,6 +313,14 @@ export function SocialSessionSetup({ settings, onChange }: SocialSessionSetupPro
             'Scores, points, wins, and losses are tracked — still shown as casual Player Stats, not a leaderboard.'}
         </p>
       </div>
+
+      {settings.socialScoringMode === 'scoresAndWins' && (
+        <ScoreRecordingSelector
+          idPrefix="social"
+          value={settings.scoreRecordingMode}
+          onChange={(scoreRecordingMode) => onChange({ ...settings, scoreRecordingMode })}
+        />
+      )}
 
       <SessionTimingSection settings={settings} onChange={onChange} />
     </section>

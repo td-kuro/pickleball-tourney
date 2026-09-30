@@ -1,4 +1,4 @@
-import type { KnockoutBracket, Pool, Team } from '../types';
+import type { KnockoutBracket, Pool, ScoreRecordingMode, Team } from '../types';
 import { isKnockoutComplete } from '../utils/poolsKnockout';
 import { KnockoutBracketView } from './KnockoutBracketView';
 import { PoolLeaderboard } from './PoolLeaderboard';
@@ -8,6 +8,7 @@ interface FinalResultsProps {
   pools: Pool[];
   bracket: KnockoutBracket | null;
   teamsAdvancingPerPool: number;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // Champion / Runner-up / 3rd / 4th, plus a full pool and knockout summary,
@@ -15,7 +16,7 @@ interface FinalResultsProps {
 // complete. Before that, a friendly in-progress message instead — this is
 // the "results" tab for Pools & Knockout, so it needs to render at every
 // stage, not just once the tournament is actually over.
-export function FinalResults({ teams, pools, bracket, teamsAdvancingPerPool }: FinalResultsProps) {
+export function FinalResults({ teams, pools, bracket, teamsAdvancingPerPool, scoreRecordingMode }: FinalResultsProps) {
   const complete = bracket != null && isKnockoutComplete(bracket);
 
   if (!complete) {
@@ -59,13 +60,20 @@ export function FinalResults({ teams, pools, bracket, teamsAdvancingPerPool }: F
       <section className="card">
         <h3>Pool Results</h3>
         {pools.map((pool) => (
-          <PoolLeaderboard key={pool.id} pool={pool} teams={teams} teamsAdvancingPerPool={teamsAdvancingPerPool} poolComplete />
+          <PoolLeaderboard
+            key={pool.id}
+            pool={pool}
+            teams={teams}
+            teamsAdvancingPerPool={teamsAdvancingPerPool}
+            poolComplete
+            scoreRecordingMode={scoreRecordingMode}
+          />
         ))}
       </section>
 
       <div>
         <h3 className="final-results-heading">Knockout Results</h3>
-        <KnockoutBracketView bracket={bracket} teams={teams} />
+        <KnockoutBracketView bracket={bracket} teams={teams} scoreRecordingMode={scoreRecordingMode} />
       </div>
     </>
   );

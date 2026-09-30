@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import type { DynamicTeam, DynamicTeamQualifierStage, MedalBracket, QualifyingRound, RestAssignment } from '../types';
+import type { DynamicTeam, DynamicTeamQualifierStage, MedalBracket, QualifyingRound, RestAssignment, ScoreRecordingMode } from '../types';
 import { canAddTeamMidSession } from '../utils/dynamicTeamQualifier';
 import { DynamicTeamQualifierAllRounds } from './DynamicTeamQualifierAllRounds';
 import { DynamicTeamQualifierCurrentRound } from './DynamicTeamQualifierCurrentRound';
@@ -17,6 +17,8 @@ interface DynamicTeamQualifierRoundsPageProps {
   onCloseRound: () => void;
   onGenerateNextRound: () => { ok: true } | { ok: false; reason: string };
   onGenerateMedalBracket: () => void;
+  scoreRecordingMode: ScoreRecordingMode;
+  onSetTeamUnavailableForReview: (teamId: string, unavailable: boolean) => void;
 }
 
 // Parent for Dynamic Team Qualifier's "Rounds" tab — a Current Round / All
@@ -32,7 +34,26 @@ export function DynamicTeamQualifierRoundsPage({
   onCloseRound,
   onGenerateNextRound,
   onGenerateMedalBracket,
+  scoreRecordingMode,
+  onSetTeamUnavailableForReview,
 }: DynamicTeamQualifierRoundsPageProps) {
+  const activeTeams = teams.filter((t) => t.checkedIn && !t.withdrawn);
+  const flaggedTeams = activeTeams.filter((t) => t.unavailableNeedsReview);
+  // Rounds a flagged team is still scheduled in that haven't been played
+  // yet — upcoming rounds (via the rest schedule's absence, since their
+  // pairings aren't generated yet) and any unplayed match in the current
+  // round. Surfaced, never changed — see setTeamUnavailableForReview.
+  function affectedRoundNumbers(teamId: string): number[] {
+    return rounds
+      .filter((r) => r.status === 'upcoming' || r.status === 'current')
+      .filter((r) => {
+        if (r.status === 'current') {
+          return r.matches.some((m) => m.status !== 'completed' && (m.teamAId === teamId || m.teamBId === teamId));
+        }
+        return !restAssignments.some((a) => a.roundNumber === r.roundNumber && a.teamId === teamId);
+      })
+      .map((r) => r.roundNumber);
+  }
   const [subView, setSubView] = useState<RoundsSubView>('current');
   // Always false here — this page only ever renders once qualifying has
   // started (see App.tsx), so canAddTeamMidSession's stage check always
@@ -47,6 +68,52 @@ export function DynamicTeamQualifierRoundsPage({
         <section className="card">
           <h2>Session Controls</h2>
           <p className="hint error">{addTeamCheck.reason}</p>
+        </section>
+      )}
+
+      {stage === 'qualifying' && (
+        <section className="card">
+          <h2>Team Availability</h2>
+          <p className="hint">
+            Dynamic Team Qualifier uses a locked team schedule. Future schedule requires director review — flagging a team
+            here never changes any round automatically.
+          </p>
+          {flaggedTeams.length > 0 && (
+            <div className="session-adjustment-notice">
+              <div>
+                {flaggedTeams.map((team) => {
+                  const affected = affectedRoundNumbers(team.id);
+                  return (
+                    <p key={team.id} className="hint error">
+                      {team.teamCode} {team.displayName} is unavailable — needs director review
+                      {affected.length > 0 ? ` for Round${affected.length === 1 ? '' : 's'} ${affected.join(', ')}` : ''}.
+                    </p>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div className="player-list">
+            {activeTeams.map((team) => (
+              <div key={team.id} className="player-row availability-row">
+                <span className="player-row-name availability-row-name">
+                  {team.teamCode} {team.displayName}
+                </span>
+                <span className={team.unavailableNeedsReview ? 'status-badge status-badge-danger' : 'status-badge'}>
+                  {team.unavailableNeedsReview ? 'Unavailable — review' : 'Available'}
+                </span>
+                <div className="availability-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => onSetTeamUnavailableForReview(team.id, !team.unavailableNeedsReview)}
+                  >
+                    {team.unavailableNeedsReview ? 'Make available' : 'Flag unavailable'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 
@@ -69,6 +136,7 @@ export function DynamicTeamQualifierRoundsPage({
           qualifyingRounds={qualifyingRounds}
           stage={stage}
           onSetScore={onSetScore}
+          scoreRecordingMode={scoreRecordingMode}
           onCloseRound={onCloseRound}
           onGenerateNextRound={onGenerateNextRound}
           onGenerateMedalBracket={onGenerateMedalBracket}

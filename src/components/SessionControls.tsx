@@ -24,6 +24,11 @@ interface SessionControlsProps {
   onChangeCourts: (newCourts: number, regenerateCurrent: boolean) => void;
   onSwap: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
+  // Set when adding new players is blocked for this session (Tournament
+  // Leaderboard with "Allow late joiners" off) — existing players can still
+  // change availability; only brand-new additions are refused.
+  addPlayerDisabledReason?: string;
+  title?: string;
 }
 
 // Organiser control area for a live Standard Social Play session — see
@@ -45,12 +50,14 @@ export function SessionControls({
   onChangeCourts,
   onSwap,
   onAddPlayerMidSession,
+  addPlayerDisabledReason,
+  title = 'Session Controls',
 }: SessionControlsProps) {
   const [pendingCourts, setPendingCourts] = useState(courts);
   const [swapOpen, setSwapOpen] = useState(false);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
-  const currentRoundHasScores = currentRound?.matches.some((m) => m.scoreA != null || m.scoreB != null) ?? false;
+  const currentRoundHasScores = currentRound?.matches.some((m) => m.scoreA != null || m.scoreB != null || m.winner != null) ?? false;
   const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
 
   // "Add a court" needs enough *available* players to actually fill it —
@@ -111,7 +118,7 @@ export function SessionControls({
       )}
 
       <section className="card">
-        <h2>Session Controls</h2>
+        <h2>{title}</h2>
 
         <div className="form-row">
           <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
@@ -148,7 +155,11 @@ export function SessionControls({
           <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>
             Swap Active Player with Bye Player
           </button>
-          <AddPlayerMidSessionButton onAdd={onAddPlayerMidSession} offerCurrentRoundJoin={!!currentRound} />
+          {addPlayerDisabledReason ? (
+            <p className="hint error">{addPlayerDisabledReason}</p>
+          ) : (
+            <AddPlayerMidSessionButton onAdd={onAddPlayerMidSession} offerCurrentRoundJoin={!!currentRound} />
+          )}
         </div>
       </section>
 

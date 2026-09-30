@@ -6,6 +6,8 @@ import type {
   MidSessionJoinTiming,
   Player,
   PlayerAvailabilityStatus,
+  ResultSubmission,
+  ScoreRecordingMode,
   SessionAdjustment,
 } from '../types';
 import type { AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
@@ -23,7 +25,8 @@ interface KingCourtRoundsPageProps {
   sessionAdjustments: SessionAdjustment[];
   nextCycleStaging: KingCourtPlayerAssignment[];
   confirmError: string | null;
-  onSetGameScore: (courtNumber: number, gameNumber: number, team1Score: number, team2Score: number) => void;
+  onSetGameResult: (courtNumber: number, gameNumber: number, result: ResultSubmission) => void;
+  scoreRecordingMode: ScoreRecordingMode;
   onAdvanceGame: () => void;
   onSetManualTiebreakOrder: (courtNumber: number, orderedPlayerIds: string[]) => void;
   onSetManualMovementOverride: (courtNumber: number, playerId: string, toCourt: number) => void;
@@ -50,7 +53,8 @@ export function KingCourtRoundsPage({
   sessionAdjustments,
   nextCycleStaging,
   confirmError,
-  onSetGameScore,
+  onSetGameResult,
+  scoreRecordingMode,
   onAdvanceGame,
   onSetManualTiebreakOrder,
   onSetManualMovementOverride,
@@ -90,7 +94,8 @@ export function KingCourtRoundsPage({
             players={players}
             numberOfCourts={numberOfCourts}
             currentCycle={currentCycle}
-            onSetGameScore={onSetGameScore}
+            onSetGameResult={onSetGameResult}
+            scoreRecordingMode={scoreRecordingMode}
             onAdvanceGame={onAdvanceGame}
             onSetManualTiebreakOrder={onSetManualTiebreakOrder}
             onSetManualMovementOverride={onSetManualMovementOverride}

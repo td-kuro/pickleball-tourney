@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { KingCourtCycle, Player, PlayerAvailabilityStatus } from '../types';
+import type { KingCourtCycle, Player, PlayerAvailabilityStatus, ResultSubmission, ScoreRecordingMode } from '../types';
+import { scoreRecordingModeLabel } from '../utils/results';
 import { availabilityStatusLabel } from '../utils/tournament';
 import { availableSubstitutes, isCurrentGameComplete } from '../utils/kingCourt';
 import { KingCourtGameCard } from './KingCourtGameCard';
@@ -10,7 +11,8 @@ interface KingCourtViewProps {
   players: Player[];
   numberOfCourts: number;
   currentCycle: KingCourtCycle;
-  onSetGameScore: (courtNumber: number, gameNumber: number, team1Score: number, team2Score: number) => void;
+  onSetGameResult: (courtNumber: number, gameNumber: number, result: ResultSubmission) => void;
+  scoreRecordingMode: ScoreRecordingMode;
   onAdvanceGame: () => void;
   onSetManualTiebreakOrder: (courtNumber: number, orderedPlayerIds: string[]) => void;
   onSetManualMovementOverride: (courtNumber: number, playerId: string, toCourt: number) => void;
@@ -31,7 +33,8 @@ export function KingCourtView({
   players,
   numberOfCourts,
   currentCycle,
-  onSetGameScore,
+  onSetGameResult,
+  scoreRecordingMode,
   onAdvanceGame,
   onSetManualTiebreakOrder,
   onSetManualMovementOverride,
@@ -53,6 +56,7 @@ export function KingCourtView({
         onSetManualTiebreakOrder={onSetManualTiebreakOrder}
         onSetManualMovementOverride={onSetManualMovementOverride}
         onConfirm={onConfirmMovement}
+        scoreRecordingMode={scoreRecordingMode}
       />
     );
   }
@@ -105,7 +109,8 @@ export function KingCourtView({
             {currentCycle.currentGameNumber < 5 ? 'Next Game' : 'Finish Cycle'}
           </button>
         </div>
-        {!allComplete && <p className="hint">Enter scores for every court's current game to continue.</p>}
+        {!allComplete && <p className="hint">Enter a result for every court's current game to continue.</p>}
+        <p className="hint">Scoring: {scoreRecordingModeLabel(scoreRecordingMode)}</p>
 
         <div className="match-list">
           {courts.map((court) => (
@@ -114,9 +119,8 @@ export function KingCourtView({
               court={court}
               gameNumber={currentCycle.currentGameNumber}
               nameById={nameById}
-              onSetScore={(team1Score, team2Score) =>
-                onSetGameScore(court.courtNumber, currentCycle.currentGameNumber, team1Score, team2Score)
-              }
+              scoreMode={scoreRecordingMode}
+              onSetResult={(result) => onSetGameResult(court.courtNumber, currentCycle.currentGameNumber, result)}
               onSelectPlayer={setSelectedPlayerId}
             />
           ))}

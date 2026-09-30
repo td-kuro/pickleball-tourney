@@ -1,4 +1,4 @@
-import type { Pool, Team } from '../types';
+import type { Pool, ScoreRecordingMode, Team } from '../types';
 import { computePoolStandings } from '../utils/poolsKnockout';
 
 interface PoolLeaderboardProps {
@@ -9,14 +9,16 @@ interface PoolLeaderboardProps {
   // "Qualified" status column/badge only makes sense to show once the pool
   // has actually finished — see PoolStageView/FinalResults.
   poolComplete: boolean;
+  scoreRecordingMode: ScoreRecordingMode;
 }
 
 // One pool's standings table: W/L, PF, PA, +/-, and (once the pool is
 // complete) which teams qualify for the knockout bracket. Reused by both
 // PoolStageView (live, in progress) and FinalResults (final, read-only).
-export function PoolLeaderboard({ pool, teams, teamsAdvancingPerPool, poolComplete }: PoolLeaderboardProps) {
+export function PoolLeaderboard({ pool, teams, teamsAdvancingPerPool, poolComplete, scoreRecordingMode }: PoolLeaderboardProps) {
   const teamNameById = new Map(teams.map((team) => [team.id, team.name]));
-  const standings = computePoolStandings(pool, teamsAdvancingPerPool);
+  const standings = computePoolStandings(pool, teamsAdvancingPerPool, scoreRecordingMode);
+  const showPoints = scoreRecordingMode === 'full-score';
 
   return (
     <div className="pool-leaderboard">
@@ -28,9 +30,9 @@ export function PoolLeaderboard({ pool, teams, teamsAdvancingPerPool, poolComple
               <th>Team</th>
               <th>W</th>
               <th>L</th>
-              <th>PF</th>
-              <th>PA</th>
-              <th>+/-</th>
+              {showPoints && <th>PF</th>}
+              {showPoints && <th>PA</th>}
+              {showPoints && <th>+/-</th>}
               {poolComplete && <th>Status</th>}
             </tr>
           </thead>
@@ -40,9 +42,9 @@ export function PoolLeaderboard({ pool, teams, teamsAdvancingPerPool, poolComple
                 <td>{teamNameById.get(standing.teamId) ?? 'Unknown team'}</td>
                 <td>{standing.wins}</td>
                 <td>{standing.losses}</td>
-                <td>{standing.pointsFor}</td>
-                <td>{standing.pointsAgainst}</td>
-                <td>{standing.pointDifference > 0 ? `+${standing.pointDifference}` : standing.pointDifference}</td>
+                {showPoints && <td>{standing.pointsFor}</td>}
+                {showPoints && <td>{standing.pointsAgainst}</td>}
+                {showPoints && <td>{standing.pointDifference > 0 ? `+${standing.pointDifference}` : standing.pointDifference}</td>}
                 {poolComplete && (
                   <td>
                     {standing.qualifiesForKnockout ? (

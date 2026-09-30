@@ -9,6 +9,7 @@ interface DynamicTeamRosterProps {
   onAddTeamsBulk: (count: number) => void;
   onUpdateTeam: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onSetCheckedIn: (id: string, checkedIn: boolean) => void;
+  onSetWithdrawn: (id: string, withdrawn: boolean) => void;
   onCheckInAllTeams: () => void;
   onRemoveTeam: (id: string) => void;
   onRemoveAllTeams: () => void;
@@ -34,6 +35,7 @@ export function DynamicTeamRoster({
   onAddTeamsBulk,
   onUpdateTeam,
   onSetCheckedIn,
+  onSetWithdrawn,
   onCheckInAllTeams,
   onRemoveTeam,
   onRemoveAllTeams,
@@ -86,6 +88,7 @@ export function DynamicTeamRoster({
                 team={team}
                 onUpdate={onUpdateTeam}
                 onSetCheckedIn={onSetCheckedIn}
+                onSetWithdrawn={onSetWithdrawn}
                 onRemove={onRemoveTeam}
                 disabled={started}
               />
@@ -144,11 +147,12 @@ interface DynamicTeamRowProps {
   team: DynamicTeam;
   onUpdate: (id: string, playerAName: string, playerBName: string, teamName: string, rating?: number, seed?: number) => void;
   onSetCheckedIn: (id: string, checkedIn: boolean) => void;
+  onSetWithdrawn: (id: string, withdrawn: boolean) => void;
   onRemove: (id: string) => void;
   disabled: boolean;
 }
 
-function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onRemove, disabled }: DynamicTeamRowProps) {
+function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onSetWithdrawn, onRemove, disabled }: DynamicTeamRowProps) {
   const [playerAName, setPlayerAName] = useState(team.playerAName);
   const [playerBName, setPlayerBName] = useState(team.playerBName);
   const [rating, setRating] = useState(team.rating != null ? String(team.rating) : '');
@@ -227,8 +231,18 @@ function DynamicTeamRow({ team, onUpdate, onSetCheckedIn, onRemove, disabled }: 
         />
         Checked in
       </label>
-      <button type="button" className="secondary dtq-placeholder-button" disabled title="Coming later">
-        Withdraw
+      {/* Before qualifying starts, withdrawing simply leaves the team out of
+          the schedule generated at Start. Once started, the schedule is
+          locked — availability is flagged for director review from the
+          Rounds tab instead (see DynamicTeamQualifierRoundsPage). */}
+      <button
+        type="button"
+        className="secondary"
+        onClick={() => onSetWithdrawn(team.id, !team.withdrawn)}
+        disabled={disabled}
+        title={disabled ? 'Qualifying has started — flag availability for director review from the Rounds tab' : undefined}
+      >
+        {team.withdrawn ? 'Reinstate' : 'Withdraw'}
       </button>
       <button type="button" className="danger" onClick={() => onRemove(team.id)} disabled={disabled}>
         Remove

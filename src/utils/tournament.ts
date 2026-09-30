@@ -16,6 +16,7 @@ import type {
   PlayerStats,
   Round,
   RoundStatus,
+  ScoreRecordingMode,
   SessionPlan,
   SessionTiming,
   SocialScoringMode,
@@ -23,6 +24,7 @@ import type {
   TeamStats,
   TournamentSettings,
 } from '../types';
+import { hasAnyResult, resolveWinner } from './results';
 // Only used for pairing styles other than the default 'balanced' — see
 // createRound/createFixedTeamRound below. utils/pairing.ts imports plenty
 // back from this file (MeetingCounts, buildMatchHistory,
@@ -107,8 +109,14 @@ export function validateCourtCount(value: number): { ok: true } | { ok: false; r
   return { ok: true };
 }
 
+// A match counts as having a result once it has either a full score or a
+// Win/Loss-only winner — see ScoreRecordingMode.
+export function hasMatchResult(match: Match): boolean {
+  return hasAnyResult(match.scoreA, match.scoreB, match.winner);
+}
+
 export function isRoundComplete(round: Round): boolean {
-  return round.matches.every((match) => match.scoreA != null && match.scoreB != null);
+  return round.matches.every(hasMatchResult);
 }
 
 // "Can this round be safely rebuilt in place right now?" — the shared
@@ -120,7 +128,11 @@ export function isRoundComplete(round: Round): boolean {
 // round is still live data the organiser has already recorded, and
 // reshuffling courts out from under it would silently discard that.
 export function canRegenerateRoundInPlace(round: Round | undefined): boolean {
-  return round != null && round.status === 'current' && !round.matches.some((m) => m.scoreA != null || m.scoreB != null);
+  return (
+    round != null &&
+    round.status === 'current' &&
+    !round.matches.some((m) => m.scoreA != null || m.scoreB != null || m.winner != null)
+  );
 }
 
 // Tournament Mode + Leaderboard format's "Allow late joiners" gate (see
@@ -308,8 +320,8 @@ export function canSwapPlayerInRound(
   if (!match) {
     return { ok: false, reason: 'That player is not assigned to a match this round.' };
   }
-  if (match.scoreA != null || match.scoreB != null) {
-    return { ok: false, reason: 'That match already has a score — swaps are only allowed before a score is submitted.' };
+  if (match.scoreA != null || match.scoreB != null || match.winner != null) {
+    return { ok: false, reason: 'That match already has a result — swaps are only allowed before a result is submitted.' };
   }
   const side = match.teamA.playerIds.includes(activePlayerId) ? match.teamA : match.teamB;
   if (isFixedTeamSide(side.playerIds, teams)) {
@@ -404,6 +416,20 @@ export function isScoringEnabled(settings: TournamentSettings): boolean {
 // Whether wins/losses should be tracked and shown.
 export function isWinLossTracked(settings: TournamentSettings): boolean {
   return settings.playMode === 'tournament' || settings.socialScoringMode === 'scoresAndWins';
+}
+
+// The Score Recording mode actually in force. Social Play's "Track Scores
+// Only" has no winners to record, so it's always full-score there; the
+// setting only applies once wins are tracked (Tournament Mode, or Social
+// Play's "Track Scores and Wins").
+export function effectiveScoreRecordingMode(settings: TournamentSettings): ScoreRecordingMode {
+  return isWinLossTracked(settings) ? settings.scoreRecordingMode : 'full-score';
+}
+
+// Whether PF/PA/+/-/Points columns mean anything for this session — see
+// POINT_STATS_UNAVAILABLE_NOTE in utils/results.ts for what's shown instead.
+export function arePointStatsShown(settings: TournamentSettings): boolean {
+  return isScoringEnabled(settings) && effectiveScoreRecordingMode(settings) === 'full-score';
 }
 
 export function socialScoringModeLabel(mode: SocialScoringMode): string {
@@ -638,7 +664,13 @@ export function createRound(
 
   const statsByPlayer = new Map(computePlayerStats(players, priorRounds).map((s) => [s.playerId, s]));
   const byePriority = players
-    .map((player, index) => ({ player, index, byes: statsByPlayer.get(player.id)?.byes ?? 0 }))
+    .map((player, index) => ({
+      player,
+      index,
+      // Recorded byes plus any late-return normalisation — see
+      // Player.byeCountAdjustment / normalizeReturningByeAdjustments.
+      byes: (statsByPlayer.get(player.id)?.byes ?? 0) + (player.byeCountAdjustment ?? 0),
+    }))
     .sort((a, b) => a.byes - b.byes || a.index - b.index);
 
   const byePlayerIds = byePriority.slice(0, byeCount).map((entry) => entry.player.id);
@@ -733,6 +765,8 @@ export function createFixedTeamRound(
   priorRounds: Round[] = [],
   status: RoundStatus = 'current',
   pairingStyle: PairingStyle = 'balanced',
+  // Late-return normalisation per team — see Player.byeCountAdjustment.
+  teamByeAdjustments: Map<string, number> = new Map(),
 ): Round {
   // A doubles court seats exactly 2 teams (4 players).
   const usableCourts = Math.min(settings.courts, Math.floor(teams.length / 2));
@@ -764,7 +798,11 @@ export function createFixedTeamRound(
 
   const teamStatsById = new Map(computeTeamStats(teams, priorRounds).map((s) => [s.teamId, s]));
   const byePriority = teams
-    .map((team, index) => ({ team, index, byes: teamStatsById.get(team.id)?.byes ?? 0 }))
+    .map((team, index) => ({
+      team,
+      index,
+      byes: (teamStatsById.get(team.id)?.byes ?? 0) + (teamByeAdjustments.get(team.id) ?? 0),
+    }))
     .sort((a, b) => a.byes - b.byes || a.index - b.index);
 
   const byeTeamIds = byePriority.slice(0, wholeTeamByeCount).map((entry) => entry.team.id);
@@ -817,11 +855,10 @@ export function createFixedTeamRound(
   };
 }
 
+// Derived from the scores for a full-score result, or the recorded winner
+// for a Win/Loss-only one — see utils/results.ts.
 export function getMatchWinner(match: Match): 'A' | 'B' | undefined {
-  if (match.scoreA == null || match.scoreB == null || match.scoreA === match.scoreB) {
-    return undefined;
-  }
-  return match.scoreA > match.scoreB ? 'A' : 'B';
+  return resolveWinner(match.scoreA, match.scoreB, match.winner, 'A' as const, 'B' as const);
 }
 
 // Points are the score achieved, not just win/loss: every player on a team
@@ -890,10 +927,12 @@ export function computePlayerStats(players: Player[], rounds: Round[]): PlayerSt
         }
       }
 
-      if (match.scoreA == null || match.scoreB == null) continue;
+      if (!hasMatchResult(match)) continue;
+      // A Win/Loss-only result still counts wins/losses, just no points —
+      // see ScoreRecordingMode.
       const winner = getMatchWinner(match);
-      applyPoints(match.teamA.playerIds, match.scoreA, match.scoreB, winner === 'A', winner === 'B');
-      applyPoints(match.teamB.playerIds, match.scoreB, match.scoreA, winner === 'B', winner === 'A');
+      applyPoints(match.teamA.playerIds, match.scoreA ?? 0, match.scoreB ?? 0, winner === 'A', winner === 'B');
+      applyPoints(match.teamB.playerIds, match.scoreB ?? 0, match.scoreA ?? 0, winner === 'B', winner === 'A');
     }
 
     for (const id of round.byePlayerIds) {
@@ -951,11 +990,11 @@ export function computeTeamStats(teams: Team[], rounds: Round[]): TeamStats[] {
       opponentSets.get(aId)?.add(bId);
       opponentSets.get(bId)?.add(aId);
 
-      if (match.scoreA == null || match.scoreB == null) continue;
-      statsA.pointsFor += match.scoreA;
-      statsA.pointsAgainst += match.scoreB;
-      statsB.pointsFor += match.scoreB;
-      statsB.pointsAgainst += match.scoreA;
+      if (!hasMatchResult(match)) continue;
+      statsA.pointsFor += match.scoreA ?? 0;
+      statsA.pointsAgainst += match.scoreB ?? 0;
+      statsB.pointsFor += match.scoreB ?? 0;
+      statsB.pointsAgainst += match.scoreA ?? 0;
 
       const winner = getMatchWinner(match);
       if (winner === 'A') {
