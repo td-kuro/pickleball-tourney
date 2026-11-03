@@ -1612,3 +1612,149 @@ button.danger:hover:not(:disabled) {
   margin: 6px 0 10px;
   padding-left: 18px;
 }
+
+/* Dynamic Pairing Social — swap dialog (see DynamicPairingSwapDialog):
+   candidate players grouped by court/rest list, then a before/after
+   preview. Option buttons reuse .toggle-option, so the selected player gets
+   the accent fill like every other single-choice control. */
+.dp-swap-dialog {
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.dp-swap-group {
+  margin-top: 12px;
+}
+
+.dp-swap-group-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.dp-swap-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.dp-swap-options .toggle-option {
+  flex: 0 1 auto;
+  padding: 8px 12px;
+}
+
+.dp-swap-preview {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.dp-swap-summary {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.dp-swap-preview-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.dp-swap-preview-columns .hint {
+  margin: 2px 0;
+}
+
+.dp-swap-conflicts ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+}
+
+.dp-swap-refresh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.dp-reset-result {
+  margin-top: 8px;
+}
+
+/* Grading divisions board (see DynamicPairingDivisionBoard) — one column
+   per division, stacking on narrow screens. */
+.dp-division-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+
+.dp-division-column {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.dp-division-heading {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.dp-division-count {
+  font-family: 'IBM Plex Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+.dp-division-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dp-division-entrant {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dp-division-name {
+  overflow-wrap: anywhere;
+}
+
+.dp-division-name .dp-side-badge {
+  margin-left: 6px;
+}
+
+.dp-division-move {
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.dp-division-move .toggle-option {
+  padding: 4px 0;
+  font-size: 13px;
+}
+
+@media (max-width: 720px) {
+  .dp-division-board {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 480px) {
+  .dp-division-board,
+  .dp-swap-preview-columns {
+    grid-template-columns: 1fr;
+  }
+}

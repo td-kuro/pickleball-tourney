@@ -195,6 +195,9 @@ with its own card:
   ranking a predetermined Dynamic Pairing round's pairing is allowed to
   be. Default: **1**, minimum **0** (an empty or invalid value falls back
   to the default of 1). See "Game lag and predetermined rounds" below.
+- **Grading divisions** — Off (default) or On. When on, Players shows a
+  Higher / Intermediate / Lower board for placing players and fixed teams
+  before starting — see "Grading divisions" below.
 - **Gender-aware pairing** — automatic, nothing to configure — see
   "Gender-aware pairing" below.
 - **Game format** — **Timed Round** (with a game duration in minutes) or
@@ -205,9 +208,11 @@ with its own card:
 - **Maximum court movement per round** — **Unrestricted**, **Max 1
   Court**, or **Max 2 Courts** (default: Max 1 Court) — see "Court
   movement limit" below.
-- **Score confirmation** and **Manual overrides** — both shown as
-  disabled placeholders for a future version; scores are final as entered
-  for now, same as everywhere else in the app.
+- **Score confirmation** — a disabled placeholder for a future version;
+  scores are final as entered (a court's result can be reset in Current
+  Round — see "Swapping players mid-round").
+- **Manual overrides** — swap any two players from Current Round; see
+  "Swapping players mid-round" below.
 
 ### Recommended setup and court capacity
 
@@ -477,26 +482,52 @@ due to player/court count."*); a fair rotation shows no note.
 
 Each round, after resting players are removed:
 
-1. The remaining active players are sorted by current ranking.
-2. They're split into consecutive groups of 4 — Court 1 gets ranks 1–4,
-   Court 2 gets ranks 5–8, and so on down to the lowest active court.
-3. Each group of 4 is split into balanced teams — by default the
-   strongest plus the weakest of the four versus the middle two (e.g.
-   rank 1 + rank 4 vs. rank 2 + rank 3), which is the most balanced
-   possible split of a ranked quad.
-4. If that split would repeat the previous round's partnership (or has a
-   worse cumulative partner/opponent-repeat count), the app tries the
-   other reasonable split — rank 1 + rank 3 vs. rank 2 + rank 4 — instead,
-   as long as it doesn't sacrifice balance. Competitive balance always
-   takes priority over variety when the two conflict. Once gender-aware
-   pairing applies (see below), it breaks a remaining tie between these
-   two splits too — behind balance and repeat-avoidance, ahead only of
-   pure randomness.
+1. The remaining active players (or entrants, once fixed teams exist) are
+   sorted by their game-lag ranking.
+2. That order gives the *preferred* arrangement: Court 1 gets ranks 1–4,
+   Court 2 ranks 5–8, and so on, clamped by the court movement limit.
+3. A search then improves on it by exchanging players between courts and
+   trying every way to split each court into sides (rank 1 + 4 vs. 2 + 3
+   first, the most balanced split of a ranked group), scoring every
+   candidate against the pairing priorities below. The preferred
+   arrangement wins every tie, so a round with no repeats to avoid comes
+   out exactly in ranking order.
 
-Court groups are rebuilt from scratch every round — nothing about a
-court's *group of 4* carries over, only each individual player's ranking
-and rest history. See `allocatePlayersToCourts`/`createBalancedPartnerships`
-in `src/utils/dynamicPairingSocial.ts`.
+See `arrangeRankingCourts` in `src/utils/dynamicPairingSocial.ts`.
+
+### Pairing priorities
+
+Every Dynamic Pairing round (and every grading round grouped by
+division) is built to these priorities, in order — a lower one only
+breaks ties left by the ones above it:
+
+1. Valid assignments: every court is 2 v 2, no player appears twice.
+2. Fixed teams always stay together.
+3. Fair byes (decided before pairing — see "Rest management").
+4. No opponent from the immediately previous round.
+5. No repeat opponent until each player/team has faced everyone else
+   available (a full rotation).
+6. No temporary partner from the immediately previous round, then
+   partner variety across the session. Fixed teams are exempt.
+7. Balance: stay near the ranked court, respect the movement limit, keep
+   division-grading courts within one division, keep sides even.
+8. Mixed/gendered games where possible (see "Gender-aware pairing").
+
+A repeat is only chosen when nothing better exists. Opponent and partner
+history counts every court's line-up whether or not it has a score — a
+Win/Loss-only result records exactly the same history as a full score —
+and the planning chain includes saved upcoming rounds, so a round planned
+two ahead already avoids repeating the round planned one ahead.
+
+**Why players used to meet the same opponents back to back:** ranking
+rounds filled courts straight from adjacent ranks and never looked at who
+had already played whom — they only chose between two partner splits of
+the same four players. When rankings barely moved between rounds (routine
+with Win/Loss-only scoring, where every point differential is 0 and ties
+fall through to fixed tiebreakers), the same groups of four re-formed
+round after round. The search above replaces that grouping; in
+simulation, back-to-back repeat opponents went from 8–23 per 8-round
+session to 0.
 
 ### Gender-aware pairing
 
@@ -628,26 +659,17 @@ entrant layer only changes behavior once a team is actually declared.
 
 #### Round generation with fixed teams
 
-Grading rounds still shuffle at random (there's no ranking data yet
-either way). Once ranking rounds start, generation branches:
-
-- **No fixed teams** (the default): completely unchanged — same
-  rank-then-group-of-4-then-split logic described in "Court allocation and
-  balanced partnerships" above, including the court movement limit.
-- **At least one fixed team**: entrants are ranked best-to-worst (see
-  "Entrants and stats" above), then built into full doubles **sides**: a
-  fixed team becomes its own side immediately; individual entrants are
-  paired two at a time in the order they're encountered while walking the
-  ranked list (i.e., by rank-adjacency, skipping over any fixed teams in
-  between). Sides are then grouped two per court, strongest sides on Court
-  1 down to the weakest. There's no repeat-partner optimisation pass for
-  the ad hoc individual pairings in this path (unlike
-  `createBalancedPartnerships`) — rank order naturally reshuffles who ends
-  up adjacent round to round, and layering a second optimisation on top of
-  an already-ranked, already-team-aware list was judged unnecessary
-  complexity for this feature. See `buildSidesFromRankedEntrants` /
-  `groupSidesIntoCourts` / `generateDynamicPairingRoundWithTeams` in
-  `src/utils/dynamicPairingSocial.ts`.
+Grading rounds shuffle at random (or group by division — see "Grading
+divisions"). Once ranking rounds start, entrants are ranked best-to-worst
+(see "Entrants and stats" above) and built into full doubles **sides** —
+a fixed team is its own side; individuals pair up by rank — two sides per
+court, strongest on Court 1. The same search as the individual-only path
+(see "Court allocation and balanced partnerships" and "Pairing
+priorities") then removes repeat opponents, rotates individuals' temporary
+partners, applies the court movement limit and gender preference. Fixed
+teams may play fixed teams or temporary pairs; a team only ever moves as a
+whole. See `generateDynamicPairingRoundWithTeams` in
+`src/utils/dynamicPairingSocial.ts`.
 
 Rest selection also branches the same way: with no fixed teams, nothing
 changes. With a fixed team, the same fair selector (see "Rest
@@ -665,9 +687,10 @@ rest, and the round's bye note says so.
 
 The **Maximum court movement per round** setting (Unrestricted / Max 1
 Court / Max 2 Courts, default Max 1 Court) only applies once ranking
-rounds start (grading rounds always allocate at random), and only in
-sessions with no fixed teams — see "Round generation with fixed teams"
-above for why the fixed-team path always ranks fresh instead. It caps
+rounds start (grading rounds allocate at random or by division), with or
+without fixed teams. Avoiding a repeat opponent or partner takes priority
+(see "Pairing priorities"), so a player can occasionally move one court
+further than the limit when that's the only way to avoid one. It caps
 how far a player's court can move from wherever they played last, so one
 unusually big win or loss doesn't swing them several courts in one round
 — rankings still correct themselves over time, just gradually. The
@@ -675,6 +698,59 @@ resolution when several players get clamped toward the same court is a
 simple nearest-available-court search, not a globally optimal
 re-assignment — see `applyCourtMovementLimit` in
 `src/utils/dynamicPairingSocial.ts` and "Current limitations" below.
+
+### Grading divisions
+
+Optional (Setup → **Grading divisions: On**). Before starting, place each
+player or fixed team in **Higher**, **Intermediate** or **Lower** on the
+division board in Players — tap H / I / L to move them; tap the active
+letter again to unassign. A fixed team is placed as one entrant.
+Unassigned entrants count as Intermediate.
+
+Grading rounds then group courts by division (strongest division on the
+first courts) instead of at random, still avoiding repeat opponents and
+partners and still using the same fair byes. Divisions mix only when
+player counts or avoiding a repeat require it, and then only as much as
+needed — a neighbouring division before a distant one. Rounds built this
+way show **Division Grading** in Current Round and All Rounds.
+
+Divisions are a starting point, not a ranking. Once grading results come
+in, the game-lag ranking takes over exactly as without divisions, and
+players move up or down on actual results — e.g. with 2 grading rounds
+and game lag 1, Round 3 is generated from Round 1 results the moment
+they're in. Divisions only ever break a tie between entrants with
+identical results (after skill level, before seed), which matters most
+with Win/Loss-only scoring. Turning divisions off restores random grading
+and the old tiebreak order; assigned divisions are kept in case it's
+turned back on. Divisions can only be changed before Start Matches, since
+every grading round is generated then.
+
+### Swapping players mid-round
+
+Click any player's name in Current Round → **Swap Player** → choose
+anyone else from any court or the rest list → check the **Before /
+After** preview → **Confirm Swap**. Supported:
+
+- Court 1 player ↔ Court 2 player, or two players on the same court
+  (they swap sides).
+- A player on court ↔ a resting player (either can be picked first).
+- Replacing a player marked unavailable/late/injured with an available
+  player — the away player leaves the round rather than being counted as
+  resting.
+- A fixed team moves as a whole: picking a fixed-team member swaps the
+  whole team with the other player's whole side on another court, or
+  with a resting fixed team. A swap that would split a team is refused.
+
+A swap is refused, with the reason shown in the preview, for two resting
+players, partners, a player who isn't available, or any court that
+already has a result — use **Reset Result** on that court card first
+(the supported correction flow; completed rounds can't be changed).
+Swaps update the one saved round, so Current Round and All Rounds always
+match, and are recorded in Session History. Future rounds are planned from
+who actually played. Saved upcoming rounds stay as they are, unless the
+swap made the next round unfair for someone it moved (e.g. the same
+opponent back to back) — the preview lists that and offers **Also
+refresh upcoming rounds**, pre-ticked.
 
 ### Score entry and round processing
 
@@ -761,13 +837,16 @@ it's a full wipe, not a "new round, same roster" reset.
 - **Court movement limiting is a simple nearest-available-court search**,
   not a globally optimal re-assignment — see "Court movement limit"
   above. Good enough to keep movement gradual, not guaranteed-minimal.
-- **Partnership variety only considers two splits** of each ranked group
-  of 4 (1st+4th vs. 2nd+3rd, or 1st+3rd vs. 2nd+4th) — 1st+2nd vs. 3rd+4th
-  is deliberately never used, since it's the least balanced possible
-  split.
-- **Score confirmation and manual overrides are placeholders** — scores
-  are final as entered, and there's no way to manually edit a generated
-  court/partnership yet.
+- **Court/partner arrangement is a bounded search, not an exact solver**
+  — swaps between courts plus a few random restarts. Against an
+  exhaustive check of 8-player sessions it found the best arrangement on
+  every round tested, but in a large session a technically-possible
+  better arrangement can occasionally be missed. It never trades a higher
+  pairing priority for a lower one.
+- **Score confirmation is a placeholder** — scores are final as entered,
+  though a current-round court's result can be reset and re-entered.
+- **Grading divisions** can't be edited after Start Matches, and a player
+  added mid-session starts Unassigned (Intermediate).
 - **No live game clock** for Timed Round game format — same "planning
   aid, not an enforced timer" limitation as Social Play's Session Timing.
 - **Late arrivals** are all-or-nothing (Available or not) — there's no
@@ -775,23 +854,14 @@ it's a full wipe, not a "new round, same roster" reset.
 - Ranking recomputes from full round history every time it's needed
   (O(rounds²) in the number of rounds played) — negligible for realistic
   session lengths, but not optimised for very long-running sessions.
-- **Fixed teams**: no court movement limit is applied once any fixed team
-  exists (rounds are always freshly ranked instead — see "Round generation
-  with fixed teams" above); the ad hoc pairing of individual entrants into
-  temporary *ranking-round* (Round 4+) sides has no repeat-partner
-  optimisation pass — grading rounds are different, see below; and
-  entrant-level rest selection can rest one physical player more than
-  the strict minimum only when no exact fit exists at all (e.g. only
-  fixed teams left for an odd number of slots) — see "Round generation
-  with fixed teams" above. These are deliberate scope decisions, not
-  oversights.
-- **Gender-aware pairing** (see its own section above) **has no
-  optimisation pass once a fixed team exists in the ranking phase** —
-  same rank-adjacency-only path fixed teams already use there, just now
-  also not steered by gender; grading rounds aren't affected by this. It's
-  also a soft preference everywhere else, not a guarantee — a court with
-  only 1 active female player (or a female player who simply doesn't land
-  in the same 4-player group as another this round) still pairs normally.
+- **Fixed teams**: entrant-level rest selection can rest one physical
+  player more than the strict minimum only when no exact fit exists at all
+  (e.g. only fixed teams left for an odd number of slots) — see "Round
+  generation with fixed teams" above. A fixed team can't be formed after
+  Start Matches (only broken).
+- **Gender-aware pairing** (see its own section above) is a soft
+  preference, not a guarantee — a court with only 1 active female player
+  still pairs normally.
 - **Grading round rotation is a bounded random search, not an exact
   solver** — a fixed number of random schedule attempts, keeping the best
   one found (see "Grading rounds are pre-generated up front" above) — so a
@@ -2593,8 +2663,11 @@ src/
                              predetermined rounds are built from
                              (calculateDynamicPairingRankingForRound, rankingBasisLabel),
                              court allocation (allocatePlayersToCourts,
-                             applyCourtMovementLimit), balanced partnerships
-                             (createBalancedPartnerships, scorePartnershipOption), the
+                             applyCourtMovementLimit), the court arrangement search
+                             (arrangeRankingCourts, arrangeDivisionGradingCourts —
+                             repeat-avoiding court/partner assignment, see "Pairing
+                             priorities"), swaps (planDynamicPairingSwap,
+                             upcomingConflictsAfterSwap, clearDynamicPairingCourtResult), the
                              round-generation/scoring entry points
                              (generateDynamicPairingRoundForEntrants,
                              generateInitialGradingRoundsForEntrants,
@@ -2611,7 +2684,7 @@ src/
                              getSideGenderComposition, getMatchGenderType,
                              matchGenderTypeLabel, shouldUseGenderAwarePairing,
                              genderPreferenceScore — see "Gender-aware pairing" above;
-                             folded into scorePartnershipOption/createBalancedPartnerships
+                             folded into the court arrangement search
                              and buildGradingCandidate/generateRotationAwareGradingRound
                              as a small additive term, never a separate code path)
                              (Dynamic Pairing Social)
@@ -2757,6 +2830,20 @@ Output is written to `dist/`. You can preview the production build locally with:
 ```bash
 npm run preview
 ```
+
+## Tests
+
+```bash
+npm test
+```
+
+Compiles `tests/` and the pure logic they import (`tsconfig.test.json`,
+output in `.test-build/`) and runs them with Node's built-in test runner —
+no test framework dependency. The Dynamic Pairing Social tests cover
+grading divisions, Win/Loss-only history and repeat-pairing regressions
+(including an exhaustive optimality check for 8 players), swaps, fixed
+teams with individuals, and save/reload. Scheduling tests use a seeded
+random source (`setDynamicPairingRandomSource`) so every run is identical.
 
 ## Deploying to GitHub Pages
 

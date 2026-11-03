@@ -50,7 +50,7 @@ export function DynamicPairingSessionHistory({ settings, rounds }: DynamicPairin
               >
                 <div className="all-rounds-entry-heading">
                   <h3>Round {round.roundNumber}</h3>
-                  <span className="all-rounds-match-type">{roundPhaseLabel(round.phase)}</span>
+                  <span className="all-rounds-match-type">{roundPhaseLabel(round.phase, round.gradingMode)}</span>
                 </div>
                 <p className="all-rounds-byes">
                   {round.courts.length} court{round.courts.length === 1 ? '' : 's'} ·{' '}

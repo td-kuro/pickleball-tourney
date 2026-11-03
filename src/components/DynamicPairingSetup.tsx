@@ -4,16 +4,20 @@ import type {
   DynamicGameFormat,
   DynamicPairingSettings,
   DynamicPairingTeam,
+  GradingDivision,
   Player,
   PlayerAvailabilityStatus,
   PlayerGender,
 } from '../types';
 import {
+  buildDynamicPairingEntrants,
   canGenerateDynamicPairingRound,
   courtMovementLimitLabel,
   dynamicPairingAvailabilityLabel,
   gameFormatLabel,
   getPlayerGender,
+  GRADING_DIVISIONS,
+  gradingDivisionLabel,
 } from '../utils/dynamicPairingSocial';
 import { CourtSelector } from './CourtSelector';
 import { ScoreRecordingSelector } from './ScoreRecordingSelector';
@@ -46,6 +50,7 @@ interface DynamicPairingSetupProps {
   onUnmakeTeam: (teamId: string) => void;
   onUpdateTeamSeedAndRating: (teamId: string, seed?: number, rating?: number) => void;
   onUpdateEntrantSkillLevel: (entrantId: string, skillLevel?: number) => void;
+  onUpdateEntrantDivision: (entrantId: string, division: GradingDivision | undefined) => void;
   onStartSession: () => void;
   started: boolean;
   gradingPhaseComplete: boolean;
@@ -102,6 +107,7 @@ export function DynamicPairingSetup({
   onUnmakeTeam,
   onUpdateTeamSeedAndRating,
   onUpdateEntrantSkillLevel,
+  onUpdateEntrantDivision,
   onStartSession,
   started,
   gradingPhaseComplete,
@@ -174,6 +180,31 @@ export function DynamicPairingSetup({
             below) while enough game data builds up — see them all immediately under All Rounds. Default: 3. Once
             every grading round is scored, ranking is calculated automatically from those results and dynamic
             pairing begins — no admin confirmation needed.
+          </p>
+        </div>
+
+        <div className="form-row">
+          <span>Grading divisions</span>
+          <div className="toggle-group" role="group" aria-label="Grading divisions">
+            {[false, true].map((on) => (
+              <button
+                key={String(on)}
+                type="button"
+                className={(settings.useGradingDivisions ?? false) === on ? 'toggle-option active' : 'toggle-option'}
+                aria-pressed={(settings.useGradingDivisions ?? false) === on}
+                onClick={() => onChangeSettings({ ...settings, useGradingDivisions: on })}
+                disabled={started}
+              >
+                {on ? 'On' : 'Off'}
+              </button>
+            ))}
+          </div>
+          <p className="hint">
+            Optional. Place players and fixed teams in Higher, Intermediate or Lower before starting, and grading rounds
+            match them against their own (or a neighbouring) division instead of at random — mixing divisions only
+            when player counts or avoiding repeat opponents require it. Divisions are a starting point, not a ranking:
+            once results come in, game-lag rankings take over and players move up or down on their actual results.
+            Unassigned players count as Intermediate.
           </p>
         </div>
 
@@ -279,12 +310,10 @@ export function DynamicPairingSetup({
             Caps how far a player's court can move between ranking rounds, so one unusually big result doesn't
             cause a dramatic jump. Applied after grading only. Recommended: Max 1 Court.
           </p>
-          {teams.length > 0 && (
-            <p className="hint">
-              Not applied once a fixed team exists — see README's "Fixed teams". Rounds are freshly ranked
-              best-to-worst instead.
-            </p>
-          )}
+          <p className="hint">
+            Avoiding a repeat opponent or partner takes priority — a player may move one court further than this limit
+            when that's the only way to avoid one.
+          </p>
         </div>
 
         <ScoreRecordingSelector
@@ -305,7 +334,8 @@ export function DynamicPairingSetup({
         <div className="form-row">
           <span>Manual overrides</span>
           <p className="hint">
-            Placeholder for a future version — manually editing a generated court/partnership isn't available yet.
+            During a round, click any player's name in Current Round and choose Swap Player to swap them with anyone
+            else — on another court, the same court, or the rest list. Fixed teams move as a whole team.
           </p>
         </div>
       </section>
@@ -340,6 +370,14 @@ export function DynamicPairingSetup({
           disabled={started}
           skillLevelEditable={started && gradingPhaseComplete}
         />
+        {settings.useGradingDivisions && (
+          <DynamicPairingDivisionBoard
+            players={players}
+            teams={teams}
+            onUpdateEntrantDivision={onUpdateEntrantDivision}
+            disabled={started}
+          />
+        )}
         <p className="hint">
           {players.filter((p) => (p.availabilityStatus ?? 'available') === 'available').length} available of{' '}
           {players.length} added.
@@ -564,6 +602,7 @@ function DynamicPairingPlayerRow({
         />
       )}
       <span className="player-row-index">{index + 1}</span>
+      <span className="participant-badge participant-badge-player">Individual</span>
       <input
         type="text"
         className="player-row-name"
@@ -726,7 +765,7 @@ function DynamicPairingTeamRow({
   return (
     <div className={missingName ? 'player-row player-row-invalid' : 'player-row'}>
       <span className="player-row-index">{index + 1}</span>
-      <span className="participant-badge participant-badge-team">Team</span>
+      <span className="participant-badge participant-badge-team">Fixed Team</span>
       <div className="dp-team-members">
         {[
           { name: nameA, setName: setNameA, player: playerA, label: 'Player 1' },
@@ -814,7 +853,7 @@ function DynamicPairingTeamRow({
         disabled={!skillLevelEditable}
       />
       <button type="button" className="secondary" onClick={() => onUnmakeTeam(team.id)}>
-        Split Team
+        Break Team
       </button>
       <button
         type="button"
@@ -827,6 +866,67 @@ function DynamicPairingTeamRow({
       >
         Remove
       </button>
+    </div>
+  );
+}
+
+interface DynamicPairingDivisionBoardProps {
+  players: Player[];
+  teams: DynamicPairingTeam[];
+  onUpdateEntrantDivision: (entrantId: string, division: GradingDivision | undefined) => void;
+  disabled: boolean;
+}
+
+// Grading divisions at a glance: one column per division (plus
+// Unassigned), each player or fixed team shown once with H / I / L buttons
+// to move it — a fixed team moves as one entrant. Columns stack on narrow
+// screens.
+function DynamicPairingDivisionBoard({ players, teams, onUpdateEntrantDivision, disabled }: DynamicPairingDivisionBoardProps) {
+  const entrants = buildDynamicPairingEntrants(players, teams);
+  const columns: (GradingDivision | undefined)[] = [...GRADING_DIVISIONS, undefined];
+
+  return (
+    <div className="dp-division-board" aria-label="Grading divisions">
+      {columns.map((division) => {
+        const members = entrants.filter((e) => e.gradingDivision === division);
+        return (
+          <div key={division ?? 'unassigned'} className="dp-division-column">
+            <div className="dp-division-heading">
+              <span>{gradingDivisionLabel(division)}</span>
+              <span className="dp-division-count">{members.length}</span>
+            </div>
+            {members.length === 0 ? (
+              <p className="hint">Nobody yet.</p>
+            ) : (
+              <ul className="dp-division-list">
+                {members.map((entrant) => (
+                  <li key={entrant.id} className="dp-division-entrant">
+                    <span className="dp-division-name">
+                      {entrant.displayName.trim() || 'Unnamed player'}
+                      {entrant.type === 'fixed-team' && <span className="dp-side-badge">Fixed Team</span>}
+                    </span>
+                    <span className="toggle-group dp-division-move" role="group" aria-label={`Division for ${entrant.displayName}`}>
+                      {GRADING_DIVISIONS.map((option) => (
+                        <button
+                          key={option}
+                          type="button"
+                          className={entrant.gradingDivision === option ? 'toggle-option active' : 'toggle-option'}
+                          aria-pressed={entrant.gradingDivision === option}
+                          title={`Move to ${gradingDivisionLabel(option)}`}
+                          onClick={() => onUpdateEntrantDivision(entrant.id, entrant.gradingDivision === option ? undefined : option)}
+                          disabled={disabled}
+                        >
+                          {gradingDivisionLabel(option).charAt(0)}
+                        </button>
+                      ))}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }

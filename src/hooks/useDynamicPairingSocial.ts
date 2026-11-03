@@ -4,6 +4,7 @@ import type {
   DynamicPairingRound,
   DynamicPairingSettings,
   DynamicPairingTeam,
+  GradingDivision,
   MidSessionJoinTiming,
   Player,
   PlayerAvailabilityStatus,
@@ -22,11 +23,12 @@ import {
   statusOf,
 } from '../utils/availability';
 import { firstUpcomingRoundNumber } from '../utils/scheduleValidation';
-import { DEFAULT_SCORE_RECORDING_MODE, normalizeScoreRecordingMode, scoreRecordingModeLabel } from '../utils/results';
+import { DEFAULT_SCORE_RECORDING_MODE, scoreRecordingModeLabel } from '../utils/results';
 import {
+  advanceDynamicPairingRound,
   calculateDynamicPairingStats,
   canGenerateDynamicPairingRound,
-  canSwapPlayerInDynamicPairingRound,
+  clearDynamicPairingCourtResult,
   courtHasResult,
   dynamicPairingAvailabilityLabel,
   dynamicPairingTeamDisplayName,
@@ -35,12 +37,13 @@ import {
   generateInitialGradingRoundsForEntrants,
   isAwaitingSkillReview,
   isGradingPhaseComplete,
-  lockCompletedRound,
+  normalizeDynamicPairingSettings,
+  planDynamicPairingSwap,
   playedDynamicPairingRounds,
   processDynamicPairingResult,
   regenerateCurrentDynamicPairingRound,
   regenerateUpcomingRoundsForEntrants,
-  swapPlayerInDynamicPairingRound,
+  upcomingConflictsAfterSwap,
 } from '../utils/dynamicPairingSocial';
 // Pure array transforms with no round/state coupling, so importing them
 // here doesn't pull Standard Social Play state into this mode — same
@@ -78,6 +81,7 @@ export const DEFAULT_DYNAMIC_PAIRING_SETTINGS: DynamicPairingSettings = {
   scoreConfirmationRequired: false,
   rankingLagRounds: 1,
   scoreRecordingMode: DEFAULT_SCORE_RECORDING_MODE,
+  useGradingDivisions: false,
 };
 
 function makePlayerId(salt = 0): string {
@@ -91,11 +95,12 @@ function makePlayerId(salt = 0): string {
 // pairing/ranking/rest logic this hook drives.
 export function useDynamicPairingSocial() {
   const [storedSettings, setSettings] = useLocalStorage<DynamicPairingSettings>(SETTINGS_KEY, DEFAULT_DYNAMIC_PAIRING_SETTINGS);
-  // Backfill for settings saved before Score Recording existed.
-  // Memoised so its identity only changes when the stored settings do (the
-  // self-heal effect below depends on it).
+  // Backfill for settings saved before Score Recording or grading
+  // divisions existed — see normalizeDynamicPairingSettings. Memoised so its
+  // identity only changes when the stored settings do (the self-heal effect
+  // below depends on it).
   const settings: DynamicPairingSettings = useMemo(
-    () => ({ ...storedSettings, scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode) }),
+    () => normalizeDynamicPairingSettings(storedSettings),
     [storedSettings],
   );
   const [players, setPlayers] = useLocalStorage<Player[]>(PLAYERS_KEY, []);
@@ -312,20 +317,58 @@ export function useDynamicPairingSocial() {
     }
   }
 
-  // Live edit to the current round only — see
-  // canSwapPlayerInDynamicPairingRound for the full rule set.
-  function swapPlayerInCurrentRound(activePlayerId: string, restingPlayerId: string) {
+  // Live edit to the current round only — any two players, on any courts
+  // or resting (see planDynamicPairingSwap for the rules; fixed teams move
+  // as whole sides). The edit is saved to the one saved schedule, so
+  // Current Round and All Rounds always show the same line-up. Upcoming
+  // rounds stay exactly as saved unless the organiser asks to refresh them
+  // (`refreshUpcoming`), which the swap preview offers whenever the swap
+  // made the next round unfair for a moved player (see
+  // upcomingConflictsAfterSwap).
+  function swapPlayers(playerAId: string, playerBId: string, options: { refreshUpcoming?: boolean } = {}) {
     if (!currentRound) return { ok: false as const, reason: 'No current round.' };
-    const check = canSwapPlayerInDynamicPairingRound(currentRound, activePlayerId, restingPlayerId, teams);
-    if (!check.ok) return check;
+    const planned = planDynamicPairingSwap(currentRound, playerAId, playerBId, players, teams);
+    if (!planned.ok) return planned;
 
-    setRounds(
-      rounds.map((round) =>
-        round.id === currentRound.id ? swapPlayerInDynamicPairingRound(round, activePlayerId, restingPlayerId) : round,
-      ),
-    );
-    logAdjustment('player-swapped', { roundNumber: currentRound.roundNumber, playerIds: [activePlayerId, restingPlayerId] });
-    return { ok: true as const };
+    const swapped = rounds.map((round) => (round.id === currentRound.id ? planned.plan.round : round));
+    const refreshed = options.refreshUpcoming ? regenerateUpcomingRoundsForEntrants(players, teams, settings, swapped) : swapped;
+    setRounds(refreshed);
+    logAdjustment('player-swapped', {
+      roundNumber: currentRound.roundNumber,
+      playerIds: planned.plan.movedPlayerIds,
+      note: `Round ${currentRound.roundNumber}: ${planned.plan.summary}.`,
+    });
+    if (options.refreshUpcoming) {
+      logAdjustment('future-rounds-regenerated', { note: 'Upcoming rounds were refreshed after a player swap.' });
+    }
+    return { ok: true as const, summary: planned.plan.summary };
+  }
+
+  // Preview for the swap dialog — the line-up after the swap, plus any
+  // unfairness it would create in the next saved round.
+  function previewSwap(playerAId: string, playerBId: string) {
+    if (!currentRound) return { ok: false as const, reason: 'No current round.' };
+    const planned = planDynamicPairingSwap(currentRound, playerAId, playerBId, players, teams);
+    if (!planned.ok) return planned;
+    const conflicts = upcomingConflictsAfterSwap(rounds, planned.plan.round, planned.plan.movedPlayerIds, players, teams);
+    return { ok: true as const, plan: planned.plan, upcomingConflicts: conflicts };
+  }
+
+  // The older "swap an active player with a resting player" entry point
+  // (Session Controls' swap dialog) — now just one case of swapPlayers.
+  function swapPlayerInCurrentRound(activePlayerId: string, restingPlayerId: string) {
+    return swapPlayers(activePlayerId, restingPlayerId);
+  }
+
+  // Clears a court's result in the current round — required before that
+  // court's players can be swapped, or to correct a mistaken entry.
+  function resetCourtResult(courtNumber: number) {
+    if (!currentRound) return;
+    setRounds(rounds.map((r) => (r.id === currentRound.id ? clearDynamicPairingCourtResult(r, courtNumber) : r)));
+    logAdjustment('result-reset', {
+      roundNumber: currentRound.roundNumber,
+      note: `Court ${courtNumber}: result reset.`,
+    });
   }
 
   // "Add Player Mid-Session" — see AddPlayerMidSessionModal and README's
@@ -407,11 +450,12 @@ export function useDynamicPairingSocial() {
   // Removing a player who's on a fixed team also dissolves that team (its
   // other member reverts to an individual entrant) — a team can never
   // reference a player id that no longer exists.
+  // Functional updates, so removing both members of a fixed team in one
+  // click (two calls in the same handler) removes both rather than the
+  // second call restoring the first from a stale snapshot.
   function removePlayer(id: string) {
-    setPlayers(players.filter((p) => p.id !== id));
-    if (teams.some((t) => t.playerIds.includes(id))) {
-      setTeams(teams.filter((t) => !t.playerIds.includes(id)));
-    }
+    setPlayers((prev) => prev.filter((p) => p.id !== id));
+    setTeams((prev) => prev.filter((t) => !t.playerIds.includes(id)));
   }
 
   function removeAllPlayers() {
@@ -472,6 +516,18 @@ export function useDynamicPairingSocial() {
     }
   }
 
+  // Grading division for a player or fixed team (see GradingDivision) —
+  // `undefined` moves them back to Unassigned. Only editable before the
+  // session starts: divisions shape the grading rounds, which are all
+  // generated up front at Start Matches.
+  function updateEntrantDivision(entrantId: string, division: GradingDivision | undefined) {
+    if (teams.some((t) => t.id === entrantId)) {
+      setTeams(teams.map((t) => (t.id === entrantId ? { ...t, gradingDivision: division } : t)));
+    } else {
+      setPlayers(players.map((p) => (p.id === entrantId ? { ...p, gradingDivision: division } : p)));
+    }
+  }
+
   // "Start Matches" for Dynamic Pairing Social: pre-generates the entire
   // grading batch (Round 1 through settings.gradingRounds) up front, so
   // All Rounds shows the whole planned schedule immediately — see
@@ -525,18 +581,8 @@ export function useDynamicPairingSocial() {
     const check = canGenerateDynamicPairingRound(updatedPlayers, settings, currentRound);
     if (!check.ok) return;
 
-    const locked = rounds.map((r) => (r.id === currentRound.id ? lockCompletedRound(r) : r));
-    const withLookahead = extendDynamicPairingLookahead(updatedPlayers, teams, settings, locked);
-    const upcoming = withLookahead.find((r) => r.roundNumber === upcomingRoundNumber && r.status === 'upcoming');
-
-    // The fallback (generate fresh, right now) guards against an
-    // otherwise-unreachable state — see extendDynamicPairingLookahead's
-    // doc comment — rather than leaving the organiser stuck with no
-    // current round.
-    const activated: DynamicPairingRound[] = upcoming
-      ? withLookahead.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r))
-      : [...withLookahead, generateDynamicPairingRoundForEntrants(updatedPlayers, teams, settings, withLookahead)];
-
+    const activated = advanceDynamicPairingRound(updatedPlayers, teams, settings, rounds);
+    if (!activated) return;
     setRounds(activated);
     if (activated.some((r) => r.status === 'upcoming' || r.status === 'pending-results')) {
       logAdjustment('future-rounds-regenerated', {
@@ -604,6 +650,10 @@ export function useDynamicPairingSocial() {
     setCourtResult,
     changeCourtCount,
     swapPlayerInCurrentRound,
+    swapPlayers,
+    previewSwap,
+    resetCourtResult,
+    updateEntrantDivision,
     sessionAdjustments,
     resetDynamicPairing,
   };

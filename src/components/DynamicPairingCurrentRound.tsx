@@ -10,7 +10,9 @@ import type {
 } from '../types';
 import { isWinLossOnlyResult, scoreRecordingModeLabel } from '../utils/results';
 import { MatchResultEntry } from './MatchResultEntry';
+import { DynamicPairingSwapDialog, type SwapPreviewResult, type SwapResult } from './DynamicPairingSwapDialog';
 import {
+  courtHasResult,
   dynamicPairingAvailabilityLabel,
   getMatchGenderType,
   isDynamicPairingFixedTeamSide,
@@ -21,7 +23,7 @@ import {
   roundPhaseLabel,
   visibleByeNote,
 } from '../utils/dynamicPairingSocial';
-import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActionMenu';
+import { PlayerActionMenu } from './PlayerActionMenu';
 
 interface DynamicPairingCurrentRoundProps {
   round: DynamicPairingRound | undefined;
@@ -32,7 +34,9 @@ interface DynamicPairingCurrentRoundProps {
   scoreRecordingMode: ScoreRecordingMode;
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
-  onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
+  onPreviewSwap: (playerAId: string, playerBId: string) => SwapPreviewResult;
+  onSwapPlayers: (playerAId: string, playerBId: string, options: { refreshUpcoming: boolean }) => SwapResult;
+  onResetResult: (courtNumber: number) => void;
 }
 
 // The live/active Dynamic Pairing Social round — mirrors CurrentRoundView's
@@ -43,8 +47,10 @@ interface DynamicPairingCurrentRoundProps {
 // MatchSide. `rounds` (the full history, including any pre-generated
 // 'upcoming' rounds) is only needed to compute nextRoundButtonLabel — see
 // that function for why the button's label/behaviour varies. Every player
-// name is clickable — see PlayerActionMenu — opening the same status/swap
-// actions Session Controls' standalone controls already offer.
+// name is clickable — see PlayerActionMenu — opening the same status
+// actions Session Controls' standalone controls already offer, plus Swap
+// Player, which swaps them with anyone else in the round (see
+// DynamicPairingSwapDialog).
 export function DynamicPairingCurrentRound({
   round,
   rounds,
@@ -54,62 +60,36 @@ export function DynamicPairingCurrentRound({
   scoreRecordingMode,
   onGenerateNextRound,
   onSetAvailability,
-  onSwap,
+  onPreviewSwap,
+  onSwapPlayers,
+  onResetResult,
 }: DynamicPairingCurrentRoundProps) {
   const [selectedPlayerId, setSelectedPlayerId] = useState<string | null>(null);
+  const [swapPlayerId, setSwapPlayerId] = useState<string | null>(null);
   const playerNameById = new Map(players.map((p) => [p.id, p.name]));
   const playerById = new Map(players.map((p) => [p.id, p]));
   const allScored = round ? isDynamicPairingRoundComplete(round) : false;
   const selectedPlayer = selectedPlayerId ? playerById.get(selectedPlayerId) : undefined;
 
-  // A resting fixed-team member can't be swapped in alone (see
-  // canSwapPlayerInDynamicPairingRound) — only offer resting players whose
-  // partner, if any, is also resting.
-  const restingSwapOptions = round
-    ? round.restingPlayerIds
-        .filter((id) => {
-          const team = teams.find((t) => t.playerIds.includes(id));
-          if (!team) return true;
-          const partnerId = team.playerIds.find((pid) => pid !== id);
-          return partnerId != null && round.restingPlayerIds.includes(partnerId);
-        })
-        .map((id) => ({ id, label: playerNameById.get(id) ?? 'Unknown player' }))
-    : [];
-
-  function menuContextFor(playerId: string): { contextLines: string[]; replacement: PlayerActionMenuReplacement | undefined } {
-    if (!round) return { contextLines: [], replacement: undefined };
+  function menuContextFor(playerId: string): { contextLines: string[]; swapDisabledReason?: string } {
+    if (!round) return { contextLines: [] };
     const court = round.courts.find((c) => c.playerIds.includes(playerId));
     if (!court) {
-      return { contextLines: ['Resting this round'], replacement: undefined };
-    }
-    const teammateIds = court.playerIds.filter((id) => id !== playerId);
-    const teammateNames = teammateIds.map((id) => playerNameById.get(id) ?? 'Unknown player');
-    const scored = court.score1 != null || court.score2 != null;
-    const lines = [`Court ${court.courtNumber}`, `Playing with/against ${teammateNames.join(', ')}`];
-    if (scored) {
-      lines.push("This court's score is already submitted — edit or reset it before changing players.");
-      return { contextLines: lines, replacement: undefined };
-    }
-    const side = court.team1PlayerIds.includes(playerId) ? court.team1PlayerIds : court.team2PlayerIds;
-    if (isDynamicPairingFixedTeamSide(side, teams)) {
       return {
-        contextLines: lines,
-        replacement: {
-          label: 'Swap with resting player',
-          options: [],
-          onReplace: () => ({ ok: false, reason: "That player is on a fixed team, which can't be split by a swap." }),
-          disabledReason: "This player is on a fixed team, which can't be split by a swap.",
-        },
+        contextLines: [round.restingPlayerIds.includes(playerId) ? 'Resting this round' : 'Not scheduled this round'],
       };
     }
-    return {
-      contextLines: lines,
-      replacement: {
-        label: 'Swap with resting player',
-        options: restingSwapOptions,
-        onReplace: (restingId: string) => onSwap(playerId, restingId),
-      },
-    };
+    const otherNames = court.playerIds.filter((id) => id !== playerId).map((id) => playerNameById.get(id) ?? 'Unknown player');
+    const side = court.team1PlayerIds.includes(playerId) ? court.team1PlayerIds : court.team2PlayerIds;
+    const lines = [`Court ${court.courtNumber}`, `Playing with/against ${otherNames.join(', ')}`];
+    if (isDynamicPairingFixedTeamSide(side, teams)) lines.push('Fixed team — a swap moves the whole team.');
+    if (courtHasResult(court)) {
+      return {
+        contextLines: lines,
+        swapDisabledReason: `Court ${court.courtNumber} already has a result. Reset it first (on the court card) to change its players.`,
+      };
+    }
+    return { contextLines: lines };
   }
 
   function teamLabel(playerIds: string[]) {
@@ -153,7 +133,7 @@ export function DynamicPairingCurrentRound({
             <h2>{round ? `Current Round — Round ${round.roundNumber}` : 'Current Round'}</h2>
             {round && (
               <span className={round.phase === 'grading' ? 'mode-badge tournament' : 'mode-badge social'}>
-                {roundPhaseLabel(round.phase)}
+                {roundPhaseLabel(round.phase, round.gradingMode)}
               </span>
             )}
           </div>
@@ -198,6 +178,7 @@ export function DynamicPairingCurrentRound({
                 renderTeam2={() => renderPlayerNames(court.team2PlayerIds)}
                 scoreMode={scoreRecordingMode}
                 onSetResult={(result) => onSetResult(court.courtNumber, result)}
+                onResetResult={() => onResetResult(court.courtNumber)}
               />
             ))}
           </div>
@@ -228,9 +209,24 @@ export function DynamicPairingCurrentRound({
           player={selectedPlayer}
           statusLabel={dynamicPairingAvailabilityLabel}
           contextLines={menuContextFor(selectedPlayer.id).contextLines}
-          replacement={menuContextFor(selectedPlayer.id).replacement}
+          onSwapPlayer={() => {
+            setSwapPlayerId(selectedPlayer.id);
+            setSelectedPlayerId(null);
+          }}
+          swapDisabledReason={menuContextFor(selectedPlayer.id).swapDisabledReason}
           onSetStatus={(status) => onSetAvailability(selectedPlayer.id, status)}
           onClose={() => setSelectedPlayerId(null)}
+        />
+      )}
+
+      {round && swapPlayerId && (
+        <DynamicPairingSwapDialog
+          round={round}
+          players={players}
+          playerId={swapPlayerId}
+          onPreview={onPreviewSwap}
+          onConfirm={onSwapPlayers}
+          onClose={() => setSwapPlayerId(null)}
         />
       )}
     </>
@@ -248,6 +244,23 @@ interface DynamicPairingCourtCardProps {
   renderTeam2: () => React.ReactNode;
   scoreMode: ScoreRecordingMode;
   onSetResult: (result: ResultSubmission) => void;
+  onResetResult: () => void;
+}
+
+// Shown once a court is scored in the current round — the supported way to
+// correct a result or free the court up for a player swap.
+function ResetResultButton({ courtNumber, onReset }: { courtNumber: number; onReset: () => void }) {
+  return (
+    <button
+      type="button"
+      className="secondary dp-reset-result"
+      onClick={() => {
+        if (window.confirm(`Reset the result for Court ${courtNumber}? You can then re-enter it or change its players.`)) onReset();
+      }}
+    >
+      Reset Result
+    </button>
+  );
 }
 
 function DynamicPairingCourtCard({
@@ -261,6 +274,7 @@ function DynamicPairingCourtCard({
   renderTeam2,
   scoreMode,
   onSetResult,
+  onResetResult,
 }: DynamicPairingCourtCardProps) {
   const [score1, setScore1] = useState(court.score1 != null ? String(court.score1) : '');
   const [score2, setScore2] = useState(court.score2 != null ? String(court.score2) : '');
@@ -298,6 +312,7 @@ function DynamicPairingCourtCard({
           locked={locked}
           onSubmit={onSetResult}
         />
+        {locked && <ResetResultButton courtNumber={court.courtNumber} onReset={onResetResult} />}
       </div>
     );
   }
@@ -366,6 +381,7 @@ function DynamicPairingCourtCard({
           Save Score
         </button>
       )}
+      {locked && <ResetResultButton courtNumber={court.courtNumber} onReset={onResetResult} />}
     </form>
   );
 }

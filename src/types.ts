@@ -54,6 +54,14 @@ export type PlayerAvailabilityStatus =
 // same as skillLevel/startingSeed below.
 export type PlayerGender = 'M' | 'F';
 
+// Dynamic Pairing Social only: an organiser's optional initial skill
+// grouping for grading rounds (see DynamicPairingSettings.useGradingDivisions
+// and the "Grading divisions" section of utils/dynamicPairingSocial.ts). A
+// starting point, not a ranking — once results exist, game-lag rankings
+// take over and players move freely. Unassigned entrants are treated as
+// 'intermediate'.
+export type GradingDivision = 'higher' | 'intermediate' | 'lower';
+
 export interface Player {
   id: string;
   name: string;
@@ -75,6 +83,9 @@ export interface Player {
   // localStorage data needs no migration: every reader falls back to 'M'
   // via getPlayerGender rather than requiring this to be backfilled.
   gender?: PlayerGender;
+  // Dynamic Pairing Social only — see GradingDivision above. Ignored for a
+  // fixed-team member (the team's own gradingDivision applies instead).
+  gradingDivision?: GradingDivision;
   // Dynamic Pairing Social only: an organiser-assigned rank (1 = strongest)
   // set *after* grading rounds finish, once the organiser has actually seen
   // players compete — see isGradingPhaseComplete in
@@ -145,7 +156,8 @@ export type SessionAdjustmentType =
   | 'team-split'
   | 'player-added-mid-session'
   | 'score-mode-changed'
-  | 'result-entered';
+  | 'result-entered'
+  | 'result-reset';
 
 export interface SessionAdjustment {
   id: string;
@@ -671,6 +683,10 @@ export interface DynamicPairingSettings {
   // See ScoreRecordingMode. Settings saved by an older version lack it —
   // useDynamicPairingSocial backfills 'full-score' on read.
   scoreRecordingMode: ScoreRecordingMode;
+  // Grading rounds group entrants by their GradingDivision instead of
+  // pairing at random — see generateRotationAwareGradingRound. Off by
+  // default; settings saved before this existed lack it and read as off.
+  useGradingDivisions?: boolean;
 }
 
 // Aggregated, per-game (not raw-total) stats for one player across the
@@ -826,6 +842,10 @@ export interface DynamicPairingRound {
   // Absent for a fair rotation (older saved rounds may carry a legacy
   // "fair rotation" string, hidden by visibleByeNote).
   byeFairnessNote?: string;
+  // Grading rounds only: whether this round was grouped by grading
+  // division ('divisions') or paired at random. Absent means random, which
+  // is how every round saved before divisions existed was built.
+  gradingMode?: 'random' | 'divisions';
   createdAt: number;
 }
 
@@ -845,6 +865,8 @@ export interface DynamicPairingTeam {
   rating?: number;
   seed?: number;
   skillLevel?: number;
+  // See GradingDivision — applies to the team as one entrant.
+  gradingDivision?: GradingDivision;
 }
 
 export type DynamicPairingEntrantType = 'individual-player' | 'fixed-team';
@@ -862,6 +884,7 @@ export interface DynamicPairingEntrant {
   seed?: number;
   skillLevel?: number;
   rating?: number;
+  gradingDivision?: GradingDivision;
 }
 
 // Conceptual shape of the whole session — documentation only, same as

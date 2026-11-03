@@ -1,0 +1,18 @@
+{
+  // Automated tests (npm test): compiles tests/ plus the pure logic they
+  // import to CommonJS in .test-build/, then runs them with Node's built-in
+  // test runner — no test framework dependency. App code stays under
+  // tsconfig.app.json.
+  "compilerOptions": {
+    "target": "es2022",
+    "module": "commonjs",
+    "moduleResolution": "node10",
+    "ignoreDeprecations": "6.0",
+    "outDir": ".test-build",
+    "rootDir": ".",
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["tests/**/*.ts"]
+}

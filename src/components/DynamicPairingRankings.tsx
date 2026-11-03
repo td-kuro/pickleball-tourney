@@ -7,6 +7,9 @@ interface DynamicPairingRankingsProps {
   teams: DynamicPairingTeam[];
   rounds: DynamicPairingRound[];
   scoreRecordingMode: ScoreRecordingMode;
+  // Grading divisions break ties (see EntrantRankingOptions) — the same
+  // rule round generation uses, so this table matches the pairing order.
+  useGradingDivisions?: boolean;
 }
 
 // Current standings — see calculateEntrantRankings in
@@ -22,7 +25,7 @@ interface DynamicPairingRankingsProps {
 // the organiser enters scores. Deliberately excludes pre-generated-but-
 // 'upcoming' rounds (see playedDynamicPairingRounds) — those haven't been
 // played yet, so they must not affect anyone's win/loss record.
-export function DynamicPairingRankings({ players, teams, rounds, scoreRecordingMode }: DynamicPairingRankingsProps) {
+export function DynamicPairingRankings({ players, teams, rounds, scoreRecordingMode, useGradingDivisions }: DynamicPairingRankingsProps) {
   const showPoints = scoreRecordingMode === 'full-score';
   if (players.length === 0) {
     return (
@@ -33,7 +36,7 @@ export function DynamicPairingRankings({ players, teams, rounds, scoreRecordingM
     );
   }
 
-  const rows = calculateEntrantRankings(players, teams, playedDynamicPairingRounds(rounds));
+  const rows = calculateEntrantRankings(players, teams, playedDynamicPairingRounds(rounds), { useGradingDivisions });
   const playerById = new Map(players.map((p) => [p.id, p]));
   // "New" badge: added mid-session and hasn't played a single game yet — see
   // usePlayers.addPlayerMidSession/section 3's "Neutral stats for new

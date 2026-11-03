@@ -105,7 +105,7 @@ export function DynamicPairingRestingPlayers({
   }
 
   // Excludes fixed-team sides (can't be split by a swap — see
-  // canSwapPlayerInDynamicPairingRound) and, on the resting side, any
+  // planDynamicPairingSwap) and, on the resting side, any
   // fixed-team member whose partner isn't also resting (swapping them in
   // alone would split the team just the same).
   const activeOptions = currentRound

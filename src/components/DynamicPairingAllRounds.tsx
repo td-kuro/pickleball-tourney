@@ -88,7 +88,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
               <div className="all-rounds-entry-heading">
                 <h3>Round {round.roundNumber}</h3>
                 <span className={STATUS_CLASS[round.status]}>{roundStatusLabel(round.status)}</span>
-                <span className="all-rounds-match-type">{roundPhaseLabel(round.phase)}</span>
+                <span className="all-rounds-match-type">{roundPhaseLabel(round.phase, round.gradingMode)}</span>
               </div>
               {round.status === 'pending-results' ? (
                 <p className="all-rounds-byes">Pairing basis: {rankingBasisLabel(round)}</p>

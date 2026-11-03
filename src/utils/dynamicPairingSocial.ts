@@ -11,9 +11,10 @@
 // - Rest selection (selectRestingPlayers) is a pure fairness queue based
 //   on how many times each player has already sat out — it never looks at
 //   ranking.
-// - Court/partnership allocation (allocatePlayersToCourts,
-//   createBalancedPartnerships) only runs on whoever is left *after* both
-//   of the above have already been decided.
+// - Court/partnership allocation (applyCourtMovementLimit for the
+//   preferred arrangement, then the "Court arrangement search") only runs
+//   on whoever is left *after* both of the above have already been
+//   decided.
 //
 // Gender-aware pairing (see "Gender-aware pairing" below) is a soft
 // preference layered *inside* that third step, never a fourth independent
@@ -35,6 +36,7 @@ import type {
   DynamicPairingRoundStatus,
   DynamicPairingSettings,
   DynamicPairingTeam,
+  GradingDivision,
   Player,
   PlayerAvailabilityStatus,
   PlayerGender,
@@ -45,7 +47,7 @@ import type {
 // from utils/tournament.ts/pairing.ts/poolsKnockout.ts/kingCourt.ts holds.
 import { lastByeRoundWithAbsence, playersForFutureRounds, teamByeAdjustment } from './availability';
 import { CONSECUTIVE_BYE_NOTE, selectFairByes, type ByeCandidate } from './byeSelection';
-import { hasAnyResult, resolveWinner } from './results';
+import { hasAnyResult, normalizeScoreRecordingMode, resolveWinner } from './results';
 
 // --- Capacity ---------------------------------------------------------
 
@@ -183,8 +185,8 @@ function emptyStats(playerId: string): DynamicPairingPlayerStats {
 // Records one court's participants into the running partner/opponent
 // history — called once per court, per round, regardless of whether that
 // court has been scored yet (partnership/opponent *variety* should account
-// for "who played with/against whom", not just "who won") — see
-// createBalancedPartnerships, which reads this history back.
+// for "who played with/against whom", not just "who won") — see the
+// "Court arrangement search", which reads this history back.
 export function updatePartnerOpponentHistory(
   statsById: Map<string, DynamicPairingPlayerStats>,
   court: DynamicPairingCourtAssignment,
@@ -429,8 +431,8 @@ export function calculatePlayerRankings(players: Player[], rounds: DynamicPairin
 // either member's stats, with no separate stats-storage type needed. This
 // also means partner/opponent history (keyed by physical player id) still
 // correctly reflects which *physical players* have faced each other,
-// regardless of team structure — createBalancedPartnerships-style
-// repeat-avoidance keeps working unmodified at the entrant layer.
+// regardless of team structure — the court arrangement search's
+// repeat-avoidance works unmodified at the entrant layer.
 //
 // An "entrant" (DynamicPairingEntrant) is the derived, display/ranking-
 // facing unit: one individual player, or one fixed team. Entrants are
@@ -459,6 +461,7 @@ export function buildDynamicPairingEntrants(players: Player[], teams: DynamicPai
       seed: p.startingSeed,
       skillLevel: p.skillLevel,
       rating: p.rating,
+      gradingDivision: p.gradingDivision,
     }));
   const teamEntrants: DynamicPairingEntrant[] = teams.map((t) => ({
     id: t.id,
@@ -468,6 +471,7 @@ export function buildDynamicPairingEntrants(players: Player[], teams: DynamicPai
     seed: t.seed,
     skillLevel: t.skillLevel,
     rating: t.rating,
+    gradingDivision: t.gradingDivision,
   }));
   return [...individualEntrants, ...teamEntrants];
 }
@@ -789,12 +793,12 @@ export function shouldUseGenderAwarePairing(activePlayers: Player[]): boolean {
   return activePlayers.filter((p) => getPlayerGender(p) === 'F').length >= 2;
 }
 
-// Small additive bonus/penalty folded into scorePartnershipOption/
-// buildGradingCandidate's existing "lower is better" penalty score — see
+// Small additive bonus/penalty folded into the court arrangement search's
+// and buildGradingCandidate's "lower is better" penalty scores — see
 // the file header's "Gender-aware pairing" note on why this can never
-// outweigh a real fairness difference: every existing penalty weight here
-// (REPEAT_PARTNER_PENALTY=100, OPPONENT_HISTORY_WEIGHT=5, ...) is at least
-// an order of magnitude larger than this term's full 0-3 spread, so gender
+// outweigh a real fairness difference: every other penalty weight there
+// (SIDE_IMBALANCE_PENALTY=10 and up, REPEAT_PARTNER_PENALTY=100, ...) is
+// larger than this term's full 0-3 spread, so gender
 // preference only ever breaks a genuine tie between otherwise-equal
 // candidates, exactly as the design brief's priority order requires
 // (mixed preferred over gendered, gendered over standard — see
@@ -810,79 +814,6 @@ function genderPreferenceScore(type: MatchGenderType): number {
     case 'standard':
       return 3;
   }
-}
-
-// --- Partnerships ----------------------------------------------------------
-
-export interface PartnershipOption {
-  team1: [string, string];
-  team2: [string, string];
-}
-
-// Lower score = more desirable. Penalises (in priority order, heaviest
-// first): repeating the exact same partner as the previous round,
-// cumulative partner-history repeats, cumulative opponent-history repeats
-// (a proxy for "have these two pairs already played this exact match" — if
-// they have, every cross-pair opponent count will be elevated), and —
-// lightest of all, see genderPreferenceScore — how well this option's
-// resulting match classifies under gender-aware pairing, only ever applied
-// when `genderAware` is true (see shouldUseGenderAwarePairing). Passing
-// `genderAware: false` (or omitting `playersById`) reproduces this
-// function's exact pre-gender-aware-pairing behaviour, so every existing
-// caller/session is unaffected until 2+ active female players make it
-// relevant.
-export function scorePartnershipOption(
-  option: PartnershipOption,
-  statsById: Map<string, DynamicPairingPlayerStats>,
-  previousRoundPartnerById: Map<string, string>,
-  playersById?: Map<string, Player>,
-  genderAware = false,
-): number {
-  const REPEAT_PREVIOUS_PARTNER_WEIGHT = 1000;
-  const PARTNER_HISTORY_WEIGHT = 10;
-  const OPPONENT_HISTORY_WEIGHT = 5;
-  let score = 0;
-
-  for (const [a, b] of [option.team1, option.team2]) {
-    if (previousRoundPartnerById.get(a) === b) score += REPEAT_PREVIOUS_PARTNER_WEIGHT;
-    score += (statsById.get(a)?.partnerHistory[b] ?? 0) * PARTNER_HISTORY_WEIGHT;
-  }
-  for (const a of option.team1) {
-    for (const b of option.team2) {
-      score += (statsById.get(a)?.opponentHistory[b] ?? 0) * OPPONENT_HISTORY_WEIGHT;
-    }
-  }
-  if (genderAware && playersById) {
-    score += genderPreferenceScore(getMatchGenderType(option.team1, option.team2, playersById));
-  }
-  return score;
-}
-
-// Splits one court's group of 4 (already ranked best-to-worst within the
-// group) into balanced teams. Only two splits are ever considered:
-// 1st+4th vs 2nd+3rd (the default — the most balanced possible split of a
-// ranked quad) or 1st+3rd vs 2nd+4th (the alternative, used when it scores
-// better on variety without sacrificing balance, or — once `genderAware`
-// applies, see shouldUseGenderAwarePairing — on gender classification
-// without sacrificing either). 1st+2nd vs 3rd+4th is deliberately never
-// considered — it's the least balanced possible split of the four, and the
-// brief puts competitive balance ahead of variety (and, by the same
-// reasoning, ahead of gender preference too).
-export function createBalancedPartnerships(
-  courtGroupPlayerIds: string[],
-  statsById: Map<string, DynamicPairingPlayerStats>,
-  previousRoundPartnerById: Map<string, string>,
-  playersById?: Map<string, Player>,
-  genderAware = false,
-): { team1: string[]; team2: string[] } {
-  const [r1, r2, r3, r4] = courtGroupPlayerIds;
-  const optionA: PartnershipOption = { team1: [r1, r4], team2: [r2, r3] };
-  const optionB: PartnershipOption = { team1: [r1, r3], team2: [r2, r4] };
-
-  const scoreA = scorePartnershipOption(optionA, statsById, previousRoundPartnerById, playersById, genderAware);
-  const scoreB = scorePartnershipOption(optionB, statsById, previousRoundPartnerById, playersById, genderAware);
-  const chosen = scoreA <= scoreB ? optionA : optionB;
-  return { team1: chosen.team1, team2: chosen.team2 };
 }
 
 // --- Entrant ranking -----------------------------------------------------
@@ -919,18 +850,28 @@ export interface RankedEntrant {
   rank: number;
 }
 
+// Optional ranking inputs, off unless the session uses them.
+export interface EntrantRankingOptions {
+  // Grading divisions break ties after skill level and before seed (see
+  // DynamicPairingSettings.useGradingDivisions). They only ever separate
+  // entrants with identical results — common early on, and especially with
+  // Win/Loss-only scoring, where there are no point differentials.
+  useGradingDivisions?: boolean;
+}
+
 // Same ranking priority/order as sortPlayersByRanking (see that function's
 // comment) — win % → avg point differential → avg points scored → head-to-
-// head → skill level → seed → previous rank → stable tiebreak — just keyed
-// by entrant id instead of player id. `statsById` supplies each entrant's
-// representative stats (see calculateEntrantRankings: either the
-// individual's own stats, or a fixed team's — either member's, since both
-// are identical by construction).
+// head → skill level → [grading division, when enabled] → seed → previous
+// rank → stable tiebreak — just keyed by entrant id instead of player id.
+// `statsById` supplies each entrant's representative stats (see
+// calculateEntrantRankings: either the individual's own stats, or a fixed
+// team's — either member's, since both are identical by construction).
 export function sortEntrantsByRanking(
   entrants: DynamicPairingEntrant[],
   statsById: Map<string, DynamicPairingPlayerStats>,
   rounds: DynamicPairingRound[],
   previousRankById: Map<string, number>,
+  options: EntrantRankingOptions = {},
 ): RankedEntrant[] {
   const rows = entrants.map((entrant) => ({ entrant, stats: statsById.get(entrant.id) ?? emptyStats(entrant.id) }));
 
@@ -947,6 +888,11 @@ export function sortEntrantsByRanking(
     const skillA = a.entrant.skillLevel ?? Infinity;
     const skillB = b.entrant.skillLevel ?? Infinity;
     if (skillA !== skillB) return skillA - skillB;
+    if (options.useGradingDivisions) {
+      const divisionA = gradingDivisionLevel(a.entrant.gradingDivision);
+      const divisionB = gradingDivisionLevel(b.entrant.gradingDivision);
+      if (divisionA !== divisionB) return divisionA - divisionB;
+    }
     const seedA = a.entrant.seed ?? Infinity;
     const seedB = b.entrant.seed ?? Infinity;
     if (seedA !== seedB) return seedA - seedB;
@@ -968,6 +914,7 @@ export function calculateEntrantRankings(
   players: Player[],
   teams: DynamicPairingTeam[],
   rounds: DynamicPairingRound[],
+  options: EntrantRankingOptions = {},
 ): RankedEntrant[] {
   const entrants = buildDynamicPairingEntrants(players, teams);
   const sortedRounds = [...rounds].sort((a, b) => a.roundNumber - b.roundNumber);
@@ -982,7 +929,7 @@ export function calculateEntrantRankings(
     const entrantStatsById = new Map(
       entrants.map((e) => [e.id, playerStatsById.get(e.playerIds[0]) ?? emptyStats(e.playerIds[0])]),
     );
-    const ranked = sortEntrantsByRanking(entrants, entrantStatsById, roundsSoFar, previousRankById);
+    const ranked = sortEntrantsByRanking(entrants, entrantStatsById, roundsSoFar, previousRankById, options);
     latest = ranked.map((row) => ({
       ...row,
       stats: { ...row.stats, previousRank: previousRankById.get(row.entrant.id) ?? null, currentRank: row.rank },
@@ -1013,6 +960,7 @@ export function calculateDynamicPairingRankingForRound(
   completedRounds: DynamicPairingRound[],
   targetRoundNumber: number,
   rankingLagRounds: number,
+  options: EntrantRankingOptions = {},
 ): { ranking: RankedEntrant[]; basis: DynamicPairingRankingBasis } {
   const lag = Math.max(0, rankingLagRounds);
   const maxIncludedRoundNumber = targetRoundNumber - 1 - lag;
@@ -1020,7 +968,7 @@ export function calculateDynamicPairingRankingForRound(
     .filter((r) => r.roundNumber <= maxIncludedRoundNumber)
     .sort((a, b) => a.roundNumber - b.roundNumber);
 
-  const ranking = calculateEntrantRankings(players, teams, includedRounds);
+  const ranking = calculateEntrantRankings(players, teams, includedRounds, options);
   const isBaseline = includedRounds.length === 0;
   const basis: DynamicPairingRankingBasis = {
     type: isBaseline ? 'baseline' : 'lagged-results',
@@ -1042,7 +990,11 @@ export function rankingBasisLabel(round: DynamicPairingRound): string {
     const required = round.rankingBasis?.requiredCompletedRoundNumber;
     return required != null ? `Waiting for Round ${required} results` : 'Waiting for more completed rounds';
   }
-  if (round.phase === 'grading') return 'Random grading — no ranking data yet';
+  if (round.phase === 'grading') {
+    return round.gradingMode === 'divisions'
+      ? 'Grouped by grading division — no ranking data yet'
+      : 'Random grading — no ranking data yet';
+  }
   const basis = round.rankingBasis;
   if (!basis) return 'Pairing basis unavailable (round generated before this feature existed)';
   if (basis.type === 'baseline') {
@@ -1053,6 +1005,497 @@ export function rankingBasisLabel(round: DynamicPairingRound): string {
   return `Results from Round${nums.length === 1 ? '' : 's'} ${range}`;
 }
 
+// --- Grading divisions ---------------------------------------------------
+// See GradingDivision in ../types.ts. Levels are only ever compared with
+// each other (court spread, side balance, ranking tiebreak), so the exact
+// numbers don't matter beyond their order. Unassigned reads as the middle
+// division, the least surprising place for someone the organiser hasn't
+// placed yet.
+
+export const GRADING_DIVISIONS: GradingDivision[] = ['higher', 'intermediate', 'lower'];
+
+export function gradingDivisionLevel(division: GradingDivision | undefined): number {
+  if (division === 'higher') return 0;
+  if (division === 'lower') return 2;
+  return 1;
+}
+
+export function gradingDivisionLabel(division: GradingDivision | undefined): string {
+  switch (division) {
+    case 'higher':
+      return 'Higher';
+    case 'intermediate':
+      return 'Intermediate';
+    case 'lower':
+      return 'Lower';
+    default:
+      return 'Unassigned';
+  }
+}
+
+// --- Court arrangement search -------------------------------------------
+// Decides which entrants share a court and how each court splits into two
+// sides, for every ranking round and every division-based grading round.
+// Ranking rounds used to fill courts straight from adjacent ranks and only
+// ever choose between two partner splits, never consulting opponent history
+// — so whenever rankings barely moved between rounds (routine with
+// Win/Loss-only scoring, where every point differential is 0 and ties fall
+// through to deterministic tiebreakers), the same groups of four re-formed
+// round after round and players met the same opponents back to back.
+//
+// The search starts from the preferred arrangement (ranking order, already
+// clamped by the court movement limit; or division order for grading) and
+// improves it with entrant swaps between courts, scoring every candidate
+// with the penalties below. Each weight dwarfs the ones under it, so the
+// order is the README's "Pairing priorities": rest and fixed-team
+// constraints are already settled before this runs, then
+//   1. no opponent from the immediately previous round,
+//   2. no repeat opponent until each entrant's rotation is complete,
+//   3. no partner from the immediately previous round,
+//   4. balance: the movement limit, cumulative partner variety, staying near
+//      the ranked court, division spread, even sides,
+//   5. mixed/gendered games (see genderPreferenceScore).
+// A repeat is only chosen when no arrangement within reach avoids it.
+const CONSECUTIVE_OPPONENT_PENALTY = 1_000_000;
+const ROTATION_OPPONENT_PENALTY = 10_000;
+const CONSECUTIVE_PARTNER_PENALTY = 3_000;
+const MOVEMENT_LIMIT_PENALTY = 600;
+const PARTNER_HISTORY_PENALTY = 300;
+const COURT_DISPLACEMENT_PENALTY = 100;
+const REPEAT_OPPONENT_AFTER_ROTATION_PENALTY = 50;
+const DIVISION_SPREAD_PENALTY = 40;
+const SIDE_IMBALANCE_PENALTY = 10;
+const ARRANGEMENT_RESTARTS = 16;
+const ARRANGEMENT_MAX_IMPROVEMENTS = 500;
+const BALANCE_FIRST_SCALE = 1_000;
+
+function pairKey(a: string, b: string): string {
+  return a < b ? `${a}|${b}` : `${b}|${a}`;
+}
+
+// Who faced and who partnered whom in one round, as player-pair keys — the
+// "consecutive round" check reads the round immediately before the one
+// being built, whether that round is played or only saved as upcoming.
+export function roundEncounterKeys(round: DynamicPairingRound | undefined): {
+  opponents: Set<string>;
+  partners: Set<string>;
+} {
+  const opponents = new Set<string>();
+  const partners = new Set<string>();
+  for (const court of round?.courts ?? []) {
+    for (const side of [court.team1PlayerIds, court.team2PlayerIds]) {
+      if (side.length === 2) partners.add(pairKey(side[0], side[1]));
+    }
+    for (const a of court.team1PlayerIds) {
+      for (const b of court.team2PlayerIds) opponents.add(pairKey(a, b));
+    }
+  }
+  return { opponents, partners };
+}
+
+// Everything the search scores against, precomputed once per round as
+// index-keyed arrays — a candidate is scored with lookups only, which keeps
+// a 12-court session fast on a phone.
+interface ArrangementModel {
+  entrants: DynamicPairingEntrant[];
+  // Physical players per entrant: 1 (individual) or 2 (fixed team).
+  size: number[];
+  // n×n: cost of entrants i and j facing each other this round.
+  opponentCost: Float64Array;
+  // n×n: cost of individuals i and j partnering each other this round.
+  partnerCost: Float64Array;
+  // Side-balance strength per entrant (rank position or division level),
+  // lower is stronger.
+  strength: number[];
+  females: number[];
+  genderAware: boolean;
+  courtBalance: (court: number[], courtIndex: number) => number;
+}
+
+export interface ArrangedCourt {
+  side1: DynamicPairingEntrant[];
+  side2: DynamicPairingEntrant[];
+}
+
+// Builds the model: cumulative history from the whole chain so far (played
+// rounds plus saved upcoming ones — see extendDynamicPairingLookahead), the
+// immediately previous round's encounters, and rotation completeness over
+// every eligible entrant (resting ones included).
+function buildArrangementModel(params: {
+  entrants: DynamicPairingEntrant[];
+  eligibleEntrants: DynamicPairingEntrant[];
+  priorRounds: DynamicPairingRound[];
+  playerStatsById: Map<string, DynamicPairingPlayerStats>;
+  playersById: Map<string, Player>;
+  genderAware: boolean;
+  strengthById: Map<string, number>;
+  courtBalance: (court: number[], courtIndex: number) => number;
+}): ArrangementModel {
+  const { entrants, playerStatsById } = params;
+  const n = entrants.length;
+  const { opponents: lastOpponents, partners: lastPartners } = roundEncounterKeys(
+    params.priorRounds[params.priorRounds.length - 1],
+  );
+  const rotationComplete = entrants.map((e) => hasCompletedOpponentRotation(e, params.eligibleEntrants, playerStatsById));
+  const opponentCost = new Float64Array(n * n);
+  const partnerCost = new Float64Array(n * n);
+
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      const a = entrants[i];
+      const b = entrants[j];
+      let metLastRound = false;
+      let met = 0;
+      for (const p of a.playerIds) {
+        for (const q of b.playerIds) {
+          if (lastOpponents.has(pairKey(p, q))) metLastRound = true;
+          met = Math.max(met, playerStatsById.get(p)?.opponentHistory[q] ?? 0);
+        }
+      }
+      let cost = metLastRound ? CONSECUTIVE_OPPONENT_PENALTY : 0;
+      if (met > 0) {
+        cost += met * (rotationComplete[i] && rotationComplete[j] ? REPEAT_OPPONENT_AFTER_ROTATION_PENALTY : ROTATION_OPPONENT_PENALTY);
+      }
+      opponentCost[i * n + j] = opponentCost[j * n + i] = cost;
+
+      // Partner rotation only applies to a temporary pairing of two
+      // individuals — a fixed team "repeats" its partnership by definition.
+      if (a.playerIds.length === 1 && b.playerIds.length === 1) {
+        const [p, q] = [a.playerIds[0], b.playerIds[0]];
+        const partner =
+          (lastPartners.has(pairKey(p, q)) ? CONSECUTIVE_PARTNER_PENALTY : 0) +
+          (playerStatsById.get(p)?.partnerHistory[q] ?? 0) * PARTNER_HISTORY_PENALTY;
+        partnerCost[i * n + j] = partnerCost[j * n + i] = partner;
+      }
+    }
+  }
+
+  return {
+    entrants,
+    size: entrants.map((e) => e.playerIds.length),
+    opponentCost,
+    partnerCost,
+    strength: entrants.map((e) => params.strengthById.get(e.id) ?? 0),
+    females: entrants.map((e) => e.playerIds.filter((id) => getPlayerGender(params.playersById.get(id)) === 'F').length),
+    genderAware: params.genderAware,
+    courtBalance: params.courtBalance,
+  };
+}
+
+// Mirrors getMatchGenderType from each side's female count (both sides
+// always have 2 physical players).
+function genderScoreForSides(females1: number, females2: number): number {
+  if (females1 === 1 && females2 === 1) return genderPreferenceScore('mixed');
+  if ((females1 === 0 || females1 === 2) && (females2 === 0 || females2 === 2)) return genderPreferenceScore('gendered-mm-vs-mm');
+  return genderPreferenceScore('standard');
+}
+
+function splitCost(side1: number[], side2: number[], model: ArrangementModel): number {
+  const n = model.entrants.length;
+  let cost = 0;
+  let strength1 = 0;
+  let strength2 = 0;
+  let females1 = 0;
+  let females2 = 0;
+  for (const a of side1) {
+    for (const b of side2) cost += model.opponentCost[a * n + b];
+    strength1 += model.strength[a] * model.size[a];
+    females1 += model.females[a];
+  }
+  for (const b of side2) {
+    strength2 += model.strength[b] * model.size[b];
+    females2 += model.females[b];
+  }
+  if (side1.length === 2) cost += model.partnerCost[side1[0] * n + side1[1]];
+  if (side2.length === 2) cost += model.partnerCost[side2[0] * n + side2[1]];
+  cost += Math.abs(strength1 - strength2) * SIDE_IMBALANCE_PENALTY;
+  if (model.genderAware) cost += genderScoreForSides(females1, females2);
+  return cost;
+}
+
+// Every valid way to split one court into two doubles sides. A fixed team
+// is always a side on its own; four individuals can split three ways,
+// listed most-balanced first for a ranked group (1+4 v 2+3, 1+3 v 2+4,
+// 1+2 v 3+4) so ties keep the old preference.
+function bestCourtSplit(court: number[], courtIndex: number, model: ArrangementModel): { split: [number[], number[]]; cost: number } {
+  const teams = court.filter((i) => model.size[i] === 2);
+  const singles = court.filter((i) => model.size[i] === 1);
+  let splits: [number[], number[]][];
+  if (teams.length === 2 && singles.length === 0) splits = [[[teams[0]], [teams[1]]]];
+  else if (teams.length === 1 && singles.length === 2) splits = [[[teams[0]], singles]];
+  else if (teams.length === 0 && singles.length === 4) {
+    const [a, b, c, d] = singles;
+    splits = [
+      [[a, d], [b, c]],
+      [[a, c], [b, d]],
+      [[a, b], [c, d]],
+    ];
+  } else return { split: [[], []], cost: Infinity };
+
+  let best = splits[0];
+  let bestCost = splitCost(best[0], best[1], model);
+  for (let k = 1; k < splits.length; k++) {
+    const cost = splitCost(splits[k][0], splits[k][1], model);
+    if (cost < bestCost) {
+      best = splits[k];
+      bestCost = cost;
+    }
+  }
+  return { split: best, cost: bestCost + model.courtBalance(court, courtIndex) };
+}
+
+// Every size-preserving exchange between two courts: individual for
+// individual, team for team, or a team for a pair of individuals — so each
+// court always keeps exactly four physical players.
+function courtSwapMoves(a: number[], b: number[], model: ArrangementModel): [number[], number[]][] {
+  const moves: [number[], number[]][] = [];
+  const without = (list: number[], out: number[]) => list.filter((e) => !out.includes(e));
+  const pairsOf = (list: number[]) => {
+    const singles = list.filter((e) => model.size[e] === 1);
+    const pairs: number[][] = [];
+    for (let i = 0; i < singles.length; i++) for (let j = i + 1; j < singles.length; j++) pairs.push([singles[i], singles[j]]);
+    return pairs;
+  };
+  for (const x of a) {
+    for (const y of b) {
+      if (model.size[x] === model.size[y]) moves.push([[...without(a, [x]), y], [...without(b, [y]), x]]);
+    }
+  }
+  for (const team of a.filter((e) => model.size[e] === 2)) {
+    for (const pair of pairsOf(b)) moves.push([[...without(a, [team]), ...pair], [...without(b, pair), team]]);
+  }
+  for (const team of b.filter((e) => model.size[e] === 2)) {
+    for (const pair of pairsOf(a)) moves.push([[...without(a, pair), team], [...without(b, [team]), ...pair]]);
+  }
+  return moves;
+}
+
+function climbArrangement(start: number[][], model: ArrangementModel): { courts: number[][]; cost: number } {
+  const courts = start.map((c) => [...c]);
+  const costs = courts.map((c, i) => bestCourtSplit(c, i, model).cost);
+  // Sweeps every court pair in turn, applying each improving exchange as
+  // it's found, until a full sweep finds nothing left to improve.
+  let improvements = 0;
+  let improvedThisSweep = true;
+  while (improvedThisSweep && improvements < ARRANGEMENT_MAX_IMPROVEMENTS) {
+    improvedThisSweep = false;
+    for (let i = 0; i < courts.length; i++) {
+      for (let j = i + 1; j < courts.length; j++) {
+        let improvedPair = true;
+        while (improvedPair && improvements < ARRANGEMENT_MAX_IMPROVEMENTS) {
+          improvedPair = false;
+          for (const [nextI, nextJ] of courtSwapMoves(courts[i], courts[j], model)) {
+            const costI = bestCourtSplit(nextI, i, model).cost;
+            const costJ = bestCourtSplit(nextJ, j, model).cost;
+            if (costI + costJ < costs[i] + costs[j] - 1e-9) {
+              courts[i] = nextI;
+              courts[j] = nextJ;
+              costs[i] = costI;
+              costs[j] = costJ;
+              improvements += 1;
+              improvedPair = true;
+              improvedThisSweep = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+  return { courts, cost: costs.reduce((sum, c) => sum + c, 0) };
+}
+
+// The part of an arrangement's cost that comes from repeat opponents or
+// partners.
+function repeatPenalty(courts: number[][], model: ArrangementModel): number {
+  const n = model.entrants.length;
+  let total = 0;
+  courts.forEach((court, i) => {
+    const [side1, side2] = bestCourtSplit(court, i, model).split;
+    for (const a of side1) for (const b of side2) total += model.opponentCost[a * n + b];
+    for (const side of [side1, side2]) if (side.length === 2) total += model.partnerCost[side[0] * n + side[1]];
+  });
+  return total;
+}
+
+// Random entrant exchanges between courts, to restart the climb from
+// somewhere other than the preferred arrangement (escaping local minima).
+function perturbArrangement(start: number[][], swaps: number, model: ArrangementModel): number[][] {
+  const courts = start.map((c) => [...c]);
+  if (courts.length < 2) return courts;
+  for (let k = 0; k < swaps; k++) {
+    const i = Math.floor(random() * courts.length);
+    let j = Math.floor(random() * (courts.length - 1));
+    if (j >= i) j += 1;
+    const moves = courtSwapMoves(courts[i], courts[j], model);
+    if (moves.length === 0) continue;
+    [courts[i], courts[j]] = moves[Math.floor(random() * moves.length)];
+  }
+  return courts;
+}
+
+// Climbs from the preferred arrangement and from a few randomised starting
+// points (`restartFrom`), keeping the cheapest result. Each climb runs in
+// two stages: first with balance weighted far above its usual cost, so
+// repeats get fixed by moves that keep courts balanced wherever such moves
+// exist (e.g. re-pairing within a division), then with the real weights,
+// so balance is only traded away for the repeats that are left. The
+// preferred arrangement wins every tie, so a round with nothing to fix
+// comes out exactly as ranking/division order intended.
+function optimiseCourtArrangement(
+  preferred: number[][],
+  model: ArrangementModel,
+  restartFrom: (attempt: number) => number[][],
+): ArrangedCourt[] {
+  const balanceFirst: ArrangementModel = {
+    ...model,
+    courtBalance: (court, courtIndex) => model.courtBalance(court, courtIndex) * BALANCE_FIRST_SCALE,
+  };
+  const climb = (start: number[][]) => climbArrangement(climbArrangement(start, balanceFirst).courts, model);
+  const balanceOf = (courts: number[][]) => courts.reduce((sum, court, i) => sum + model.courtBalance(court, i), 0);
+  const preferredBalance = balanceOf(preferred);
+  let best = climb(preferred);
+  // Restarts are only worth it while something is still compromised: a
+  // repeat remains, or balance was given up to avoid one.
+  const compromised = () => repeatPenalty(best.courts, model) > 0 || balanceOf(best.courts) > preferredBalance + 1e-9;
+  for (let attempt = 0; attempt < ARRANGEMENT_RESTARTS && compromised(); attempt++) {
+    const candidate = climb(restartFrom(attempt));
+    if (candidate.cost < best.cost - 1e-9) best = candidate;
+  }
+  return best.courts.map((court, i) => {
+    const [side1, side2] = bestCourtSplit(court, i, model).split;
+    return { side1: side1.map((k) => model.entrants[k]), side2: side2.map((k) => model.entrants[k]) };
+  });
+}
+
+// Ranking rounds: `preferredCourts` is the ranking-ordered arrangement
+// (court 1 strongest), already clamped by the movement limit for the
+// individual-only path. Moving an entrant away from its preferred court
+// costs COURT_DISPLACEMENT_PENALTY per court per player; breaking the
+// organiser's movement limit costs MOVEMENT_LIMIT_PENALTY per court over.
+export function arrangeRankingCourts(params: {
+  preferredCourts: DynamicPairingEntrant[][];
+  rankPositionById: Map<string, number>;
+  eligibleEntrants: DynamicPairingEntrant[];
+  priorRounds: DynamicPairingRound[];
+  playerStatsById: Map<string, DynamicPairingPlayerStats>;
+  previousCourtByPlayerId: Map<string, number>;
+  maxCourtMovement: CourtMovementLimit;
+  playersById: Map<string, Player>;
+  genderAware: boolean;
+}): ArrangedCourt[] {
+  const entrants = params.preferredCourts.flat();
+  const cap = params.maxCourtMovement === 'max-1' ? 1 : params.maxCourtMovement === 'max-2' ? 2 : Infinity;
+  const courtCount = params.preferredCourts.length;
+  // balance[i * courtCount + c]: cost of entrant i playing on court index c.
+  const balance = new Float64Array(entrants.length * courtCount);
+  let index = 0;
+  params.preferredCourts.forEach((court, preferredIndex) => {
+    for (const e of court) {
+      for (let c = 0; c < courtCount; c++) {
+        let cost = Math.abs(c - preferredIndex) * COURT_DISPLACEMENT_PENALTY * e.playerIds.length;
+        for (const playerId of e.playerIds) {
+          const previous = params.previousCourtByPlayerId.get(playerId);
+          if (previous != null) cost += Math.max(0, Math.abs(c + 1 - previous) - cap) * MOVEMENT_LIMIT_PENALTY;
+        }
+        balance[index * courtCount + c] = cost;
+      }
+      index += 1;
+    }
+  });
+
+  const model = buildArrangementModel({
+    entrants,
+    eligibleEntrants: params.eligibleEntrants,
+    priorRounds: params.priorRounds,
+    playerStatsById: params.playerStatsById,
+    playersById: params.playersById,
+    genderAware: params.genderAware,
+    strengthById: params.rankPositionById,
+    courtBalance: (court, courtIndex) => court.reduce((sum, i) => sum + balance[i * courtCount + courtIndex], 0),
+  });
+  let next = 0;
+  const preferred = params.preferredCourts.map((court) => court.map(() => next++));
+  return optimiseCourtArrangement(preferred, model, (attempt) => perturbArrangement(preferred, 2 + attempt, model));
+}
+
+// Division-based grading rounds: entrants start grouped by division
+// (higher first, shuffled within each division) and the search keeps each
+// court's division spread small while avoiding repeats — so courts stay
+// within one division whenever player counts and history allow, and mix
+// only neighbouring divisions when they must. Courts are then numbered
+// strongest division first.
+export function arrangeDivisionGradingCourts(params: {
+  activeEntrants: DynamicPairingEntrant[];
+  courtsUsed: number;
+  eligibleEntrants: DynamicPairingEntrant[];
+  priorRounds: DynamicPairingRound[];
+  playerStatsById: Map<string, DynamicPairingPlayerStats>;
+  playersById: Map<string, Player>;
+  genderAware: boolean;
+}): { courts: ArrangedCourt[]; unplacedEntrantIds: string[] } {
+  const entrants = params.activeEntrants;
+  const indexById = new Map(entrants.map((e, i) => [e.id, i]));
+  const levels = entrants.map((e) => gradingDivisionLevel(e.gradingDivision));
+  const divisionOrder = () => [0, 1, 2].flatMap((level) => shuffle(entrants.filter((_, i) => levels[i] === level)));
+  const toCourts = (ordered: DynamicPairingEntrant[]) => {
+    const { sides } = buildSidesFromRankedEntrants(ordered);
+    return groupSidesIntoCourts(sides, params.courtsUsed).map((court) =>
+      [...entrantIdsForSide(court, 1), ...entrantIdsForSide(court, 2)].map((id) => indexById.get(id)!),
+    );
+  };
+
+  const model = buildArrangementModel({
+    entrants,
+    eligibleEntrants: params.eligibleEntrants,
+    priorRounds: params.priorRounds,
+    playerStatsById: params.playerStatsById,
+    playersById: params.playersById,
+    genderAware: params.genderAware,
+    strengthById: new Map(entrants.map((e, i) => [e.id, levels[i]])),
+    courtBalance: (court) => {
+      let min = Infinity;
+      let max = -Infinity;
+      for (const i of court) {
+        min = Math.min(min, levels[i]);
+        max = Math.max(max, levels[i]);
+      }
+      return (max - min) * (max - min) * DIVISION_SPREAD_PENALTY;
+    },
+  });
+
+  const courts = optimiseCourtArrangement(toCourts(divisionOrder()), model, () => toCourts(divisionOrder()));
+  const averageLevel = (court: ArrangedCourt) => {
+    const all = [...court.side1, ...court.side2];
+    const players = all.reduce((sum, e) => sum + e.playerIds.length, 0);
+    return all.reduce((sum, e) => sum + gradingDivisionLevel(e.gradingDivision) * e.playerIds.length, 0) / Math.max(1, players);
+  };
+  const placed = new Set(courts.flatMap((c) => [...c.side1, ...c.side2]).map((e) => e.id));
+  return {
+    courts: [...courts].sort((a, b) => averageLevel(a) - averageLevel(b)),
+    unplacedEntrantIds: entrants.filter((e) => !placed.has(e.id)).map((e) => e.id),
+  };
+}
+
+function arrangedCourtToAssignment(
+  court: ArrangedCourt,
+  courtNumber: number,
+  withEntrantIds: boolean,
+): DynamicPairingCourtAssignment {
+  const team1PlayerIds = court.side1.flatMap((e) => e.playerIds);
+  const team2PlayerIds = court.side2.flatMap((e) => e.playerIds);
+  return {
+    courtNumber,
+    playerIds: [...team1PlayerIds, ...team2PlayerIds],
+    team1PlayerIds,
+    team2PlayerIds,
+    ...(withEntrantIds
+      ? { team1EntrantIds: court.side1.map((e) => e.id), team2EntrantIds: court.side2.map((e) => e.id) }
+      : {}),
+    status: 'pending',
+  };
+}
+
 // --- Round generation --------------------------------------------------
 
 let idCounter = 0;
@@ -1061,17 +1504,34 @@ function makeDynamicPairingId(prefix: string): string {
   return `dp-${prefix}-${Date.now()}-${idCounter}-${Math.floor(Math.random() * 10000)}`;
 }
 
-// Genuine (not deterministic-hash) randomness — used only to shuffle
-// grading-round court order. Unlike stableRandomTiebreak above, this is
+// The randomness every pairing decision in this file draws from — genuine
+// Math.random in the app, swappable for a seeded generator in tests so
+// fairness-sensitive scheduling can be checked deterministically. Ids keep
+// using Math.random, since they only need to be unique.
+let random: () => number = Math.random;
+
+export function setDynamicPairingRandomSource(source: (() => number) | null) {
+  random = source ?? Math.random;
+}
+
+// Genuine (not deterministic-hash) randomness — used to shuffle grading-
+// round court order. Unlike stableRandomTiebreak above, this is
 // intentionally allowed to differ between calls: grading rounds are meant
 // to mix players up freely before there's any ranking to preserve.
 function shuffle<T>(items: T[]): T[] {
   const shuffled = [...items];
   for (let i = shuffled.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = Math.floor(random() * (i + 1));
     [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
   return shuffled;
+}
+
+// Rounds a generator may build history from: never a 'pending-results'
+// placeholder (it has no courts), always in round order — so "the previous
+// round" and the next round number are both read correctly.
+function generationHistory(priorRounds: DynamicPairingRound[]): DynamicPairingRound[] {
+  return priorRounds.filter((r) => r.status !== 'pending-results').sort((a, b) => a.roundNumber - b.roundNumber);
 }
 
 // The single entry point for generating a Dynamic Pairing Social round —
@@ -1083,9 +1543,10 @@ function shuffle<T>(items: T[]): T[] {
 export function generateDynamicPairingRound(
   players: Player[],
   settings: DynamicPairingSettings,
-  priorRounds: DynamicPairingRound[],
+  allPriorRounds: DynamicPairingRound[],
 ): DynamicPairingRound {
-  const roundNumber = priorRounds.length + 1;
+  const priorRounds = generationHistory(allPriorRounds);
+  const roundNumber = (priorRounds[priorRounds.length - 1]?.roundNumber ?? 0) + 1;
   const phase: DynamicPairingRound['phase'] = roundNumber <= settings.gradingRounds ? 'grading' : 'ranking';
 
   // Grading rounds delegate to the rotation-aware entrant-based generator
@@ -1122,6 +1583,7 @@ export function generateDynamicPairingRound(
     completedRoundsForRanking,
     roundNumber,
     settings.rankingLagRounds,
+    { useGradingDivisions: settings.useGradingDivisions },
   );
   const orderedActiveIds = ranking.filter((row) => activeSet.has(row.entrant.id)).map((row) => row.entrant.playerIds[0]);
 
@@ -1135,21 +1597,6 @@ export function generateDynamicPairingRound(
 
   const courtGroups = applyCourtMovementLimit(orderedActiveIds, previousCourtByPlayerId, courtsUsed, settings.maxCourtMovement);
 
-  // "Avoid repeating the previous round's partner" needs to know who
-  // partnered whom last round specifically (separate from the cumulative
-  // partnerHistory counts, which createBalancedPartnerships also checks).
-  const previousRoundPartnerById = new Map<string, string>();
-  if (lastRound) {
-    for (const court of lastRound.courts) {
-      const [p1, p2] = court.team1PlayerIds;
-      const [p3, p4] = court.team2PlayerIds;
-      previousRoundPartnerById.set(p1, p2);
-      previousRoundPartnerById.set(p2, p1);
-      previousRoundPartnerById.set(p3, p4);
-      previousRoundPartnerById.set(p4, p3);
-    }
-  }
-
   // See shouldUseGenderAwarePairing — evaluated against this round's own
   // active (on-court) players, not the whole session's roster, so a round
   // where the registered female players happen to be resting still falls
@@ -1157,17 +1604,28 @@ export function generateDynamicPairingRound(
   const playersById = new Map(players.map((p) => [p.id, p]));
   const genderAware = shouldUseGenderAwarePairing(activeIds.map((id) => playersById.get(id)!).filter(Boolean));
 
-  const statsById = new Map(stats.map((s) => [s.playerId, s]));
-  const courts: DynamicPairingCourtAssignment[] = courtGroups.map((group, index) => {
-    const { team1, team2 } = createBalancedPartnerships(group, statsById, previousRoundPartnerById, playersById, genderAware);
-    return {
-      courtNumber: index + 1,
-      playerIds: [...team1, ...team2],
-      team1PlayerIds: team1,
-      team2PlayerIds: team2,
-      status: 'pending',
-    };
+  // Every player here is their own entrant — the same search the fixed-team
+  // path uses, so both paths share one set of pairing priorities (see
+  // "Court arrangement search"). The movement-limited groups above are the
+  // preferred arrangement it starts from.
+  const asEntrant = (id: string): DynamicPairingEntrant => ({
+    id,
+    type: 'individual-player',
+    displayName: playersById.get(id)?.name ?? '',
+    playerIds: [id],
   });
+  const arranged = arrangeRankingCourts({
+    preferredCourts: courtGroups.map((group) => group.map(asEntrant)),
+    rankPositionById: new Map(orderedActiveIds.map((id, index) => [id, index])),
+    eligibleEntrants: availablePlayers.map((p) => asEntrant(p.id)),
+    priorRounds,
+    playerStatsById: new Map(stats.map((s) => [s.playerId, s])),
+    previousCourtByPlayerId,
+    maxCourtMovement: settings.maxCourtMovement,
+    playersById,
+    genderAware,
+  });
+  const courts = arranged.map((court, index) => arrangedCourtToAssignment(court, index + 1, false));
 
   return {
     id: makeDynamicPairingId('round'),
@@ -1196,20 +1654,12 @@ export interface DynamicPairingSide {
 // Turns a best-to-worst ranked list of active entrants into complete
 // doubles sides: a fixed team becomes its own side immediately; individual
 // entrants are paired two at a time in the order they're encountered
-// (i.e. by rank-adjacency, skipping over any fixed teams in between) —
-// deliberately no repeat-partner optimisation pass here (unlike
-// createBalancedPartnerships), since ranking order naturally reshuffles who
-// ends up adjacent round to round, and adding a second optimisation layer
-// on top of an already-ranked, already-team-aware list was judged
-// unnecessary complexity for this feature's scope (see README's "Current
-// limitations"). For the same reason, this path also has no gender-aware
-// pairing pass (unlike createBalancedPartnerships/buildGradingCandidate) —
-// once at least one fixed team exists *and* the round is past grading,
-// sides are still built by plain rank-adjacency regardless of gender; the
-// resulting match is still classified correctly for display
-// (getMatchGenderType reads whatever sides come out of this function), it's
-// just never *steered* toward a better one here. See README's "Current
-// limitations". If the number of active individual entrants is odd (only
+// (i.e. by rank-adjacency, skipping over any fixed teams in between). This
+// is only the *preferred* arrangement — ranking rounds then hand it to the
+// court arrangement search, which re-pairs individuals for partner
+// rotation, removes repeat opponents and applies gender preference; random
+// grading rounds use it directly (see buildGradingCandidate). If the
+// number of active individual entrants is odd (only
 // possible via the rare rest-selection under-fill described in
 // selectRestingEntrants), the single leftover entrant can't form a side and
 // is returned as `oddOneOutEntrantId` for the caller to rest instead.
@@ -1404,7 +1854,7 @@ function buildGradingCandidate(
     }
   }
 
-  penalty += Math.random(); // low-weight tiebreaker so ties don't always resolve the same way
+  penalty += random(); // low-weight tiebreaker so ties don't always resolve the same way
   return { courts, penalty, repeatOpponentCount };
 }
 
@@ -1422,9 +1872,10 @@ export function generateRotationAwareGradingRound(
   players: Player[],
   teams: DynamicPairingTeam[],
   settings: DynamicPairingSettings,
-  priorRounds: DynamicPairingRound[],
+  allPriorRounds: DynamicPairingRound[],
 ): DynamicPairingRound {
-  const roundNumber = priorRounds.length + 1;
+  const priorRounds = generationHistory(allPriorRounds);
+  const roundNumber = (priorRounds[priorRounds.length - 1]?.roundNumber ?? 0) + 1;
   const playersById = new Map(players.map((p) => [p.id, p]));
   const entrants = buildDynamicPairingEntrants(players, teams);
   const eligibleEntrants = entrants.filter((e) => isEntrantAvailable(e, playersById, roundNumber));
@@ -1456,6 +1907,36 @@ export function generateRotationAwareGradingRound(
   // female players happen to be resting still falls back to normal
   // scheduling for that round alone.
   const genderAware = shouldUseGenderAwarePairing(activeEntrants.flatMap((e) => e.playerIds).map((id) => playersById.get(id)!).filter(Boolean));
+
+  // Division-based grading (see "Grading divisions") — rest selection above
+  // is identical either way; only who plays whom changes.
+  if (settings.useGradingDivisions) {
+    const { courts, unplacedEntrantIds } = arrangeDivisionGradingCourts({
+      activeEntrants,
+      courtsUsed,
+      eligibleEntrants,
+      priorRounds,
+      playerStatsById,
+      playersById,
+      genderAware,
+    });
+    const assignments = courts.map((court, index) => arrangedCourtToAssignment(court, index + 1, true));
+    const allRestingEntrantIds = [...restingEntrantIds, ...unplacedEntrantIds];
+    const repeats = countRotationRepeats(assignments, eligibleEntrants, eligibleEntrantById, playerStatsById);
+    return {
+      id: makeDynamicPairingId('round'),
+      roundNumber,
+      phase: 'grading',
+      status: 'current',
+      courts: assignments,
+      restingPlayerIds: allRestingEntrantIds.flatMap((id) => eligibleEntrantById.get(id)?.playerIds ?? []),
+      restingEntrantIds: allRestingEntrantIds,
+      rotationNote: rotationNoteFor(repeats),
+      byeFairnessNote: byeNote ?? (unplacedEntrantIds.length > 0 ? byeNoteFor(false, true) : undefined),
+      gradingMode: 'divisions',
+      createdAt: Date.now(),
+    };
+  }
 
   let best: GradingCandidate | null = null;
   for (let attempt = 0; attempt < GRADING_SCHEDULE_ATTEMPTS; attempt++) {
@@ -1504,13 +1985,37 @@ export function generateRotationAwareGradingRound(
     courts: chosen.courts,
     restingPlayerIds,
     restingEntrantIds,
-    rotationNote:
-      chosen.repeatOpponentCount > 0
-        ? `${chosen.repeatOpponentCount} repeat opponent${chosen.repeatOpponentCount === 1 ? '' : 's'} unavoidable due to available player/court constraints.`
-        : undefined,
+    rotationNote: rotationNoteFor(chosen.repeatOpponentCount),
     byeFairnessNote: byeNote,
     createdAt: Date.now(),
   };
+}
+
+function rotationNoteFor(repeatOpponentCount: number): string | undefined {
+  return repeatOpponentCount > 0
+    ? `${repeatOpponentCount} repeat opponent${repeatOpponentCount === 1 ? '' : 's'} unavoidable due to available player/court constraints.`
+    : undefined;
+}
+
+// Same count buildGradingCandidate keeps: opponent pairs who've already met
+// while at least one of them still has unmet opponents.
+function countRotationRepeats(
+  courts: DynamicPairingCourtAssignment[],
+  eligibleEntrants: DynamicPairingEntrant[],
+  eligibleEntrantById: Map<string, DynamicPairingEntrant>,
+  playerStatsById: Map<string, DynamicPairingPlayerStats>,
+): number {
+  let count = 0;
+  for (const court of courts) {
+    const side1 = entrantIdsForSide(court, 1).map((id) => eligibleEntrantById.get(id)).filter((e): e is DynamicPairingEntrant => e != null);
+    const side2 = entrantIdsForSide(court, 2).map((id) => eligibleEntrantById.get(id)).filter((e): e is DynamicPairingEntrant => e != null);
+    for (const a of side1) {
+      for (const b of side2) {
+        if (hasMetOpponent(a, b, playerStatsById) && !hasCompletedOpponentRotation(a, eligibleEntrants, playerStatsById)) count += 1;
+      }
+    }
+  }
+  return count;
 }
 
 // Entrant-aware counterpart of generateDynamicPairingRound, used once at
@@ -1524,9 +2029,10 @@ export function generateDynamicPairingRoundWithTeams(
   players: Player[],
   teams: DynamicPairingTeam[],
   settings: DynamicPairingSettings,
-  priorRounds: DynamicPairingRound[],
+  allPriorRounds: DynamicPairingRound[],
 ): DynamicPairingRound {
-  const roundNumber = priorRounds.length + 1;
+  const priorRounds = generationHistory(allPriorRounds);
+  const roundNumber = (priorRounds[priorRounds.length - 1]?.roundNumber ?? 0) + 1;
   const phase: DynamicPairingRound['phase'] = roundNumber <= settings.gradingRounds ? 'grading' : 'ranking';
 
   // Grading rounds delegate to the rotation-aware entrant-based generator
@@ -1574,11 +2080,36 @@ export function generateDynamicPairingRoundWithTeams(
     completedRoundsForRanking,
     roundNumber,
     settings.rankingLagRounds,
+    { useGradingDivisions: settings.useGradingDivisions },
   );
   const orderedActiveEntrants = ranking.filter((row) => activeEntrantIdSet.has(row.entrant.id)).map((row) => row.entrant);
 
+  // Rank order gives the preferred arrangement (sides by rank-adjacency,
+  // two sides per court, court 1 strongest); the shared search then
+  // removes repeat opponents/partners, re-pairs individuals for partner
+  // rotation, honours the movement limit and gender preference — the same
+  // priorities as the individual-only path.
   const { sides, oddOneOutEntrantId } = buildSidesFromRankedEntrants(orderedActiveEntrants);
-  const courts = groupSidesIntoCourts(sides, courtsUsed);
+  const preferredCourts = groupSidesIntoCourts(sides, courtsUsed).map((court) =>
+    [...entrantIdsForSide(court, 1), ...entrantIdsForSide(court, 2)].map((id) => availableEntrantById.get(id)!),
+  );
+  const previousCourtByPlayerId = new Map<string, number>();
+  for (const s of playerStats) {
+    if (s.currentCourt != null) previousCourtByPlayerId.set(s.playerId, s.currentCourt);
+  }
+  const activePlayers = preferredCourts.flat().flatMap((e) => e.playerIds).map((id) => playersById.get(id)!).filter(Boolean);
+  const arranged = arrangeRankingCourts({
+    preferredCourts,
+    rankPositionById: new Map(orderedActiveEntrants.map((e, index) => [e.id, index])),
+    eligibleEntrants: availableEntrants,
+    priorRounds,
+    playerStatsById,
+    previousCourtByPlayerId,
+    maxCourtMovement: settings.maxCourtMovement,
+    playersById,
+    genderAware: shouldUseGenderAwarePairing(activePlayers),
+  });
+  const courts = arranged.map((court, index) => arrangedCourtToAssignment(court, index + 1, true));
 
   const allRestingEntrantIds = oddOneOutEntrantId ? [...restingEntrantIds, oddOneOutEntrantId] : restingEntrantIds;
   const restingPlayerIds = allRestingEntrantIds.flatMap((id) => availableEntrantById.get(id)?.playerIds ?? []);
@@ -1856,76 +2387,277 @@ export function regenerateCurrentDynamicPairingRound(
   return regenerateUpcomingRoundsForEntrants(players, teams, settings, [...before, freshCurrent, ...after]);
 }
 
-// `teams` defaults to none, so existing individual-only callers are
-// unaffected. Once a fixed team exists, this refuses to split one via a
-// swap — same rule Standard Social Play's canSwapPlayerInRound enforces
-// (see isFixedTeamSide there / isDynamicPairingFixedTeamSide here) — on
-// *either* side of the swap: the active side can't be a fixed team, and the
-// resting player being swapped in can't themselves be a fixed-team member
-// whose partner isn't also resting (swapping them in alone would split the
-// team just as much as swapping one out would).
-export function canSwapPlayerInDynamicPairingRound(
-  round: DynamicPairingRound,
-  activePlayerId: string,
-  restingPlayerId: string,
-  teams: DynamicPairingTeam[] = [],
-): { ok: true } | { ok: false; reason: string } {
-  if (round.status !== 'current') {
-    return { ok: false, reason: 'Swaps are only allowed in the current round.' };
+// --- Swapping any two players ------------------------------------------
+// The organiser picks any two players in the current round — on the same
+// court, on different courts, or one on a court and one resting/unscheduled
+// — and planDynamicPairingSwap works out the edit, validates it, and
+// describes it for a preview before anything is saved. A fixed team only
+// ever moves as a whole side: selecting a fixed-team member swaps their
+// whole team with the other player's whole side (or resting fixed team).
+
+type SwapLocation =
+  | { kind: 'court'; courtIndex: number; side: 1 | 2 }
+  | { kind: 'resting' }
+  | { kind: 'not-scheduled' };
+
+function locateInRound(round: DynamicPairingRound, playerId: string): SwapLocation {
+  const courtIndex = round.courts.findIndex((c) => c.playerIds.includes(playerId));
+  if (courtIndex !== -1) {
+    return { kind: 'court', courtIndex, side: round.courts[courtIndex].team1PlayerIds.includes(playerId) ? 1 : 2 };
   }
-  if (activePlayerId === restingPlayerId) {
-    return { ok: false, reason: 'Choose two different players to swap.' };
-  }
-  if (!round.restingPlayerIds.includes(restingPlayerId)) {
-    return { ok: false, reason: 'That player is not resting this round.' };
-  }
-  const court = round.courts.find((c) => c.playerIds.includes(activePlayerId));
-  if (!court) {
-    return { ok: false, reason: 'That player is not assigned to a court this round.' };
-  }
-  if (courtHasResult(court)) {
-    return { ok: false, reason: "That court's result is already submitted — swaps are only allowed before that." };
-  }
-  const side = court.team1PlayerIds.includes(activePlayerId) ? court.team1PlayerIds : court.team2PlayerIds;
-  if (isDynamicPairingFixedTeamSide(side, teams)) {
-    return { ok: false, reason: "That player is on a fixed team, which can't be split by a swap." };
-  }
-  const restingTeam = teams.find((t) => t.playerIds.includes(restingPlayerId));
-  if (restingTeam && !round.restingPlayerIds.includes(restingTeam.playerIds.find((id) => id !== restingPlayerId)!)) {
-    return { ok: false, reason: "That player is on a fixed team and can't be swapped in without their partner." };
-  }
-  return { ok: true };
+  return round.restingPlayerIds.includes(playerId) ? { kind: 'resting' } : { kind: 'not-scheduled' };
 }
 
-// Pure round edit — see canSwapPlayerInDynamicPairingRound for the rules.
-// Preserves which team the swapped-in player joins (team1 vs team2). Since
-// canSwapPlayerInDynamicPairingRound already guarantees the swapped side is
-// never a fixed team, the entrant id being replaced always equals the
-// player id being replaced (individual entrants are always 1:1 with their
-// player id) — so team1EntrantIds/team2EntrantIds can be updated with the
-// exact same replacement, when present.
-export function swapPlayerInDynamicPairingRound(
+export interface DynamicPairingSwapPlan {
+  round: DynamicPairingRound;
+  // e.g. "Thai (Court 1) ↔ John (Court 2)" — also the adjustment-log note.
+  summary: string;
+  // The affected courts/rest list before and after the swap, one line
+  // each, for the preview.
+  before: string[];
+  after: string[];
+  // Every physical player whose place changed.
+  movedPlayerIds: string[];
+}
+
+// Rebuilds one side's entrant ids from the current teams: a side that is
+// exactly a fixed team is that team, anything else is its individuals.
+function sideEntrantIds(sidePlayerIds: string[], teams: DynamicPairingTeam[]): string[] {
+  const team = teams.find((t) => isDynamicPairingFixedTeamSide(sidePlayerIds, [t]));
+  return team ? [team.id] : [...sidePlayerIds];
+}
+
+function restingEntrantIdsFor(restingPlayerIds: string[], teams: DynamicPairingTeam[]): string[] {
+  const ids: string[] = [];
+  for (const id of restingPlayerIds) {
+    const team = teams.find((t) => t.playerIds.includes(id));
+    const entrantId = team && team.playerIds.every((p) => restingPlayerIds.includes(p)) ? team.id : id;
+    if (!ids.includes(entrantId)) ids.push(entrantId);
+  }
+  return ids;
+}
+
+// Whether a player can be put onto a court right now: available (or a new
+// joiner whose first round has arrived). A 'resting-this-round' player
+// asked to sit out, so they need making available first, like any other
+// away status.
+function canTakeCourtSpot(player: Player | undefined, roundNumber: number): boolean {
+  return player != null && isPlayerAvailable(player, roundNumber);
+}
+
+export function planDynamicPairingSwap(
   round: DynamicPairingRound,
-  activePlayerId: string,
-  restingPlayerId: string,
-): DynamicPairingRound {
-  const replaceIn = (playerIds: string[]) => playerIds.map((id) => (id === activePlayerId ? restingPlayerId : id));
+  playerAId: string,
+  playerBId: string,
+  players: Player[],
+  teams: DynamicPairingTeam[] = [],
+): { ok: true; plan: DynamicPairingSwapPlan } | { ok: false; reason: string } {
+  const playersById = new Map(players.map((p) => [p.id, p]));
+  const nameOf = (id: string) => playersById.get(id)?.name || 'Unknown player';
+  if (round.status !== 'current') return { ok: false, reason: 'Swaps are only allowed in the current round.' };
+  if (playerAId === playerBId) return { ok: false, reason: 'Choose two different players to swap.' };
+
+  // Keep "A" as a player on a court whenever either one is.
+  let [aId, bId] = [playerAId, playerBId];
+  let locA = locateInRound(round, aId);
+  let locB = locateInRound(round, bId);
+  if (locA.kind !== 'court' && locB.kind === 'court') {
+    [aId, bId] = [bId, aId];
+    [locA, locB] = [locB, locA];
+  }
+  if (locA.kind !== 'court') {
+    return locA.kind === 'resting' && locB.kind === 'resting'
+      ? { ok: false, reason: `${nameOf(aId)} and ${nameOf(bId)} are both resting — there is nothing to swap.` }
+      : { ok: false, reason: 'Choose at least one player who is on a court this round.' };
+  }
+
+  for (const loc of [locA, locB]) {
+    if (loc.kind === 'court' && courtHasResult(round.courts[loc.courtIndex])) {
+      const courtNumber = round.courts[loc.courtIndex].courtNumber;
+      return { ok: false, reason: `Court ${courtNumber} already has a result. Reset that result before changing its players.` };
+    }
+  }
+
+  const courts = round.courts.map((c) => ({ ...c, team1PlayerIds: [...c.team1PlayerIds], team2PlayerIds: [...c.team2PlayerIds] }));
+  let resting = [...round.restingPlayerIds];
+  const sideOf = (loc: { courtIndex: number; side: 1 | 2 }) =>
+    loc.side === 1 ? courts[loc.courtIndex].team1PlayerIds : courts[loc.courtIndex].team2PlayerIds;
+  const setSide = (loc: { courtIndex: number; side: 1 | 2 }, ids: string[]) => {
+    if (loc.side === 1) courts[loc.courtIndex].team1PlayerIds = ids;
+    else courts[loc.courtIndex].team2PlayerIds = ids;
+  };
+
+  const teamOf = (id: string) => teams.find((t) => t.playerIds.includes(id));
+  const sideA = sideOf(locA);
+  const aOnTeamSide = isDynamicPairingFixedTeamSide(sideA, teams);
+  const bTeam = teamOf(bId);
+  const bOnTeamSide = locB.kind === 'court' && isDynamicPairingFixedTeamSide(sideOf(locB), teams);
+  const bRestingTeam =
+    locB.kind === 'resting' && bTeam != null && bTeam.playerIds.every((id) => round.restingPlayerIds.includes(id));
+  let summary: string;
+  let movedPlayerIds: string[];
+
+  if (aOnTeamSide || bOnTeamSide || bRestingTeam) {
+    // Whole-side swap — fixed teams never split.
+    const unitA = [...sideA];
+    if (locB.kind === 'court') {
+      if (locB.courtIndex === locA.courtIndex) {
+        return {
+          ok: false,
+          reason:
+            locB.side === locA.side
+              ? `${nameOf(aId)} and ${nameOf(bId)} are already partners.`
+              : `${nameOf(aId)} and ${nameOf(bId)} are on the same court — a fixed team can only be swapped with a side on another court or a resting fixed team.`,
+        };
+      }
+      const unitB = [...sideOf(locB)];
+      setSide(locA, unitB);
+      setSide(locB, unitA);
+      movedPlayerIds = [...unitA, ...unitB];
+      summary = `${unitA.map(nameOf).join(' / ')} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${unitB.map(nameOf).join(' / ')} (Court ${courts[locB.courtIndex].courtNumber})`;
+    } else if (bRestingTeam && bTeam) {
+      const unavailable = bTeam.playerIds.find((id) => !canTakeCourtSpot(playersById.get(id), round.roundNumber));
+      if (unavailable) return { ok: false, reason: `${nameOf(unavailable)} isn't available to play — make them available first.` };
+      setSide(locA, [...bTeam.playerIds]);
+      resting = [...resting.filter((id) => !bTeam.playerIds.includes(id)), ...unitA];
+      movedPlayerIds = [...unitA, ...bTeam.playerIds];
+      summary = `${unitA.map(nameOf).join(' / ')} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${bTeam.playerIds.map(nameOf).join(' / ')} (resting)`;
+    } else {
+      return {
+        ok: false,
+        reason: `${nameOf(aId)} is in a fixed team, so they can only be swapped with a full side on another court or a resting fixed team.`,
+      };
+    }
+  } else if (locB.kind === 'court') {
+    if (locB.courtIndex === locA.courtIndex && locB.side === locA.side) {
+      return { ok: false, reason: `${nameOf(aId)} and ${nameOf(bId)} are already partners.` };
+    }
+    const replace = (ids: string[]) => ids.map((id) => (id === aId ? bId : id === bId ? aId : id));
+    for (const loc of [locA, locB]) setSide(loc, replace(sideOf(loc)));
+    movedPlayerIds = [aId, bId];
+    summary =
+      locA.courtIndex === locB.courtIndex
+        ? `${nameOf(aId)} ↔ ${nameOf(bId)} (Court ${courts[locA.courtIndex].courtNumber}, swapping sides)`
+        : `${nameOf(aId)} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${nameOf(bId)} (Court ${courts[locB.courtIndex].courtNumber})`;
+  } else {
+    // A player on a court swaps with someone resting or not yet scheduled.
+    const playerB = playersById.get(bId);
+    if (!canTakeCourtSpot(playerB, round.roundNumber)) {
+      const status = playerB?.availabilityStatus ?? 'available';
+      return {
+        ok: false,
+        reason: `${nameOf(bId)} is marked ${dynamicPairingAvailabilityLabel(status)} — make them available before putting them on a court.`,
+      };
+    }
+    if (bTeam) {
+      return { ok: false, reason: `${nameOf(bId)} is in a fixed team and can't come onto a court without their partner.` };
+    }
+    setSide(locA, sideA.map((id) => (id === aId ? bId : id)));
+    // A player who's actually away (late, unavailable, injured, left early)
+    // leaves the round entirely rather than being counted as resting.
+    const playerA = playersById.get(aId);
+    const aStillHere = playerA != null && (isPlayerAvailable(playerA, round.roundNumber) || statusOfPlayer(playerA) === 'resting-this-round');
+    resting = [...resting.filter((id) => id !== bId), ...(aStillHere ? [aId] : [])];
+    movedPlayerIds = [aId, bId];
+    summary = `${nameOf(aId)} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${nameOf(bId)} (${locB.kind === 'resting' ? 'resting' : 'not scheduled'})`;
+  }
+
+  const hasEntrantIds = round.courts.some((c) => c.team1EntrantIds != null) || teams.length > 0;
+  const nextCourts: DynamicPairingCourtAssignment[] = courts.map((court, index) => {
+    const original = round.courts[index];
+    const changed =
+      court.team1PlayerIds.join() !== original.team1PlayerIds.join() || court.team2PlayerIds.join() !== original.team2PlayerIds.join();
+    if (!changed) return original;
+    return {
+      ...court,
+      playerIds: [...court.team1PlayerIds, ...court.team2PlayerIds],
+      ...(hasEntrantIds
+        ? { team1EntrantIds: sideEntrantIds(court.team1PlayerIds, teams), team2EntrantIds: sideEntrantIds(court.team2PlayerIds, teams) }
+        : {}),
+    };
+  });
+  const nextRound: DynamicPairingRound = {
+    ...round,
+    courts: nextCourts,
+    restingPlayerIds: resting,
+    restingEntrantIds: round.restingEntrantIds || teams.length > 0 ? restingEntrantIdsFor(resting, teams) : undefined,
+  };
+
+  // Belt and braces: never save a round with a player twice, a side that
+  // isn't two players, or someone both playing and resting.
+  const onCourt = nextCourts.flatMap((c) => c.playerIds);
+  const valid =
+    new Set(onCourt).size === onCourt.length &&
+    nextCourts.every((c) => c.team1PlayerIds.length === 2 && c.team2PlayerIds.length === 2) &&
+    !resting.some((id) => onCourt.includes(id)) &&
+    new Set(resting).size === resting.length;
+  if (!valid) return { ok: false, reason: 'That swap would leave the round in an invalid state, so it was not applied.' };
+
+  const courtLine = (court: DynamicPairingCourtAssignment) =>
+    `Court ${court.courtNumber}: ${court.team1PlayerIds.map(nameOf).join(' / ')} vs ${court.team2PlayerIds.map(nameOf).join(' / ')}`;
+  const restLine = (ids: string[]) => `Resting: ${ids.length > 0 ? ids.map(nameOf).join(', ') : 'nobody'}`;
+  const changedIndexes = nextCourts.map((court, index) => (court !== round.courts[index] ? index : -1)).filter((i) => i !== -1);
+  const before = changedIndexes.map((i) => courtLine(round.courts[i]));
+  const after = changedIndexes.map((i) => courtLine(nextCourts[i]));
+  if (resting.join() !== round.restingPlayerIds.join()) {
+    before.push(restLine(round.restingPlayerIds));
+    after.push(restLine(resting));
+  }
+  return { ok: true, plan: { round: nextRound, summary, before, after, movedPlayerIds } };
+}
+
+function statusOfPlayer(player: Player): PlayerAvailabilityStatus {
+  return player.availabilityStatus ?? 'available';
+}
+
+// After a swap, the next saved round was planned around the old line-up —
+// lists anything the swap made unfair there for the players it moved (a
+// back-to-back opponent, temporary partner or bye), so the organiser can
+// choose to refresh the upcoming rounds.
+export function upcomingConflictsAfterSwap(
+  rounds: DynamicPairingRound[],
+  swappedRound: DynamicPairingRound,
+  movedPlayerIds: string[],
+  players: Player[],
+  teams: DynamicPairingTeam[] = [],
+): string[] {
+  const next = rounds.find((r) => r.roundNumber === swappedRound.roundNumber + 1 && r.status === 'upcoming');
+  if (!next) return [];
+  const nameOf = (id: string) => players.find((p) => p.id === id)?.name || 'Unknown player';
+  const now = roundEncounterKeys(swappedRound);
+  const later = roundEncounterKeys(next);
+  const moved = new Set(movedPlayerIds);
+  const involvesMoved = (key: string) => key.split('|').some((id) => moved.has(id));
+  const names = (key: string) => key.split('|').map(nameOf).join(' and ');
+  const conflicts: string[] = [];
+  for (const key of later.opponents) {
+    if (now.opponents.has(key) && involvesMoved(key)) conflicts.push(`${names(key)} would face each other again in Round ${next.roundNumber}.`);
+  }
+  for (const key of later.partners) {
+    if (now.partners.has(key) && involvesMoved(key) && !isDynamicPairingFixedTeamSide(key.split('|'), teams)) {
+      conflicts.push(`${names(key)} would partner again in Round ${next.roundNumber}.`);
+    }
+  }
+  for (const id of movedPlayerIds) {
+    if (swappedRound.restingPlayerIds.includes(id) && next.restingPlayerIds.includes(id)) {
+      conflicts.push(`${nameOf(id)} would rest in both Round ${swappedRound.roundNumber} and Round ${next.roundNumber}.`);
+    }
+  }
+  return conflicts;
+}
+
+// Clears one court's result in the current round so it can be re-entered
+// or its players changed — the supported correction workflow for a scored
+// court. Completed (locked) rounds are never changed.
+export function clearDynamicPairingCourtResult(round: DynamicPairingRound, courtNumber: number): DynamicPairingRound {
+  if (round.status !== 'current') return round;
   return {
     ...round,
     courts: round.courts.map((court) =>
-      court.playerIds.includes(activePlayerId)
-        ? {
-            ...court,
-            playerIds: replaceIn(court.playerIds),
-            team1PlayerIds: replaceIn(court.team1PlayerIds),
-            team2PlayerIds: replaceIn(court.team2PlayerIds),
-            team1EntrantIds: court.team1EntrantIds ? replaceIn(court.team1EntrantIds) : court.team1EntrantIds,
-            team2EntrantIds: court.team2EntrantIds ? replaceIn(court.team2EntrantIds) : court.team2EntrantIds,
-          }
+      court.courtNumber === courtNumber
+        ? { ...court, score1: undefined, score2: undefined, winnerTeam: undefined, status: 'pending' }
         : court,
     ),
-    restingPlayerIds: round.restingPlayerIds.map((id) => (id === restingPlayerId ? activePlayerId : id)),
-    restingEntrantIds: round.restingEntrantIds?.map((id) => (id === restingPlayerId ? activePlayerId : id)),
   };
 }
 
@@ -1968,6 +2700,44 @@ export function generateInitialGradingRoundsForEntrants(
     rounds.push(generateDynamicPairingRoundWithTeams(i === 0 ? players : playersForFutureRounds(players), teams, settings, rounds));
   }
   return rounds.map((round, index) => (index === 0 ? round : { ...round, status: 'upcoming' }));
+}
+
+// Ends the current round and activates the next one, exactly as saved:
+// locks the current round, lets extendDynamicPairingLookahead turn any
+// now-unblocked placeholder into a real round, then promotes the saved
+// upcoming round with the next number to 'current'. Nothing that was
+// already saved is regenerated, so the round that becomes current is the
+// one All Rounds showed. Falls back to generating fresh only when no saved
+// round exists (an otherwise-unreachable state, e.g. hand-edited storage),
+// rather than leaving the organiser stuck. Returns null when there's no
+// current round. `players` should already have this round's end-of-round
+// status changes applied (see useDynamicPairingSocial.generateNextRound).
+export function advanceDynamicPairingRound(
+  players: Player[],
+  teams: DynamicPairingTeam[],
+  settings: DynamicPairingSettings,
+  rounds: DynamicPairingRound[],
+): DynamicPairingRound[] | null {
+  const current = rounds.find((r) => r.status === 'current');
+  if (!current) return null;
+  const locked = rounds.map((r) => (r.id === current.id ? lockCompletedRound(r) : r));
+  const withLookahead = extendDynamicPairingLookahead(players, teams, settings, locked);
+  const upcoming = withLookahead.find((r) => r.roundNumber === current.roundNumber + 1 && r.status === 'upcoming');
+  if (upcoming) return withLookahead.map((r) => (r.id === upcoming.id ? { ...r, status: 'current' } : r));
+  const fresh = generateDynamicPairingRoundForEntrants(players, teams, settings, withLookahead);
+  return [...withLookahead.filter((r) => r.roundNumber !== fresh.roundNumber), { ...fresh, status: 'current' }];
+}
+
+// Settings as saved by any version of the app → the current shape. The
+// only schema migration this mode needs: every other field added since
+// (Player/team gradingDivision, round gradingMode) is optional and simply
+// reads as "not set".
+export function normalizeDynamicPairingSettings(stored: DynamicPairingSettings): DynamicPairingSettings {
+  return {
+    ...stored,
+    scoreRecordingMode: normalizeScoreRecordingMode(stored.scoreRecordingMode),
+    useGradingDivisions: stored.useGradingDivisions === true,
+  };
 }
 
 // Historical gate, no longer part of the required flow (see
@@ -2036,9 +2806,11 @@ export function nextRoundButtonLabel(currentRound: DynamicPairingRound, rounds: 
   return 'Generate Next Round';
 }
 
-// Display label for a round's phase — see DynamicPairingRoundPhase.
-export function roundPhaseLabel(phase: DynamicPairingRoundPhase): string {
-  return phase === 'grading' ? 'Random Grading' : 'Dynamic Pairing';
+// Display label for a round's phase — see DynamicPairingRoundPhase. Pass
+// the round's gradingMode to label division-based grading rounds.
+export function roundPhaseLabel(phase: DynamicPairingRoundPhase, gradingMode?: DynamicPairingRound['gradingMode']): string {
+  if (phase !== 'grading') return 'Dynamic Pairing';
+  return gradingMode === 'divisions' ? 'Division Grading' : 'Random Grading';
 }
 
 export function gameFormatLabel(format: DynamicGameFormat): string {

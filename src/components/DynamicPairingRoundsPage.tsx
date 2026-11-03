@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import type { DynamicPairingRound, DynamicPairingTeam, Player, PlayerAvailabilityStatus, ResultSubmission, ScoreRecordingMode } from '../types';
 import { DynamicPairingAllRounds } from './DynamicPairingAllRounds';
 import { DynamicPairingCurrentRound } from './DynamicPairingCurrentRound';
+import type { SwapPreviewResult, SwapResult } from './DynamicPairingSwapDialog';
 import { ScheduleIntegrityNotice } from './ScheduleIntegrityNotice';
 import { dynamicPairingTeamDisplayName } from '../utils/dynamicPairingSocial';
 import { dynamicPairingScheduleView, entrantByeContext, firstUpcomingRoundNumber, validateCurrentRoundMatchesSchedule } from '../utils/scheduleValidation';
@@ -17,7 +18,9 @@ interface DynamicPairingRoundsPageProps {
   scoreRecordingMode: ScoreRecordingMode;
   onGenerateNextRound: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
-  onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
+  onPreviewSwap: (playerAId: string, playerBId: string) => SwapPreviewResult;
+  onSwapPlayers: (playerAId: string, playerBId: string, options: { refreshUpcoming: boolean }) => SwapResult;
+  onResetResult: (courtNumber: number) => void;
   onResumeSavedRound: () => void;
 }
 
@@ -42,7 +45,9 @@ export function DynamicPairingRoundsPage({
   scoreRecordingMode,
   onGenerateNextRound,
   onSetAvailability,
-  onSwap,
+  onPreviewSwap,
+  onSwapPlayers,
+  onResetResult,
   onResumeSavedRound,
 }: DynamicPairingRoundsPageProps) {
   const validation = useMemo(
@@ -94,7 +99,9 @@ export function DynamicPairingRoundsPage({
           scoreRecordingMode={scoreRecordingMode}
           onGenerateNextRound={onGenerateNextRound}
           onSetAvailability={onSetAvailability}
-          onSwap={onSwap}
+          onPreviewSwap={onPreviewSwap}
+          onSwapPlayers={onSwapPlayers}
+          onResetResult={onResetResult}
         />
       ) : (
         <DynamicPairingAllRounds rounds={rounds} players={players} />

@@ -33,6 +33,13 @@ interface PlayerActionMenuProps {
   // relevant right now — e.g. the player is already resting, or there's no
   // live round/cycle.
   replacement?: PlayerActionMenuReplacement;
+  // Dynamic Pairing Social's "swap with anyone" flow — when given, a Swap
+  // Player button hands off to the caller's own swap dialog (see
+  // DynamicPairingSwapDialog) instead of the inline replacement picker.
+  onSwapPlayer?: () => void;
+  // Shown under the Swap Player button when swapping isn't possible right
+  // now (e.g. the court already has a result).
+  swapDisabledReason?: string;
 }
 
 // Clicking a player's name anywhere in a live Current Round (Standard
@@ -43,7 +50,16 @@ interface PlayerActionMenuProps {
 // section the organiser has to scroll to. Every action here just calls
 // back into the same onSetStatus/onReplace handlers those other controls
 // already use — no new status/swap logic lives in this component.
-export function PlayerActionMenu({ player, statusLabel, contextLines, onSetStatus, onClose, replacement }: PlayerActionMenuProps) {
+export function PlayerActionMenu({
+  player,
+  statusLabel,
+  contextLines,
+  onSetStatus,
+  onClose,
+  replacement,
+  onSwapPlayer,
+  swapDisabledReason,
+}: PlayerActionMenuProps) {
   const [replacementId, setReplacementId] = useState(replacement?.options[0]?.id ?? '');
   const [replaceError, setReplaceError] = useState<string | null>(null);
   const [replaceDone, setReplaceDone] = useState<string | null>(null);
@@ -92,6 +108,15 @@ export function PlayerActionMenu({ player, statusLabel, contextLines, onSetStatu
             the next render), which would otherwise make the confirmation
             disappear before the organiser ever sees it. */}
         {replaceDone && <p className="hint winner-hint">{replaceDone}</p>}
+
+        {onSwapPlayer && (
+          <div className="form-row">
+            <button type="button" className="cta-button" onClick={onSwapPlayer} disabled={!!swapDisabledReason}>
+              Swap Player
+            </button>
+            {swapDisabledReason && <p className="hint error">{swapDisabledReason}</p>}
+          </div>
+        )}
 
         {replacement && !replaceDone && (
           <div className="form-row">

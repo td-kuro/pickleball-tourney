@@ -781,6 +781,7 @@ function App() {
               onUnmakeTeam={dynamicPairing.unmakeTeam}
               onUpdateTeamSeedAndRating={dynamicPairing.updateTeamSeedAndRating}
               onUpdateEntrantSkillLevel={dynamicPairing.updateEntrantSkillLevel}
+              onUpdateEntrantDivision={dynamicPairing.updateEntrantDivision}
               onStartSession={() => {
                 dynamicPairing.startSession();
                 setView('dp-rounds');
@@ -913,7 +914,18 @@ function App() {
           scoreRecordingMode={dynamicPairing.settings.scoreRecordingMode}
           onGenerateNextRound={dynamicPairing.generateNextRound}
           onSetAvailability={(playerId, status) => setFlashMessages(dynamicPairing.setAvailabilityStatus(playerId, status))}
-          onSwap={dynamicPairing.swapPlayerInCurrentRound}
+          onPreviewSwap={dynamicPairing.previewSwap}
+          onSwapPlayers={(playerAId, playerBId, options) => {
+            const result = dynamicPairing.swapPlayers(playerAId, playerBId, options);
+            if (result.ok) {
+              setFlashMessages([
+                `Swapped ${result.summary}.`,
+                ...(options.refreshUpcoming ? ['Upcoming rounds were refreshed to account for the swap.'] : []),
+              ]);
+            }
+            return result;
+          }}
+          onResetResult={dynamicPairing.resetCourtResult}
           onResumeSavedRound={dynamicPairing.resumeSavedCurrentRound}
         />
       )}
@@ -924,6 +936,7 @@ function App() {
           teams={dynamicPairing.teams}
           rounds={dynamicPairing.rounds}
           scoreRecordingMode={dynamicPairing.settings.scoreRecordingMode}
+          useGradingDivisions={dynamicPairing.settings.useGradingDivisions}
         />
       )}
 
