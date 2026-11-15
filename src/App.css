@@ -85,9 +85,20 @@
   border-radius: 999px;
   width: fit-content;
   max-width: 100%;
+  /* On narrow phones the tab pill scrolls sideways inside itself rather
+     than making the whole page scroll horizontally. */
+  box-sizing: border-box;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
+  flex-shrink: 0;
+  white-space: nowrap;
   padding: 9px 20px;
   border-radius: 999px;
   border: none;

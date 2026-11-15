@@ -114,6 +114,13 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
             </button>
             <button
               type="button"
+              className={activeSocialFormat === 'tier-based-pairings' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
+              onClick={() => handleSocialFormatChange('tier-based-pairings')}
+            >
+              Tier-Based Pairings
+            </button>
+            <button
+              type="button"
               className={activeSocialFormat === 'king-court-5' ? 'toggle-option active toggle-option-green' : 'toggle-option'}
               onClick={() => handleSocialFormatChange('king-court-5')}
             >
@@ -125,6 +132,8 @@ export function TournamentSetup({ settings, onChange, playerCount, fixedTeamCoun
               'Casual: focuses on fair rotation and even game time. Ranking is de-emphasised.'}
             {activeSocialFormat === 'dynamic-pairing-social' &&
               'Doubles only: grading rounds establish rankings, then courts, partners, and opponents are reassigned every round to keep matches competitive and balanced — see the Dynamic Pairing Social setup below.'}
+            {activeSocialFormat === 'tier-based-pairings' &&
+              'Doubles only, no scores: players are graded A (Top), B (Inbetween) or C (Lower). A and C never share a match. Every round fills as many courts as possible, rotates sit-outs fairly, and mixes up partners and opponents.'}
             {activeSocialFormat === 'king-court-5' &&
               'Fixed 5-player courts running 5-game doubles cycles, with rank-based movement between courts after each cycle.'}
           </p>

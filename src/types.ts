@@ -235,7 +235,10 @@ export type PlayMode = 'tournament' | 'social' | 'king-court-5';
 //   every existing King Court code path (which all key off
 //   `playMode === 'king-court-5'`) completely unchanged; socialFormat
 //   only reflects the UI grouping in that case, nothing reads it.
-export type SocialFormat = 'standard-social' | 'dynamic-pairing-social' | 'king-court-5';
+// - 'tier-based-pairings': doubles-only A/B/C tier rotation with no scores,
+//   rankings, or grading — see the "Tier-Based Pairings" section at the end
+//   of this file and src/utils/tierPairings.ts. Keeps playMode 'social'.
+export type SocialFormat = 'standard-social' | 'dynamic-pairing-social' | 'king-court-5' | 'tier-based-pairings';
 
 // Only meaningful when PlayMode is 'social':
 // - 'none': generate rounds only, no score entry, no points/wins tracked.
@@ -1183,3 +1186,136 @@ export interface AuditEvent {
 // Gold/Bronze in progress. 'complete': Gold and Bronze matches both
 // completed.
 export type DynamicTeamQualifierStage = 'setup' | 'qualifying' | 'final-standings' | 'medal-bracket' | 'complete';
+
+// --- Tier-Based Pairings ---------------------------------------------------
+// A Social Format (see SocialFormat) with its own roster, settings, and
+// rounds — never shares Player/Round/DynamicPairing* state, so it cannot
+// affect any other mode. Doubles only, no scores, no rankings. The pairing
+// engine (utils/tierPairings.ts) and the session operations
+// (utils/tierSession.ts) are pure functions over these plain-JSON types so the
+// same logic can later sit behind Firestore instead of localStorage.
+
+// A = Top, B = Inbetween, C = Lower. A and C never share a match.
+export type PlayerTier = 'A' | 'B' | 'C';
+
+export interface TierPlayer {
+  id: string;
+  name: string;
+  tier: PlayerTier;
+  // Unavailable players are never assigned to newly generated rounds, and
+  // rounds they miss don't count as sit-outs.
+  available: boolean;
+  // Round number of the first round generated after they were added (late
+  // arrivals). Informational — fairness is measured from the rounds a
+  // player was actually eligible for, so no history is invented.
+  joinedAtRound?: number;
+  // Removed mid-session after already appearing in a round: hidden from
+  // management and never assigned, but kept so old rounds still show names.
+  removed?: boolean;
+}
+
+export interface TierMatch {
+  id: string;
+  courtNumber: number;
+  teamAPlayerIds: [string, string];
+  teamBPlayerIds: [string, string];
+}
+
+// draft: generated, not yet started — can be regenerated freely.
+// active: organiser started it — regenerating needs confirmation.
+// completed: played — never changed; the only rounds history counts.
+export type TierRoundStatus = 'draft' | 'active' | 'completed';
+
+export interface TierRound {
+  id: string;
+  roundNumber: number;
+  status: TierRoundStatus;
+  matches: TierMatch[];
+  // Available players not on a court. Unavailable players appear in neither
+  // list, so they are not counted as sitting out.
+  restingPlayerIds: string[];
+  // Each assigned/resting player's tier when the round was generated (kept
+  // up to date by manual swaps), so history shows the tier that applied then.
+  playerTiers: Record<string, PlayerTier>;
+  courtsAtGeneration: number;
+  createdAt: number;
+  startedAt?: number;
+  completedAt?: number;
+  // How many times this round was regenerated before it was played.
+  regenerationCount: number;
+  manuallyAdjusted: boolean;
+  // Search outcome — see TierArrangementInfo. Surfaced in the UI so the
+  // app never claims a proven optimum it didn't prove.
+  arrangement?: TierArrangementInfo;
+}
+
+export interface TierArrangementInfo {
+  // 'exhaustive' = every arrangement was checked (proven best for the
+  // partner/opponent/balance objective); 'local-search' = best found within
+  // the search budget. Court count and sit-out choice are exact either way.
+  method: 'exhaustive' | 'local-search';
+  maxMatches: number;
+  // Players who had to sit out only because of the A/C rule (there were
+  // enough players for more courts, but not in a valid tier mix).
+  tierLimitedSitOuts: number;
+}
+
+export interface TierSettings {
+  sessionName: string;
+  numberOfCourts: number;
+}
+
+export type TierEventType =
+  | 'session-started'
+  | 'round-generated'
+  | 'round-regenerated'
+  | 'round-started'
+  | 'round-completed'
+  | 'player-added'
+  | 'player-removed'
+  | 'tier-changed'
+  | 'availability-changed'
+  | 'courts-changed'
+  | 'swap';
+
+export interface TierEvent {
+  id: string;
+  type: TierEventType;
+  at: number;
+  roundNumber?: number;
+  playerId?: string;
+  message: string;
+  // round-regenerated: the discarded assignments, for audit only — never
+  // counted as played encounters or sit-outs.
+  discarded?: { matches: TierMatch[]; restingPlayerIds: string[] };
+}
+
+export interface TierSession {
+  version: 1;
+  started: boolean;
+  settings: TierSettings;
+  players: TierPlayer[];
+  rounds: TierRound[];
+  events: TierEvent[];
+}
+
+// Derived from completed rounds only (see computeTierStats) — never stored,
+// so a round can't be counted twice.
+export interface TierPlayerStats {
+  playerId: string;
+  roundsPlayed: number;
+  roundsSatOut: number;
+  // Completed rounds the player was available for (played + sat out).
+  eligibleRounds: number;
+  consecutiveSitOuts: number;
+  lastPlayedRound?: number;
+  lastSitOutRound?: number;
+  // Fair-share of sit-outs: for every eligible completed round, the
+  // fraction of that round's eligible players who sat out. A player resting
+  // exactly as often as everyone else has roundsSatOut ≈ expectedSitOuts.
+  expectedSitOuts: number;
+  partnerHistory: Record<string, number>;
+  opponentHistory: Record<string, number>;
+  lastPartnerRound: Record<string, number>;
+  lastOpponentRound: Record<string, number>;
+}

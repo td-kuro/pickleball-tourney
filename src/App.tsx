@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import './App.css';
-import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerAvailabilityStatus } from './types';
+import './tierPairings.css';
+import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerAvailabilityStatus, PlayerTier } from './types';
 import { CourtSeeding } from './components/CourtSeeding';
 import { DynamicPairingRankings } from './components/DynamicPairingRankings';
 import { DynamicPairingRestingPlayers } from './components/DynamicPairingRestingPlayers';
@@ -28,6 +29,10 @@ import { RosterSetup } from './components/RosterSetup';
 import { RoundsPage } from './components/RoundsPage';
 import { SessionControls } from './components/SessionControls';
 import { ThemeToggle } from './components/ThemeToggle';
+import { TierPairingsAllRounds } from './components/TierPairingsAllRounds';
+import { TierPairingsPlayers } from './components/TierPairingsPlayers';
+import { TierPairingsRoundsPage } from './components/TierPairingsRoundsPage';
+import { TierPairingsSetup } from './components/TierPairingsSetup';
 import { NumberOfCourtsSetup, SocialSessionSetup, TournamentSetup } from './components/TournamentSetup';
 import { useDynamicPairingSocial } from './hooks/useDynamicPairingSocial';
 import { useDynamicTeamQualifier } from './hooks/useDynamicTeamQualifier';
@@ -36,6 +41,7 @@ import { usePlayers } from './hooks/usePlayers';
 import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
+import { useTierPairings } from './hooks/useTierPairings';
 import { useTournament } from './hooks/useTournament';
 import {
   availabilityChangeMessage,
@@ -74,11 +80,15 @@ type View =
   | 'dtq-rounds'
   | 'dtq-standings'
   | 'dtq-bracket'
-  | 'dtq-results';
+  | 'dtq-results'
+  | 'tier-rounds'
+  | 'tier-all'
+  | 'tier-players';
 const KING_COURT_VIEWS: View[] = ['setup', 'kc-court', 'kc-standings', 'kc-history'];
 const STANDARD_VIEWS: View[] = ['setup', 'rounds', 'results'];
 const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-resting', 'dp-history'];
 const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standings', 'dtq-bracket', 'dtq-results'];
+const TIER_PAIRINGS_VIEWS: View[] = ['setup', 'tier-rounds', 'tier-all', 'tier-players'];
 
 function App() {
   const {
@@ -136,6 +146,7 @@ function App() {
   const kingCourt = useKingCourt();
   const dynamicPairing = useDynamicPairingSocial();
   const dynamicTeamQualifier = useDynamicTeamQualifier();
+  const tierPairings = useTierPairings();
   const { theme, toggleTheme } = useTheme();
   const isPoolsKnockout = settings.playMode === 'tournament' && settings.tournamentFormat === 'pools-knockout';
   const isDynamicTeamQualifier = settings.playMode === 'tournament' && settings.tournamentFormat === 'dynamic-team-qualifier';
@@ -146,6 +157,9 @@ function App() {
   // rather than reusing usePlayers/useTeams/useTournament, so it can't affect
   // any other mode's data.
   const isDynamicPairingSocial = settings.playMode === 'social' && settings.socialFormat === 'dynamic-pairing-social';
+  // Tier-Based Pairings: also a Social Format with its own isolated state
+  // (useTierPairings — one localStorage key, no shared roster or rounds).
+  const isTierPairings = settings.playMode === 'social' && settings.socialFormat === 'tier-based-pairings';
   // "Social" groups two underlying playMode values — 'social' (Standard
   // Social Play / Dynamic Pairing Social) and 'king-court-5' (5-Player King
   // Court) — same grouping TournamentSetup's Social Format toggle uses.
@@ -191,6 +205,10 @@ function App() {
           ? dynamicTeamQualifier.started
             ? 'dtq-rounds'
             : 'setup'
+          : isTierPairings
+            ? tierPairings.started
+              ? 'tier-rounds'
+              : 'setup'
           : rounds.length > 0 || poolsKnockout.stage !== 'setup'
             ? 'rounds'
             : 'setup',
@@ -202,6 +220,8 @@ function App() {
       ? dynamicPairing.started
       : isDynamicTeamQualifier
         ? dynamicTeamQualifier.started
+        : isTierPairings
+          ? tierPairings.started
         : isPoolsKnockout
           ? poolsKnockout.stage !== 'setup'
           : rounds.length > 0;
@@ -226,6 +246,8 @@ function App() {
       ? 'Reset Dynamic Pairing Social'
       : isDynamicTeamQualifier
         ? 'Reset Dynamic Team Qualifier'
+        : isTierPairings
+          ? 'Reset Tier-Based Pairings'
         : isSocial
           ? 'Reset Social Play'
           : 'Reset Tournament';
@@ -246,11 +268,13 @@ function App() {
         ? DYNAMIC_PAIRING_VIEWS
         : isDynamicTeamQualifier
           ? DYNAMIC_TEAM_QUALIFIER_VIEWS
+          : isTierPairings
+            ? TIER_PAIRINGS_VIEWS
           : STANDARD_VIEWS;
     if (!validViews.includes(view) || (view !== 'setup' && !started)) {
       setView('setup');
     }
-  }, [view, started, isKingCourt, isDynamicPairingSocial, isDynamicTeamQualifier]);
+  }, [view, started, isKingCourt, isDynamicPairingSocial, isDynamicTeamQualifier, isTierPairings]);
 
   function handleStartMatches() {
     if (isPoolsKnockout) {
@@ -509,7 +533,56 @@ function App() {
     setFlashMessages([`${team.name} ${status} ${detail}`]);
   }
 
+  // Tier-Based Pairings live roster changes. The open round is never rewritten
+  // automatically; when the change matters to it, the flash message points
+  // at Regenerate Round (draft) or a manual swap (in play).
+  function tierChangeAdvice(playerId: string): string | null {
+    const round = tierPairings.currentRound;
+    if (!round || !tierPairings.started) return null;
+    const inRound =
+      round.restingPlayerIds.includes(playerId) ||
+      round.matches.some((m) => [...m.teamAPlayerIds, ...m.teamBPlayerIds].includes(playerId));
+    if (!inRound && round.status === 'active') return null;
+    return round.status === 'draft'
+      ? `Round ${round.roundNumber} hasn't started — use Regenerate Round to apply this now, or it applies from the next round.`
+      : `Round ${round.roundNumber} is in play and was not changed. Swap players if needed; this applies from the next round.`;
+  }
+
+  function handleTierChange(playerId: string, tier: PlayerTier) {
+    const player = tierPairings.players.find((p) => p.id === playerId);
+    tierPairings.setTier(playerId, tier);
+    const advice = tierChangeAdvice(playerId);
+    if (player && advice) setFlashMessages([`${player.name} is now ${tier}.`, advice]);
+  }
+
+  function handleTierAvailability(playerId: string, available: boolean) {
+    const player = tierPairings.players.find((p) => p.id === playerId);
+    tierPairings.setAvailability(playerId, available);
+    const advice = tierChangeAdvice(playerId);
+    if (player && advice) setFlashMessages([`${player.name} is ${available ? 'available' : 'unavailable'}.`, advice]);
+  }
+
+  function handleTierRemove(playerId: string) {
+    const player = tierPairings.players.find((p) => p.id === playerId);
+    if (tierPairings.started && !window.confirm(`Remove ${player?.name ?? 'this player'}? Their completed rounds are kept.`)) return;
+    const result = tierPairings.removePlayer(playerId);
+    if (!result.ok) setFlashMessages([result.reason]);
+  }
+
   function handleReset() {
+    // Tier-Based Pairings only clears its own rounds/history — it never
+    // touches other modes' data, and keeps the roster for the next session.
+    if (isTierPairings) {
+      if (
+        window.confirm(
+          'Reset Tier-Based Pairings? This clears all rounds and history. Players, tiers and courts are kept so you can start a new session.',
+        )
+      ) {
+        tierPairings.reset();
+        setView('setup');
+      }
+      return;
+    }
     const confirmed = window.confirm(
       isKingCourt
         ? 'Are you sure you want to reset King Court? This will clear all players, court assignments, cycles, scores, and stats.'
@@ -649,6 +722,33 @@ function App() {
                 Session History
               </button>
             </>
+          ) : isTierPairings ? (
+            <>
+              <button
+                type="button"
+                className={view === 'tier-rounds' ? 'tab active' : 'tab'}
+                onClick={() => setView('tier-rounds')}
+                disabled={!started}
+              >
+                Current Round
+              </button>
+              <button
+                type="button"
+                className={view === 'tier-all' ? 'tab active' : 'tab'}
+                onClick={() => setView('tier-all')}
+                disabled={!started}
+              >
+                All Rounds
+              </button>
+              <button
+                type="button"
+                className={view === 'tier-players' ? 'tab active' : 'tab'}
+                onClick={() => setView('tier-players')}
+                disabled={!started}
+              >
+                Players
+              </button>
+            </>
           ) : isDynamicTeamQualifier ? (
             <>
               <button
@@ -723,7 +823,7 @@ function App() {
             tournamentInProgress={started}
           />
 
-          {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && (
+          {!isKingCourt && !isDynamicPairingSocial && !isDynamicTeamQualifier && !isTierPairings && (
             <NumberOfCourtsSetup settings={settings} onChange={updateSettings} />
           )}
 
@@ -789,6 +889,26 @@ function App() {
               started={dynamicPairing.started}
               gradingPhaseComplete={dynamicPairing.gradingPhaseComplete}
               onGoToRounds={() => setView('dp-rounds')}
+            />
+          ) : isTierPairings ? (
+            <TierPairingsSetup
+              players={tierPairings.players}
+              numberOfCourts={tierPairings.settings.numberOfCourts}
+              started={tierPairings.started}
+              startError={tierPairings.startError}
+              onAddPlayers={tierPairings.addPlayers}
+              onSetTier={handleTierChange}
+              onSetAvailability={handleTierAvailability}
+              onRename={tierPairings.renamePlayer}
+              onRemove={handleTierRemove}
+              onRemoveAll={tierPairings.removeAllPlayers}
+              onSetCourts={tierPairings.setCourts}
+              onStart={() => {
+                const result = tierPairings.startSession();
+                if (result.ok) setView('tier-rounds');
+                else setFlashMessages([result.reason]);
+              }}
+              onGoToRounds={() => setView('tier-rounds')}
             />
           ) : isDynamicTeamQualifier ? (
             <>
@@ -957,6 +1077,52 @@ function App() {
 
       {view === 'dp-history' && started && (
         <DynamicPairingSessionHistory settings={dynamicPairing.settings} rounds={dynamicPairing.rounds} />
+      )}
+
+      {view === 'tier-rounds' && started && (
+        <TierPairingsRoundsPage
+          round={tierPairings.currentRound}
+          players={tierPairings.players}
+          stats={tierPairings.stats}
+          numberOfCourts={tierPairings.settings.numberOfCourts}
+          issues={tierPairings.issues}
+          onStartRound={tierPairings.startRound}
+          onNextRound={tierPairings.nextRound}
+          onRegenerate={tierPairings.regenerateRound}
+          onSwap={tierPairings.swapPlayers}
+          onSetCourts={tierPairings.setCourts}
+          onManagePlayers={() => setView('tier-players')}
+          onFlash={setFlashMessages}
+        />
+      )}
+
+      {view === 'tier-all' && started && <TierPairingsAllRounds rounds={tierPairings.rounds} players={tierPairings.players} />}
+
+      {view === 'tier-players' && started && (
+        <TierPairingsPlayers
+          players={tierPairings.players}
+          stats={tierPairings.stats}
+          hasOpenRound={tierPairings.currentRound !== undefined}
+          canGenerateNext={tierPairings.currentRound === undefined}
+          onGenerateNext={() => {
+            const result = tierPairings.generateNext();
+            if (result.ok) setView('tier-rounds');
+            else setFlashMessages([result.reason]);
+          }}
+          onAddPlayers={(entries) => {
+            tierPairings.addPlayers(entries);
+            const round = tierPairings.currentRound;
+            if (round?.status === 'draft') {
+              setFlashMessages([
+                `Added ${entries.map((e) => e.name.trim()).join(', ')}. Regenerate Round to include them in Round ${round.roundNumber}, or they join from the next round.`,
+              ]);
+            }
+          }}
+          onSetTier={handleTierChange}
+          onSetAvailability={handleTierAvailability}
+          onRename={tierPairings.renamePlayer}
+          onRemove={handleTierRemove}
+        />
       )}
 
       {view === 'dtq-rounds' && started && (

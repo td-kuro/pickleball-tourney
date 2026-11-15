@@ -1,0 +1,628 @@
+/* Tier-Based Pairings. Kept in its own file so the mode's styles never
+   collide with App.css. Uses the shared theme tokens from index.css; the
+   three tier colours below are the only new tokens. */
+
+:root {
+  --tier-a: #8a5a00;
+  --tier-a-bg: #fff2d6;
+  --tier-a-border: #e8b64c;
+  --tier-b: #1d5fa8;
+  --tier-b-bg: #e3effc;
+  --tier-b-border: #8ab6e6;
+  --tier-c: #1f7a46;
+  --tier-c-bg: #e2f5ea;
+  --tier-c-border: #7cc79c;
+  --tier-danger: #b42318;
+  --tier-danger-bg: #fdecea;
+}
+
+:root[data-theme='dark'] {
+  --tier-a: #ffd27a;
+  --tier-a-bg: rgba(255, 196, 77, 0.16);
+  --tier-a-border: rgba(255, 196, 77, 0.5);
+  --tier-b: #9cc8ff;
+  --tier-b-bg: rgba(120, 175, 255, 0.16);
+  --tier-b-border: rgba(120, 175, 255, 0.5);
+  --tier-c: #86efac;
+  --tier-c-bg: rgba(74, 222, 128, 0.14);
+  --tier-c-border: rgba(74, 222, 128, 0.45);
+  --tier-danger: #ff8a80;
+  --tier-danger-bg: rgba(255, 99, 88, 0.14);
+}
+
+/* --- pills & pickers --- */
+
+.tier-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.6em;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid;
+  font-size: 0.78em;
+  font-weight: 700;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.tier-pill-a {
+  color: var(--tier-a);
+  background: var(--tier-a-bg);
+  border-color: var(--tier-a-border);
+}
+
+.tier-pill-b {
+  color: var(--tier-b);
+  background: var(--tier-b-bg);
+  border-color: var(--tier-b-border);
+}
+
+.tier-pill-c {
+  color: var(--tier-c);
+  background: var(--tier-c-bg);
+  border-color: var(--tier-c-border);
+}
+
+.tier-picker {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.tier-picker-option {
+  min-width: 34px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: none;
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tier-picker-option:last-child {
+  border-right: none;
+}
+
+.tier-picker-option.active {
+  border-color: transparent;
+}
+
+/* --- setup / player management --- */
+
+.tier-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 12px 0 16px;
+}
+
+.tier-add-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+}
+
+.tier-add-row input[type='text'] {
+  flex: 1 1 180px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+}
+
+.tier-bulk {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.tier-bulk textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+}
+
+.tier-board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.tier-column {
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--tier-b-border);
+  border-radius: 10px;
+  padding: 10px;
+  min-width: 0;
+}
+
+.tier-column-a {
+  border-top-color: var(--tier-a-border);
+}
+
+.tier-column-c {
+  border-top-color: var(--tier-c-border);
+}
+
+.tier-column h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.tier-column-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tier-player-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tier-player-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px;
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.tier-player-row.unavailable {
+  opacity: 0.6;
+}
+
+.tier-name-input {
+  flex: 1 1 60px;
+  min-width: 0;
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 600;
+}
+
+.tier-name-input:hover,
+.tier-name-input:focus {
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.tier-available-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  min-height: 34px;
+  cursor: pointer;
+}
+
+.tier-remove {
+  min-width: 34px;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tier-remove:hover {
+  color: var(--tier-danger);
+  border-color: var(--tier-danger);
+}
+
+.tier-player-meta {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--text);
+  padding-left: 8px;
+}
+
+/* --- current round --- */
+
+.tier-round-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tier-court-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.tier-court-grid.compact {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr));
+  gap: 8px;
+}
+
+.tier-court {
+  border: 1px solid var(--border);
+  border-top: 5px solid var(--tier-b-border);
+  border-radius: 12px;
+  padding: 14px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+.tier-court-top {
+  border-top-color: var(--tier-a-border);
+}
+
+.tier-court-lower {
+  border-top-color: var(--tier-c-border);
+}
+
+.tier-court.invalid {
+  border-color: var(--tier-danger);
+  background: var(--tier-danger-bg);
+}
+
+.tier-court-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.tier-court-number {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.tier-court-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+
+.tier-court-teams {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tier-team {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tier-vs {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text);
+  padding-left: 4px;
+}
+
+.tier-player {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--code-bg);
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-h);
+  border: 2px solid transparent;
+  text-align: left;
+}
+
+/* Names wrap rather than truncate: on the venue screen a clipped
+   "Low Player 1…" is unreadable. */
+.tier-player-name {
+  overflow-wrap: break-word;
+}
+
+.tier-player-button {
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.tier-player-button:hover {
+  border-color: var(--accent-border);
+}
+
+.tier-player-button.selected,
+.tier-resting-chip.selected {
+  border-color: var(--accent-fill);
+  background: var(--accent-bg);
+}
+
+.tier-court.compact {
+  padding: 10px;
+  border-top-width: 4px;
+}
+
+.tier-court.compact .tier-court-number {
+  font-size: 15px;
+}
+
+.tier-court.compact .tier-player {
+  font-size: 14px;
+  padding: 5px 8px;
+}
+
+.tier-swap-hint {
+  margin-top: 8px;
+}
+
+.tier-swap-preview {
+  border: 2px solid var(--accent-fill);
+  border-radius: 10px;
+  padding: 12px;
+  margin: 10px 0;
+  background: var(--accent-bg);
+}
+
+.tier-swap-preview.invalid {
+  border-color: var(--tier-danger);
+  background: var(--tier-danger-bg);
+}
+
+.tier-swap-preview .hint.error {
+  color: var(--tier-danger);
+  font-weight: 600;
+}
+
+.tier-swap-summary {
+  margin: 0 0 8px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.tier-swap-diff {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.tier-swap-diff .hint {
+  margin: 2px 0;
+}
+
+.tier-swap-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.tier-issues {
+  border-color: var(--tier-danger);
+}
+
+.tier-sitting-heading {
+  margin: 20px 0 8px;
+}
+
+.tier-resting-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+  gap: 8px;
+}
+
+.tier-resting-chip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tier-resting-meta {
+  flex-basis: 100%;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tier-consecutive {
+  color: var(--tier-danger);
+}
+
+.tier-controls-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0;
+}
+
+.tier-stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-stepper button {
+  min-width: 44px;
+  min-height: 40px;
+  font-size: 20px;
+}
+
+.tier-stepper-value {
+  min-width: 2ch;
+  text-align: center;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+/* Big screen: the venue display — bigger names, wider courts. */
+.large-display .tier-court-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 420px), 1fr));
+  gap: 16px;
+}
+
+/* One player per line on the big screen so full names fit at display size. */
+.large-display .tier-team {
+  flex-direction: column;
+}
+
+.large-display .tier-court-number {
+  font-size: 28px;
+}
+
+.large-display .tier-court-label {
+  font-size: 16px;
+}
+
+.large-display .tier-player,
+.large-display .tier-player-button {
+  font-size: 24px;
+  padding: 12px 14px;
+}
+
+.large-display .tier-vs {
+  font-size: 15px;
+}
+
+.large-display .tier-resting-chip {
+  font-size: 20px;
+}
+
+@media (min-width: 1600px) {
+  .tier-court-grid:not(.compact) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* --- all rounds / players --- */
+
+.tier-all-rounds {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.tier-round-block h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+.tier-round-flag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.tier-round-resting {
+  margin-top: 8px;
+}
+
+.tier-table-wrap {
+  overflow-x: auto;
+}
+
+.tier-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.tier-stats-table th,
+.tier-stats-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tier-stats-table th {
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.tier-stats-table tr.unavailable td {
+  opacity: 0.6;
+}
+
+@media (max-width: 480px) {
+  /* One player per line so full names fit on a phone. */
+  .tier-team {
+    flex-direction: column;
+  }
+
+  .tier-player,
+  .tier-player-button {
+    font-size: 16px;
+  }
+
+  .tier-round-actions {
+    width: 100%;
+  }
+
+  .tier-round-actions button {
+    flex: 1 1 auto;
+  }
+}
