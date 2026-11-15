@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { DynamicTeam, DynamicTeamQualifierSettings } from '../types';
 import { lockRosterAndStartQualifying } from '../utils/dynamicTeamQualifier';
 
@@ -58,7 +59,7 @@ export function DynamicTeamRestSchedulePreview({ teams, settings, onRegenerate }
                     {round.matches.map((match) => (
                       <li key={match.id} className="all-rounds-match">
                         <span>
-                          Court {match.courtNumber}: {teamLabel(match.teamAId)} vs {teamLabel(match.teamBId)}
+                          {courtLabel(settings.courtNumbers, match.courtNumber)}: {teamLabel(match.teamAId)} vs {teamLabel(match.teamBId)}
                         </span>
                       </li>
                     ))}

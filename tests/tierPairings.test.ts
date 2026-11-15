@@ -53,7 +53,7 @@ function ok(result: TierResult): TierSession {
 }
 
 function sessionWith(players: TierPlayer[], courts: number, ctx: TierContext): TierSession {
-  const base = { ...createTierSession({ numberOfCourts: courts }), players };
+  const base = { ...createTierSession({ numberOfCourts: courts, scoreMode: 'none' }), players };
   return ok(startTierSession(base, ctx));
 }
 
@@ -542,7 +542,7 @@ describe('Scenario I: manual swapping', () => {
       regenerationCount: 0,
       manuallyAdjusted: false,
     };
-    return { ...createTierSession({ numberOfCourts: 2 }), started: true, players, rounds: [round] };
+    return { ...createTierSession({ numberOfCourts: 2, scoreMode: 'none' }), started: true, players, rounds: [round] };
   }
 
   it('court-to-court swap of two B players', () => {
@@ -682,7 +682,7 @@ describe('roster management', () => {
   });
 
   it('refuses to start when no valid match exists', () => {
-    const base = { ...createTierSession({ numberOfCourts: 2 }), players: roster({ A: 2, C: 2 }) };
+    const base = { ...createTierSession({ numberOfCourts: 2, scoreMode: 'none' }), players: roster({ A: 2, C: 2 }) };
     const result = startTierSession(base, { rng: seededRandom(1) });
     assert.equal(result.ok, false);
   });
@@ -697,7 +697,7 @@ describe('randomised rosters (property check)', () => {
       const tiers: PlayerTier[] = ['A', 'B', 'C'];
       const players: TierPlayer[] = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}`, tier: tiers[Math.floor(rng() * 3)], available: true }));
       const ctx = { rng: seededRandom(trial), now: 0 };
-      const start = startTierSession({ ...createTierSession({ numberOfCourts: courts }), players }, ctx);
+      const start = startTierSession({ ...createTierSession({ numberOfCourts: courts, scoreMode: 'none' }), players }, ctx);
       if (!start.ok) {
         const count = (t: PlayerTier) => players.filter((p) => p.tier === t).length;
         assert.equal(maxValidMatches(count('A'), count('B'), count('C'), courts), 0);

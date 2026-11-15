@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState, type KeyboardEvent, type MouseEvent } from 'react';
 import type { KingCourtPlayerAssignment, Player } from '../types';
 import { isCourtFull, validateKingCourtSeeding } from '../utils/kingCourt';
@@ -5,6 +6,8 @@ import { isCourtFull, validateKingCourtSeeding } from '../utils/kingCourt';
 interface CourtSeedingProps {
   players: Player[];
   numberOfCourts: number;
+  // Physical courts for positions 1..numberOfCourts.
+  courtNumbers: number[];
   assignments: KingCourtPlayerAssignment[];
   onAssign: (playerId: string, courtNumber: number | null) => void;
   onReorderInCourt: (courtNumber: number, playerId: string, direction: -1 | 1) => void;
@@ -25,6 +28,7 @@ const CAPACITY = 5;
 export function CourtSeeding({
   players,
   numberOfCourts,
+  courtNumbers: physicalCourts,
   assignments,
   onAssign,
   onReorderInCourt,
@@ -38,7 +42,7 @@ export function CourtSeeding({
   // Strongest court first, matching the "Court 6 = strongest" convention.
   const courtNumbers = Array.from({ length: numberOfCourts }, (_, i) => numberOfCourts - i);
   const unassigned = players.filter((p) => !courtByPlayer.has(p.id));
-  const seedingCheck = validateKingCourtSeeding(assignments, players, numberOfCourts);
+  const seedingCheck = validateKingCourtSeeding(assignments, players, numberOfCourts, physicalCourts);
 
   function togglePlayer(playerId: string) {
     setError(null);
@@ -131,13 +135,13 @@ export function CourtSeeding({
               className={isFull ? 'kc-court-card kc-court-card-full' : 'kc-court-card'}
               role="button"
               tabIndex={0}
-              aria-label={`Assign selected player to Court ${court}`}
+              aria-label={`Assign selected player to ${courtLabel(physicalCourts, court)}`}
               onClick={() => assignSelectedTo(court)}
               onKeyDown={(event) => handleCourtKeyDown(event, court)}
             >
               <div className="kc-court-card-header">
                 <h3>
-                  Court {court}
+                  {courtLabel(physicalCourts, court)}
                   {court === numberOfCourts ? ' — Strongest' : court === 1 ? ' — Weakest' : ''}
                 </h3>
                 <span className={isFull ? 'kc-court-count full' : 'kc-court-count'}>
@@ -161,7 +165,7 @@ export function CourtSeeding({
                           <button
                             type="button"
                             className="kc-reorder-button"
-                            aria-label={`Move ${player.name} earlier in Court ${court}`}
+                            aria-label={`Move ${player.name} earlier in ${courtLabel(physicalCourts, court)}`}
                             onClick={(event) => handleReorder(event, court, player.id, -1)}
                             disabled={index === 0}
                           >
@@ -170,7 +174,7 @@ export function CourtSeeding({
                           <button
                             type="button"
                             className="kc-reorder-button"
-                            aria-label={`Move ${player.name} later in Court ${court}`}
+                            aria-label={`Move ${player.name} later in ${courtLabel(physicalCourts, court)}`}
                             onClick={(event) => handleReorder(event, court, player.id, 1)}
                             disabled={index === courtPlayers.length - 1}
                           >
@@ -179,7 +183,7 @@ export function CourtSeeding({
                           <button
                             type="button"
                             className="kc-remove-button"
-                            aria-label={`Remove ${player.name} from Court ${court}`}
+                            aria-label={`Remove ${player.name} from ${courtLabel(physicalCourts, court)}`}
                             onClick={(event) => handleRemove(event, player.id)}
                           >
                             ×

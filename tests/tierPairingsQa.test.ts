@@ -64,7 +64,7 @@ function open(session: TierSession): TierRound {
 }
 
 function start(players: TierPlayer[], courts: number, ctx: TierContext): TierSession {
-  return ok(startTierSession({ ...createTierSession({ numberOfCourts: courts }), players }, ctx));
+  return ok(startTierSession({ ...createTierSession({ numberOfCourts: courts, scoreMode: 'none' }), players }, ctx));
 }
 
 function play(session: TierSession, ctx: TierContext): TierSession {
@@ -158,7 +158,7 @@ describe('QA: tier restriction', () => {
       const n = 4 + Math.floor(rng() * 37);
       const players: TierPlayer[] = Array.from({ length: n }, (_, i) => ({ id: `p${i}`, name: `P${i}`, tier: TIERS[Math.floor(rng() * 3)], available: true }));
       const ctx = { rng: seededRandom(trial * 7 + 1), now: 0 };
-      const started = startTierSession({ ...createTierSession({ numberOfCourts: 1 + Math.floor(rng() * 10) }), players }, ctx);
+      const started = startTierSession({ ...createTierSession({ numberOfCourts: 1 + Math.floor(rng() * 10), scoreMode: 'none' }), players }, ctx);
       if (!started.ok) continue;
       let s = started.session;
       for (let r = 0; r < 6; r++) {
@@ -231,7 +231,7 @@ describe('QA: maximum court utilisation', () => {
       if (a + b + c <= 12) {
         assert.equal(brutePlayerLevelMax(players.map((p) => p.tier), courts), expected, 'player-level brute force');
       }
-      const res = startTierSession({ ...createTierSession({ numberOfCourts: courts }), players }, { rng: seededRandom(a * 100 + c), now: 0 });
+      const res = startTierSession({ ...createTierSession({ numberOfCourts: courts, scoreMode: 'none' }), players }, { rng: seededRandom(a * 100 + c), now: 0 });
       if (expected === 0) {
         assert.equal(res.ok, false);
         if (!res.ok) assert.match(res.reason, /No valid match/);
@@ -623,12 +623,12 @@ describe('QA: live tier changes', () => {
 
 describe('QA: player management', () => {
   it('regression: blank names are rejected by the session layer, not just the UI', () => {
-    const s = addTierPlayers(createTierSession(), [{ name: '' }, { name: '   ' }, { name: 'Real' }]);
+    const s = addTierPlayers(createTierSession({ scoreMode: 'none' }), [{ name: '' }, { name: '   ' }, { name: 'Real' }]);
     assert.deepEqual(s.players.map((p) => p.name), ['Real']);
   });
 
   it('regression: duplicate names are made distinguishable, ids are always unique', () => {
-    let s = addTierPlayers(createTierSession(), [{ name: 'Alex' }, { name: 'alex' }, { name: 'Alex' }], { rng: () => 0.5, now: 0 });
+    let s = addTierPlayers(createTierSession({ scoreMode: 'none' }), [{ name: 'Alex' }, { name: 'alex' }, { name: 'Alex' }], { rng: () => 0.5, now: 0 });
     s = addTierPlayers(s, [{ name: 'Alex' }], { rng: () => 0.5, now: 0 });
     const names = s.players.map((p) => p.name);
     assert.equal(new Set(names.map((n) => n.toLowerCase())).size, 4, names.join(','));
@@ -636,7 +636,7 @@ describe('QA: player management', () => {
   });
 
   it('regression: renaming to an existing name keeps names distinguishable; blank rename ignored', () => {
-    let s = addTierPlayers(createTierSession(), [{ name: 'Alex' }, { name: 'Sam' }]);
+    let s = addTierPlayers(createTierSession({ scoreMode: 'none' }), [{ name: 'Alex' }, { name: 'Sam' }]);
     const sam = s.players[1].id;
     s = renameTierPlayer(s, sam, 'alex');
     assert.equal(s.players[1].name, 'alex 2');
@@ -645,7 +645,7 @@ describe('QA: player management', () => {
 
   it('remove before start deletes; remove mid-session keeps history and never reassigns', () => {
     const ctx = { rng: seededRandom(3), now: 0 };
-    let s = { ...createTierSession({ numberOfCourts: 2 }), players: roster(0, 10, 0) };
+    let s = { ...createTierSession({ numberOfCourts: 2, scoreMode: 'none' }), players: roster(0, 10, 0) };
     s = ok(removeTierPlayer(s, 'B10', ctx));
     assert.equal(s.players.length, 9);
     s = ok(startTierSession(s, ctx));
@@ -704,7 +704,7 @@ describe('QA: swap after a live tier change', () => {
       regenerationCount: 0,
       manuallyAdjusted: false,
     };
-    let s: TierSession = { ...createTierSession({ numberOfCourts: 1 }), started: true, players, rounds: [round] };
+    let s: TierSession = { ...createTierSession({ numberOfCourts: 1, scoreMode: 'none' }), started: true, players, rounds: [round] };
     s = setTierPlayerTier(s, 'B1', 'C');
     assert.ok(openTierRoundIssues(s).some((i) => i.includes('mixes Top (A) and Lower (C)')));
     s = ok(swapTierPlayers(s, 'r', 'A1', 'C1')); // fixes the court: C1/B1(C) vs B2/B3
@@ -732,7 +732,7 @@ describe('QA: court count changes', () => {
   });
 
   it('regression: invalid court values (0, negative, NaN, Infinity, above the limit) are rejected or clamped', () => {
-    const s = createTierSession({ numberOfCourts: 4 });
+    const s = createTierSession({ numberOfCourts: 4, scoreMode: 'none' });
     assert.equal(setTierCourts(s, 0).settings.numberOfCourts, 1);
     assert.equal(setTierCourts(s, -3).settings.numberOfCourts, 1);
     assert.equal(setTierCourts(s, Number.NaN).settings.numberOfCourts, 4);
@@ -778,6 +778,7 @@ describe('QA: persistence', () => {
     raw.players.push('garbage');
     raw.rounds.push({ id: 'broken', roundNumber: 'x', matches: 'nope' }); // unusable → dropped
     raw.settings.numberOfCourts = -5;
+    raw.settings.courts = 'garbage'; // unusable court list → rebuilt from the (clamped) count
     raw.events = 'not an array';
     const repaired = normalizeTierSession(raw);
     assert.equal(repaired.players.find((p) => p.id === 'bad1')!.tier, 'B');
@@ -849,7 +850,7 @@ describe('QA: sizes, edge distributions and performance', () => {
       const c = Math.round(n * 0.35);
       const players = roster(a, n - a - c, c);
       const courts = Math.min(15, Math.max(1, Math.floor(n / 4)));
-      const res = startTierSession({ ...createTierSession({ numberOfCourts: courts }), players }, { rng: seededRandom(n), now: 0 });
+      const res = startTierSession({ ...createTierSession({ numberOfCourts: courts, scoreMode: 'none' }), players }, { rng: seededRandom(n), now: 0 });
       if (!res.ok) {
         lines.push(`${n}: no valid match (${res.reason})`);
         continue;
@@ -893,7 +894,7 @@ describe('QA: sizes, edge distributions and performance', () => {
   });
 
   it('fewer than four available players: start refused with a message; mid-session drop-outs stop generation cleanly', () => {
-    const r = startTierSession({ ...createTierSession(), players: roster(0, 3, 0) });
+    const r = startTierSession({ ...createTierSession({ scoreMode: 'none' }), players: roster(0, 3, 0) });
     assert.equal(r.ok, false);
     const ctx = { rng: seededRandom(1), now: 0 };
     let s = start(roster(0, 5, 0), 1, ctx);

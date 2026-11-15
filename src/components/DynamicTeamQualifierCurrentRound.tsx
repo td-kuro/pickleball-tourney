@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState, type FormEvent } from 'react';
 import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingMatch, QualifyingRound, RestAssignment, ScoreRecordingMode } from '../types';
 import { calculateProvisionalStandings } from '../utils/dynamicTeamQualifier';
@@ -5,6 +6,8 @@ import { SCORE_NOT_RECORDED, scoreRecordingModeLabel } from '../utils/results';
 import { MatchResultEntry } from './MatchResultEntry';
 
 interface DynamicTeamQualifierCurrentRoundProps {
+  // Physical courts by position — see utils/courtNumbers.ts.
+  courtNumbers?: number[];
   teams: DynamicTeam[];
   rounds: QualifyingRound[];
   restAssignments: RestAssignment[];
@@ -25,6 +28,7 @@ interface DynamicTeamQualifierCurrentRoundProps {
 // dashboard") — folded into one screen rather than a separate tab, since
 // the dashboard's whole job is to summarise and act on exactly this round.
 export function DynamicTeamQualifierCurrentRound({
+  courtNumbers,
   teams,
   rounds,
   restAssignments,
@@ -170,6 +174,7 @@ export function DynamicTeamQualifierCurrentRound({
               <DynamicTeamMatchCard
                 key={match.id}
                 match={match}
+                courtName={courtLabel(courtNumbers, match.courtNumber)}
                 teamALabel={teamLabel(match.teamAId)}
                 teamBLabel={teamLabel(match.teamBId)}
                 scoreMode={scoreRecordingMode}
@@ -202,6 +207,7 @@ export function DynamicTeamQualifierCurrentRound({
 
 interface DynamicTeamMatchCardProps {
   match: QualifyingMatch;
+  courtName: string;
   teamALabel: string;
   teamBLabel: string;
   scoreMode: ScoreRecordingMode;
@@ -213,7 +219,7 @@ interface DynamicTeamMatchCardProps {
 // directly, e.g. "9-8"; this is a record-keeping marker, not an automatic
 // score transformer — see README's "Golden point rule"), and a Forfeit
 // toggle that swaps score inputs for a plain winner pick.
-function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, scoreMode, onSetScore }: DynamicTeamMatchCardProps) {
+function DynamicTeamMatchCard({ match, courtName, teamALabel, teamBLabel, scoreMode, onSetScore }: DynamicTeamMatchCardProps) {
   const [scoreA, setScoreA] = useState(match.scoreA != null ? String(match.scoreA) : '');
   const [scoreB, setScoreB] = useState(match.scoreB != null ? String(match.scoreB) : '');
   const [goldenPoint, setGoldenPoint] = useState(match.goldenPoint);
@@ -253,7 +259,7 @@ function DynamicTeamMatchCard({ match, teamALabel, teamBLabel, scoreMode, onSetS
 
   return (
     <form className="match-card" onSubmit={handleSubmit}>
-      <div className="match-header">Court {match.courtNumber}</div>
+      <div className="match-header">{courtName}</div>
       {forfeit && !locked ? (
         <div className="form-row">
           <span>Winner (forfeit)</span>

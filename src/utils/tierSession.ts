@@ -7,10 +7,24 @@
 // toward history (see computeTierStats), so regenerating or discarding a
 // draft/active round never leaks into partner/opponent/sit-out counts, and
 // completing is idempotent by round id.
-import type { PlayerTier, TierEvent, TierEventType, TierPlayer, TierRound, TierSession, TierSettings } from '../types';
+import type {
+  PlayerTier,
+  TierEvent,
+  TierEventType,
+  TierFinalStandings,
+  TierMatchResult,
+  TierPlayer,
+  TierRound,
+  TierScoreMode,
+  TierSession,
+  TierSettings,
+} from '../types';
+import { adjustCourtNumbers, cleanCourtNumbers, defaultCourtNumbers, formatCourtList, resolveCourtNumbers, sameCourtNumbers } from './courtNumbers';
+import { buildFinalStandings, buildTierResult, describeResult, sameResult, type ResultInput } from './tierLeaderboard';
 import {
   generateTierRound,
   makeTierId,
+  matchCourtLabel,
   maxValidMatches,
   planTierSwap,
   tierRoundSignature,
@@ -22,10 +36,54 @@ import {
 export const DEFAULT_TIER: PlayerTier = 'B';
 export const MAX_TIER_COURTS = 30;
 
-export const DEFAULT_TIER_SETTINGS: TierSettings = { sessionName: '', numberOfCourts: 4 };
+export const DEFAULT_TIER_SCORE_MODE: TierScoreMode = 'win-loss-only';
 
+export const DEFAULT_TIER_SETTINGS: TierSettings = {
+  sessionName: '',
+  numberOfCourts: 4,
+  courtNumbers: defaultCourtNumbers(4),
+  scoreMode: DEFAULT_TIER_SCORE_MODE,
+};
+
+// `numberOfCourts` alone (as older callers and tests pass it) selects
+// Courts 1..N; `courtNumbers` wins when given.
 export function createTierSession(settings: Partial<TierSettings> = {}): TierSession {
-  return { version: 1, started: false, settings: { ...DEFAULT_TIER_SETTINGS, ...settings }, players: [], rounds: [], events: [] };
+  const courtNumbers =
+    cleanCourtNumbers(settings.courtNumbers) ?? defaultCourtNumbers(settings.numberOfCourts ?? DEFAULT_TIER_SETTINGS.numberOfCourts);
+  return {
+    version: 1,
+    started: false,
+    settings: { ...DEFAULT_TIER_SETTINGS, ...settings, courtNumbers, numberOfCourts: courtNumbers.length },
+    players: [],
+    rounds: [],
+    events: [],
+  };
+}
+
+const isScoreMode = (v: unknown): v is TierScoreMode => v === 'none' || v === 'win-loss-only' || v === 'full-score';
+
+function withCourtNumbers(session: TierSession, courtNumbers: number[], applyToOpen = false): TierSession {
+  const next = { ...session, settings: { ...session.settings, courtNumbers, numberOfCourts: courtNumbers.length } };
+  return relabelOpenRound(next, applyToOpen);
+}
+
+// Puts the open round's matches on the selected courts, in order. A draft
+// (not started) always follows the selection; a round in play only when the
+// organiser explicitly reassigns it (`applyToActive`). Players never move —
+// only the court each match is on. Completed rounds are never touched.
+function relabelOpenRound(session: TierSession, applyToActive: boolean): TierSession {
+  const open = session.rounds.find((r) => r.status !== 'completed');
+  if (!open || (open.status === 'active' && !applyToActive)) return session;
+  const nums = session.settings.courtNumbers;
+  let changed = false;
+  const matches = open.matches.map((m, i) => {
+    const physical = nums[i];
+    if (physical === undefined || physical === m.physicalCourt) return m;
+    changed = true;
+    return { ...m, physicalCourt: physical };
+  });
+  if (!changed) return session;
+  return { ...session, rounds: session.rounds.map((r) => (r.id === open.id ? { ...r, matches } : r)) };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -55,11 +113,26 @@ function normalizeRound(raw: unknown): TierRound | null {
   if (!matches.every((m) => isObject(m) && typeof m.id === 'string' && typeof m.courtNumber === 'number' && isIdPair(m.teamAPlayerIds) && isIdPair(m.teamBPlayerIds))) {
     return null;
   }
+  const cleanMatches = matches.map((m) => {
+    const match = { ...(m as unknown as TierRound['matches'][number]) };
+    // Older saves: a "Court N" text label becomes physical court N.
+    const legacy = match as unknown as { courtId?: unknown; courtName?: unknown };
+    if (typeof match.physicalCourt !== 'number' && typeof legacy.courtName === 'string') {
+      const n = /^Court (\d+)$/.exec(legacy.courtName.trim());
+      if (n) match.physicalCourt = Number(n[1]);
+    }
+    delete legacy.courtId;
+    delete legacy.courtName;
+    if (typeof match.physicalCourt !== 'number' || !Number.isInteger(match.physicalCourt) || match.physicalCourt < 1) delete match.physicalCourt;
+    if (match.result !== undefined && !isValidResult(match.result)) delete match.result;
+    return match;
+  });
   const resting = Array.isArray(raw.restingPlayerIds) ? raw.restingPlayerIds.filter((x): x is string => typeof x === 'string') : [];
   const playerTiers: Record<string, PlayerTier> = {};
   if (isObject(raw.playerTiers)) for (const [id, t] of Object.entries(raw.playerTiers)) if (isTier(t)) playerTiers[id] = t;
   return {
     ...(raw as unknown as TierRound),
+    matches: cleanMatches,
     restingPlayerIds: resting,
     playerTiers,
     courtsAtGeneration: typeof raw.courtsAtGeneration === 'number' ? raw.courtsAtGeneration : matches.length,
@@ -67,6 +140,15 @@ function normalizeRound(raw: unknown): TierRound | null {
     regenerationCount: typeof raw.regenerationCount === 'number' ? raw.regenerationCount : 0,
     manuallyAdjusted: raw.manuallyAdjusted === true,
   };
+}
+
+function isValidResult(r: unknown): r is TierMatchResult {
+  if (!isObject(r) || (r.winner !== 'A' && r.winner !== 'B') || typeof r.recordedAt !== 'number') return false;
+  if (r.recordingMode === 'win-loss-only') return r.scoreA === undefined && r.scoreB === undefined;
+  if (r.recordingMode !== 'full-score') return false;
+  const a = r.scoreA;
+  const b = r.scoreB;
+  return typeof a === 'number' && typeof b === 'number' && a !== b && (a > b ? 'A' : 'B') === r.winner;
 }
 
 function clampCourts(value: unknown, fallback: number): number {
@@ -89,17 +171,29 @@ export function normalizeTierSession(raw: unknown): TierSession {
   // At most one open round may exist; keep the newest if a bad save left more.
   const openRounds = rounds.filter((r) => r.status !== 'completed').sort((a, b) => b.roundNumber - a.roundNumber);
   const keptRounds = rounds.filter((r) => r.status === 'completed' || r === openRounds[0]);
-  return {
+  const started = raw.started === true;
+  const courtNumbers = resolveCourtNumbers(settings.courtNumbers, clampCourts(settings.numberOfCourts, base.settings.numberOfCourts));
+  const session: TierSession = {
     version: 1,
-    started: raw.started === true,
+    started,
     settings: {
       sessionName: typeof settings.sessionName === 'string' ? settings.sessionName : base.settings.sessionName,
-      numberOfCourts: clampCourts(settings.numberOfCourts, base.settings.numberOfCourts),
+      numberOfCourts: courtNumbers.length,
+      courtNumbers,
+      // Sessions saved before scoring existed were played without scores.
+      scoreMode: isScoreMode(settings.scoreMode) ? settings.scoreMode : started ? 'none' : DEFAULT_TIER_SCORE_MODE,
     },
     players: uniquePlayers,
     rounds: keptRounds,
     events: Array.isArray(raw.events) ? (raw.events.filter((e) => isObject(e) && typeof e.type === 'string') as unknown as TierEvent[]) : [],
   };
+  if (typeof raw.endedAt === 'number') {
+    session.endedAt = raw.endedAt;
+    if (isObject(raw.finalStandings) && Array.isArray(raw.finalStandings.standings)) {
+      session.finalStandings = raw.finalStandings as unknown as TierFinalStandings;
+    }
+  }
+  return session;
 }
 
 export interface TierContext {
@@ -183,6 +277,7 @@ export function parseTierPlayerLines(text: string, defaultTier: PlayerTier = DEF
 }
 
 export function addTierPlayers(session: TierSession, entries: NewTierPlayer[], ctx: TierContext = {}): TierSession {
+  if (ended(session)) return session;
   const rng = ctx.rng ?? Math.random;
   // The first round generated after they were added.
   const joinedAtRound = session.started ? nextRoundNumber(session) : undefined;
@@ -218,6 +313,7 @@ export function addTierPlayers(session: TierSession, entries: NewTierPlayer[], c
 }
 
 export function renameTierPlayer(session: TierSession, playerId: string, name: string): TierSession {
+  if (ended(session)) return session;
   const base = name.trim().replace(/\s+/g, ' ');
   const player = session.players.find((p) => p.id === playerId);
   if (!base || !player || base === player.name) return session;
@@ -232,6 +328,7 @@ export function renameTierPlayer(session: TierSession, playerId: string, name: s
 // playerTiers snapshot), history is untouched, and the open round is never
 // rewritten automatically — the UI offers Regenerate Round instead.
 export function setTierPlayerTier(session: TierSession, playerId: string, tier: PlayerTier, ctx: TierContext = {}): TierSession {
+  if (ended(session)) return session;
   const player = session.players.find((p) => p.id === playerId);
   if (!player || player.tier === tier) return session;
   const next = { ...session, players: session.players.map((p) => (p.id === playerId ? { ...p, tier } : p)) };
@@ -240,6 +337,7 @@ export function setTierPlayerTier(session: TierSession, playerId: string, tier: 
 }
 
 export function setTierPlayerAvailability(session: TierSession, playerId: string, available: boolean, ctx: TierContext = {}): TierSession {
+  if (ended(session)) return session;
   const player = session.players.find((p) => p.id === playerId);
   if (!player || player.available === available || player.removed) return session;
   let next = { ...session, players: session.players.map((p) => (p.id === playerId ? { ...p, available } : p)) };
@@ -262,13 +360,24 @@ function playerAppearsIn(round: TierRound, playerId: string): boolean {
   return round.restingPlayerIds.includes(playerId) || round.matches.some((m) => [...m.teamAPlayerIds, ...m.teamBPlayerIds].includes(playerId));
 }
 
-export type TierResult = { ok: true; session: TierSession; message?: string } | { ok: false; reason: string };
+export type TierResult =
+  | { ok: true; session: TierSession; message?: string }
+  // missingResults: the action needs the organiser to confirm continuing
+  // with that many unrecorded matches (pass allowMissingResults).
+  | { ok: false; reason: string; missingResults?: number };
+
+export const SESSION_ENDED_REASON = 'This session has ended. Reset to start a new one.';
+
+function ended(session: TierSession): boolean {
+  return session.endedAt !== undefined;
+}
 
 // A player who never appeared in a round is deleted outright. Anyone with
 // history is kept as `removed` (hidden, never assigned) so old rounds still
 // show their name. A player on a court in the open round must be swapped
 // out first.
 export function removeTierPlayer(session: TierSession, playerId: string, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   const player = session.players.find((p) => p.id === playerId);
   if (!player) return { ok: false, reason: 'Player not found.' };
   const open = openTierRound(session);
@@ -295,11 +404,180 @@ export function removeAllTierPlayers(session: TierSession): TierSession {
 }
 
 export function setTierCourts(session: TierSession, courts: number, ctx: TierContext = {}): TierSession {
+  if (ended(session)) return session;
   const value = clampCourts(courts, session.settings.numberOfCourts);
   if (value === session.settings.numberOfCourts) return session;
-  const next = { ...session, settings: { ...session.settings, numberOfCourts: value } };
-  if (!session.started) return next;
-  return withEvent(next, ctx, 'courts-changed', `Courts changed from ${session.settings.numberOfCourts} to ${value}. The next generated round uses ${value}.`);
+  const result = setTierCourtNumbers(session, adjustCourtNumbers(session.settings.courtNumbers, value), ctx);
+  return result.ok ? result.session : session;
+}
+
+// --- Courts -----------------------------------------------------------------
+
+// Court Number Selection: which physical courts are in use. The court COUNT
+// (how many matches a round holds) is simply how many are selected. Future
+// rounds use the new selection; a draft round is moved onto the new courts
+// straight away (no player moves); a round in play only with
+// `applyToOpen`; completed rounds keep the courts they were played on.
+export function setTierCourtNumbers(session: TierSession, courtNumbers: number[], ctx: TierContext & { applyToOpen?: boolean } = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
+  const nums = cleanCourtNumbers(courtNumbers);
+  if (!nums) return { ok: false, reason: 'Select at least one court.' };
+  if (nums.length !== courtNumbers.length) return { ok: false, reason: 'Each court number can only be selected once.' };
+  if (nums.length > MAX_TIER_COURTS) return { ok: false, reason: `At most ${MAX_TIER_COURTS} courts.` };
+  if (sameCourtNumbers(nums, session.settings.courtNumbers)) return { ok: true, session: ctx.applyToOpen ? relabelOpenRound(session, true) : session };
+  const next = withCourtNumbers(session, nums, ctx.applyToOpen === true);
+  if (!session.started) return { ok: true, session: next };
+  return {
+    ok: true,
+    session: withEvent(
+      next,
+      ctx,
+      'courts-changed',
+      `Courts changed from ${formatCourtList(session.settings.courtNumbers)} to ${formatCourtList(nums)}. The next generated round uses ${nums.length} court${nums.length === 1 ? '' : 's'}.`,
+    ),
+  };
+}
+
+// --- Scoring ------------------------------------------------------------------
+
+export function setTierScoreMode(session: TierSession, mode: TierScoreMode, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
+  if (!isScoreMode(mode)) return { ok: false, reason: 'Unknown score mode.' };
+  if (session.settings.scoreMode === mode) return { ok: true, session };
+  const next = { ...session, settings: { ...session.settings, scoreMode: mode } };
+  return {
+    ok: true,
+    session: session.started ? withEvent(next, ctx, 'score-mode-changed', `Score recording changed to ${scoreModeLabel(mode)}. Results already recorded are kept.`) : next,
+  };
+}
+
+export function scoreModeLabel(mode: TierScoreMode): string {
+  return mode === 'none' ? 'No Scoring' : mode === 'win-loss-only' ? 'Win/Loss Only' : 'Full Score';
+}
+
+function findMatch(session: TierSession, roundId: string, matchId: string) {
+  const round = session.rounds.find((r) => r.id === roundId);
+  const match = round?.matches.find((m) => m.id === matchId);
+  return { round, match };
+}
+
+function replaceMatchResult(session: TierSession, roundId: string, matchId: string, result: TierMatchResult | undefined): TierSession {
+  return {
+    ...session,
+    rounds: session.rounds.map((r) =>
+      r.id !== roundId
+        ? r
+        : {
+            ...r,
+            matches: r.matches.map((m) => {
+              if (m.id !== matchId) return m;
+              const { result: _old, ...rest } = m;
+              void _old;
+              return result ? { ...rest, result } : rest;
+            }),
+          },
+    ),
+  };
+}
+
+// Records (or edits) a result. Results go on the round in play; a
+// completed round is locked and only changes through an explicit
+// correction (`correction: true`), which is logged with the old result.
+// Submitting the same result again is a no-op. Standings are derived from
+// these results, so an edit replaces — never adds to — the old one.
+export function recordTierResult(
+  session: TierSession,
+  roundId: string,
+  matchId: string,
+  input: ResultInput,
+  ctx: TierContext & { correction?: boolean } = {},
+): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
+  const { round, match } = findMatch(session, roundId, matchId);
+  if (!round || !match) return { ok: false, reason: 'Match not found.' };
+  if (round.status === 'draft') return { ok: false, reason: 'Start the round before recording results.' };
+  if (round.status === 'completed' && !ctx.correction) return { ok: false, reason: `Round ${round.roundNumber} is completed. Use Correct Result to change it.` };
+  if (match.teamAPlayerIds.length !== 2 || match.teamBPlayerIds.length !== 2) return { ok: false, reason: 'Each side needs exactly two players.' };
+  const built = buildTierResult(session.settings.scoreMode, input);
+  if (!built.ok) return built;
+  if (sameResult(match.result, built.result)) return { ok: true, session };
+  const result: TierMatchResult = { ...built.result, recordedAt: ctxNow(ctx) };
+  const next = replaceMatchResult(session, roundId, matchId, result);
+  const nameOf = (id: string) => tierPlayerName(session, id);
+  const text = describeResult({ ...match, result }, nameOf);
+  const isChange = match.result !== undefined;
+  return {
+    ok: true,
+    session: withEvent(
+      next,
+      ctx,
+      isChange || round.status === 'completed' ? 'result-corrected' : 'result-recorded',
+      `Round ${round.roundNumber}, ${matchCourtLabel(match)}: ${text}${isChange ? ` (was: ${describeResult(match, nameOf)})` : ''}.`,
+      { roundNumber: round.roundNumber, matchId, ...(match.result ? { previousResult: match.result } : {}) },
+    ),
+  };
+}
+
+export function clearTierResult(session: TierSession, roundId: string, matchId: string, ctx: TierContext & { correction?: boolean } = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
+  const { round, match } = findMatch(session, roundId, matchId);
+  if (!round || !match) return { ok: false, reason: 'Match not found.' };
+  if (!match.result) return { ok: true, session };
+  if (round.status === 'completed' && !ctx.correction) return { ok: false, reason: `Round ${round.roundNumber} is completed. Use Correct Result to change it.` };
+  const next = replaceMatchResult(session, roundId, matchId, undefined);
+  return {
+    ok: true,
+    session: withEvent(next, ctx, 'result-cleared', `Round ${round.roundNumber}, ${matchCourtLabel(match)}: result cleared (was: ${describeResult(match, (id) => tierPlayerName(session, id))}).`, {
+      roundNumber: round.roundNumber,
+      matchId,
+      previousResult: match.result,
+    }),
+  };
+}
+
+function missingResults(session: TierSession, round: TierRound): number {
+  if (session.settings.scoreMode === 'none') return 0;
+  return round.matches.filter((m) => !m.result).length;
+}
+
+// --- End Session ----------------------------------------------------------------
+
+// Ends the session: the round in play is completed (asking first if results
+// are missing — pass allowMissingResults), an unplayed draft is discarded,
+// and the standings are frozen. Idempotent: ending twice changes nothing.
+// An ended session is read-only.
+export function endTierSession(session: TierSession, ctx: TierContext & { allowMissingResults?: boolean } = {}): TierResult {
+  if (ended(session)) return { ok: true, session };
+  if (!session.started) return { ok: false, reason: 'The session has not started.' };
+  const open = openTierRound(session);
+  let next = session;
+  if (open?.status === 'active') {
+    const missing = missingResults(session, open);
+    if (missing > 0 && !ctx.allowMissingResults) {
+      return { ok: false, reason: `${missing} match${missing === 1 ? ' has' : 'es have'} no result in Round ${open.roundNumber}.`, missingResults: missing };
+    }
+    next = { ...next, rounds: next.rounds.map((r) => (r.id === open.id ? { ...r, status: 'completed' as const, completedAt: ctxNow(ctx) } : r)) };
+    next = withEvent(next, ctx, 'round-completed', `Round ${open.roundNumber} completed.`, { roundNumber: open.roundNumber });
+  } else if (open?.status === 'draft') {
+    next = { ...next, rounds: next.rounds.filter((r) => r.id !== open.id) };
+    next = withEvent(next, ctx, 'round-regenerated', `Round ${open.roundNumber} was not played and has been discarded.`, {
+      roundNumber: open.roundNumber,
+      discarded: { matches: open.matches, restingPlayerIds: open.restingPlayerIds },
+    });
+  }
+  const endedAt = ctxNow(ctx);
+  const finalStandings = buildFinalStandings(next.players, next.rounds, next.settings.scoreMode, endedAt);
+  next = { ...next, endedAt, finalStandings };
+  const winners = finalStandings.winnerIds.map((id) => tierPlayerName(next, id));
+  return {
+    ok: true,
+    session: withEvent(
+      next,
+      ctx,
+      'session-ended',
+      winners.length === 0 ? 'Session ended.' : `Session ended. ${winners.length > 1 ? 'Joint winners' : 'Winner'}: ${winners.join(', ')}.`,
+    ),
+  };
 }
 
 export function setTierSessionName(session: TierSession, sessionName: string): TierSession {
@@ -323,6 +601,7 @@ function generateInto(session: TierSession, roundNumber: number, ctx: TierContex
     players: session.players,
     rounds: session.rounds.filter((r) => r.status === 'completed'),
     numberOfCourts: session.settings.numberOfCourts,
+    courtNumbers: session.settings.courtNumbers,
     roundNumber,
     rng: ctx.rng ?? Math.random,
     nowMs: ctxNow(ctx),
@@ -335,6 +614,7 @@ function roundSummary(round: TierRound): string {
 }
 
 export function startTierSession(session: TierSession, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   if (session.started) return { ok: false, reason: 'The session has already started.' };
   const check = canStartTierSession(session);
   if (!check.ok) return check;
@@ -348,6 +628,7 @@ export function startTierSession(session: TierSession, ctx: TierContext = {}): T
 // Generates the next draft round. Refuses while a round is still open so a
 // double click can never create two rounds.
 export function generateNextTierRound(session: TierSession, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   if (!session.started) return { ok: false, reason: 'Start the session first.' };
   const open = openTierRound(session);
   if (open) return { ok: false, reason: `Round ${open.roundNumber} is still open.` };
@@ -359,6 +640,7 @@ export function generateNextTierRound(session: TierSession, ctx: TierContext = {
 }
 
 export function startTierRound(session: TierSession, roundId: string, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   const round = session.rounds.find((r) => r.id === roundId);
   if (!round) return { ok: false, reason: 'Round not found.' };
   if (round.status !== 'draft') return { ok: true, session }; // already started/completed — idempotent
@@ -372,12 +654,20 @@ export function startTierRound(session: TierSession, roundId: string, ctx: TierC
 // completed rounds) and generates the following draft. Keyed by round id,
 // so repeated clicks are harmless: once the round is completed and its
 // successor exists, nothing else happens.
-export function advanceTierRound(session: TierSession, roundId: string, ctx: TierContext = {}): TierResult {
+// With scoring on, a round with unrecorded matches needs the organiser's
+// go-ahead (allowMissingResults); those matches simply stay unrecorded —
+// never a loss or a draw.
+export function advanceTierRound(session: TierSession, roundId: string, ctx: TierContext & { allowMissingResults?: boolean } = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   const round = session.rounds.find((r) => r.id === roundId);
   if (!round) return { ok: false, reason: 'Round not found.' };
   let next = session;
   if (round.status === 'draft') return { ok: false, reason: `Start Round ${round.roundNumber} before moving to the next round.` };
   if (round.status === 'active') {
+    const missing = missingResults(session, round);
+    if (missing > 0 && !ctx.allowMissingResults) {
+      return { ok: false, reason: `${missing} match${missing === 1 ? ' has' : 'es have'} no result yet.`, missingResults: missing };
+    }
     const completed: TierRound = { ...round, status: 'completed', completedAt: ctxNow(ctx) };
     next = { ...next, rounds: next.rounds.map((r) => (r.id === roundId ? completed : r)) };
     next = withEvent(next, ctx, 'round-completed', `Round ${round.roundNumber} completed.`, { roundNumber: round.roundNumber });
@@ -397,9 +687,13 @@ const REGENERATE_ATTEMPTS = 12;
 // new random draws until the result differs from the discarded round, when
 // any different valid arrangement exists.
 export function regenerateTierRound(session: TierSession, roundId: string, ctx: TierContext & { allowActive?: boolean } = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   const round = session.rounds.find((r) => r.id === roundId);
   if (!round) return { ok: false, reason: 'Round not found.' };
   if (round.status === 'completed') return { ok: false, reason: 'Completed rounds are never regenerated.' };
+  if (round.matches.some((m) => m.result)) {
+    return { ok: false, reason: `Round ${round.roundNumber} already has results. Clear them before regenerating, so no result is lost by accident.` };
+  }
   if (round.status === 'active' && !ctx.allowActive) return { ok: false, reason: `Round ${round.roundNumber} has already started.` };
   const oldSignature = tierRoundSignature(round);
   let fresh = generateInto(session, round.roundNumber, ctx);
@@ -429,6 +723,7 @@ export function regenerateTierRound(session: TierSession, roundId: string, ctx: 
 }
 
 export function swapTierPlayers(session: TierSession, roundId: string, playerAId: string, playerBId: string, ctx: TierContext = {}): TierResult {
+  if (ended(session)) return { ok: false, reason: SESSION_ENDED_REASON };
   const round = session.rounds.find((r) => r.id === roundId);
   if (!round) return { ok: false, reason: 'Round not found.' };
   const plan = planTierSwap(round, playerAId, playerBId, session.players);
@@ -455,6 +750,11 @@ export function openTierRoundIssues(session: TierSession): string[] {
   if (missing.length > 0) {
     issues.push(`${missing.map((p) => p.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} available but not in this round.`);
   }
+  const inUse = new Set(session.settings.courtNumbers);
+  const offCourts = open.matches.filter((m) => m.physicalCourt !== undefined && !inUse.has(m.physicalCourt));
+  if (offCourts.length > 0) {
+    issues.push(`${offCourts.map(matchCourtLabel).join(', ')} ${offCourts.length === 1 ? 'is' : 'are'} no longer in use but still has a match this round.`);
+  }
   const changedTier = Object.entries(open.playerTiers).filter(([id, tier]) => {
     const p = session.players.find((x) => x.id === id);
     return p && p.tier !== tier;
@@ -476,5 +776,6 @@ export function resetTierSession(session: TierSession): TierSession {
       void _joined;
       return rest;
     });
+  // createTierSession builds a fresh object, so endedAt/finalStandings go.
   return { ...createTierSession(session.settings), players };
 }

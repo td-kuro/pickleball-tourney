@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { DynamicTeam, MedalBracket, MedalBracketMatch, QualifyingRound, QualifyingRoundStatus } from '../types';
 import { getAllRoundsForDisplay, qualifyingRoundStatusLabel } from '../utils/dynamicTeamQualifier';
 import { SCORE_NOT_RECORDED } from '../utils/results';
@@ -10,6 +11,7 @@ const STATUS_CLASS: Record<QualifyingRoundStatus, string> = {
 };
 
 interface DynamicTeamQualifierAllRoundsProps {
+  courtNumbers?: number[];
   teams: DynamicTeam[];
   rounds: QualifyingRound[];
   medalBracket: MedalBracket | null;
@@ -20,7 +22,7 @@ interface DynamicTeamQualifierAllRoundsProps {
 // resting teams are already known from the rest schedule even before
 // pairings exist), plus the medal bracket once it's been generated. Score
 // entry lives only in Current Round — see README's "All Rounds view".
-export function DynamicTeamQualifierAllRounds({ teams, rounds, medalBracket }: DynamicTeamQualifierAllRoundsProps) {
+export function DynamicTeamQualifierAllRounds({ courtNumbers, teams, rounds, medalBracket }: DynamicTeamQualifierAllRoundsProps) {
   const teamById = new Map(teams.map((t) => [t.id, t]));
   function teamLabel(id?: string): string {
     if (!id) return 'TBD';
@@ -68,7 +70,7 @@ export function DynamicTeamQualifierAllRounds({ teams, rounds, medalBracket }: D
                     return (
                       <li key={match.id} className="all-rounds-match">
                         <span>
-                          Court {match.courtNumber}: {teamAName} vs {teamBName}
+                          {courtLabel(courtNumbers, match.courtNumber)}: {teamAName} vs {teamBName}
                         </span>
                         {match.forfeit && match.winnerId ? (
                           <span className="all-rounds-score">Forfeit · Winner: {match.winnerId === match.teamAId ? teamAName : teamBName}</span>

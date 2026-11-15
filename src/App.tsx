@@ -1,6 +1,8 @@
+import { courtLabel } from './utils/courtNumbers';
 import { useEffect, useState } from 'react';
 import './App.css';
 import './tierPairings.css';
+import './courtNumbers.css';
 import type { AddPlayerMidSessionResult, MidSessionJoinTiming, PlayerAvailabilityStatus, PlayerTier } from './types';
 import { CourtSeeding } from './components/CourtSeeding';
 import { DynamicPairingRankings } from './components/DynamicPairingRankings';
@@ -30,6 +32,7 @@ import { RoundsPage } from './components/RoundsPage';
 import { SessionControls } from './components/SessionControls';
 import { ThemeToggle } from './components/ThemeToggle';
 import { TierPairingsAllRounds } from './components/TierPairingsAllRounds';
+import { TierPairingsLeaderboard } from './components/TierPairingsLeaderboard';
 import { TierPairingsPlayers } from './components/TierPairingsPlayers';
 import { TierPairingsRoundsPage } from './components/TierPairingsRoundsPage';
 import { TierPairingsSetup } from './components/TierPairingsSetup';
@@ -42,6 +45,7 @@ import { usePoolsKnockout } from './hooks/usePoolsKnockout';
 import { useTeams } from './hooks/useTeams';
 import { useTheme } from './hooks/useTheme';
 import { useTierPairings } from './hooks/useTierPairings';
+import { unrecordedMatchCount } from './utils/tierLeaderboard';
 import { useTournament } from './hooks/useTournament';
 import {
   availabilityChangeMessage,
@@ -83,12 +87,13 @@ type View =
   | 'dtq-results'
   | 'tier-rounds'
   | 'tier-all'
+  | 'tier-leaderboard'
   | 'tier-players';
 const KING_COURT_VIEWS: View[] = ['setup', 'kc-court', 'kc-standings', 'kc-history'];
 const STANDARD_VIEWS: View[] = ['setup', 'rounds', 'results'];
 const DYNAMIC_PAIRING_VIEWS: View[] = ['setup', 'dp-rounds', 'dp-rankings', 'dp-resting', 'dp-history'];
 const DYNAMIC_TEAM_QUALIFIER_VIEWS: View[] = ['setup', 'dtq-rounds', 'dtq-standings', 'dtq-bracket', 'dtq-results'];
-const TIER_PAIRINGS_VIEWS: View[] = ['setup', 'tier-rounds', 'tier-all', 'tier-players'];
+const TIER_PAIRINGS_VIEWS: View[] = ['setup', 'tier-rounds', 'tier-all', 'tier-leaderboard', 'tier-players'];
 
 function App() {
   const {
@@ -139,7 +144,7 @@ function App() {
     regenerateFutureRounds,
     regenerateCurrentRound,
     recordPlayerAddedMidSession,
-    changeCourtCount,
+    changeCourtNumbers,
     swapPlayerInCurrentRound,
   } = useTournament();
   const poolsKnockout = usePoolsKnockout();
@@ -392,7 +397,7 @@ function App() {
     const messages = [message];
     if (status !== 'available' && courtWithGamesLeft) {
       messages.push(
-        `${player.name} still has games on Court ${courtWithGamesLeft.courtNumber} this cycle — substitute a waiting player in Manage Courts / Players. The next game can't be scored with them missing, and the next cycle needs exactly 5 valid players on every court.`,
+        `${player.name} still has games on ${courtLabel(cycle?.courtNumbers, courtWithGamesLeft.courtNumber)} this cycle — substitute a waiting player in Manage Courts / Players. The next game can't be scored with them missing, and the next cycle needs exactly 5 valid players on every court.`,
       );
     }
     if (status === 'available') {
@@ -405,8 +410,8 @@ function App() {
     setFlashMessages(messages);
   }
 
-  function handleChangeCourts(newCourts: number, regenerateCurrent: boolean) {
-    changeCourtCount(newCourts, players, teams, teamPlayers, regenerateCurrent);
+  function handleChangeCourtNumbers(courtNumbers: number[], applyToCurrent: boolean) {
+    changeCourtNumbers(courtNumbers, players, teams, teamPlayers, applyToCurrent);
   }
 
   function handleSwapPlayer(activePlayerId: string, byePlayerId: string) {
@@ -742,6 +747,14 @@ function App() {
               </button>
               <button
                 type="button"
+                className={view === 'tier-leaderboard' ? 'tab active' : 'tab'}
+                onClick={() => setView('tier-leaderboard')}
+                disabled={!started}
+              >
+                Leaderboard
+              </button>
+              <button
+                type="button"
                 className={view === 'tier-players' ? 'tab active' : 'tab'}
                 onClick={() => setView('tier-players')}
                 disabled={!started}
@@ -836,8 +849,9 @@ function App() {
                 onRemovePlayer={removePlayer}
                 onRemoveAllPlayers={removeAllPlayers}
                 numberOfCourts={kingCourt.numberOfCourts}
-                onNumberOfCourtsChange={(courts) => {
-                  kingCourt.setNumberOfCourts(courts);
+                courtNumbers={kingCourt.courtNumbers}
+                onCourtNumbersChange={(nums) => {
+                  kingCourt.setCourtNumbers(nums);
                   kingCourt.pruneAssignments(players);
                 }}
                 locked={kingCourt.started}
@@ -849,6 +863,7 @@ function App() {
                 <CourtSeeding
                   players={players}
                   numberOfCourts={kingCourt.numberOfCourts}
+                  courtNumbers={kingCourt.courtNumbers}
                   assignments={kingCourt.assignments}
                   onAssign={kingCourt.assignPlayerToCourt}
                   onReorderInCourt={kingCourt.reorderPlayerInCourt}
@@ -895,6 +910,7 @@ function App() {
               players={tierPairings.players}
               numberOfCourts={tierPairings.settings.numberOfCourts}
               started={tierPairings.started}
+              ended={tierPairings.ended}
               startError={tierPairings.startError}
               onAddPlayers={tierPairings.addPlayers}
               onSetTier={handleTierChange}
@@ -902,13 +918,16 @@ function App() {
               onRename={tierPairings.renamePlayer}
               onRemove={handleTierRemove}
               onRemoveAll={tierPairings.removeAllPlayers}
-              onSetCourts={tierPairings.setCourts}
+              courtNumbers={tierPairings.settings.courtNumbers}
+              onSetCourtNumbers={(nums) => tierPairings.setCourtNumbers(nums)}
+              scoreMode={tierPairings.settings.scoreMode}
+              onSetScoreMode={tierPairings.setScoreMode}
               onStart={() => {
                 const result = tierPairings.startSession();
                 if (result.ok) setView('tier-rounds');
                 else setFlashMessages([result.reason]);
               }}
-              onGoToRounds={() => setView('tier-rounds')}
+              onGoToRounds={() => setView(tierPairings.ended ? 'tier-leaderboard' : 'tier-rounds')}
             />
           ) : isDynamicTeamQualifier ? (
             <>
@@ -1007,7 +1026,8 @@ function App() {
           }}
           onSetAvailability={handleSetKingCourtAvailability}
           onSubstitute={kingCourt.substitutePlayer}
-          onChangeCourts={kingCourt.changeCourtsSession}
+          courtNumbers={kingCourt.courtNumbers}
+          onChangeCourtNumbers={kingCourt.changeCourtNumbersSession}
           onStageForNextCycle={kingCourt.assignPlayerToCourt}
           onAddPlayerMidSession={handleAddPlayerMidSessionKingCourt}
         />
@@ -1067,9 +1087,10 @@ function App() {
           rounds={dynamicPairing.rounds}
           currentRound={dynamicPairing.currentRound}
           numberOfCourts={dynamicPairing.settings.numberOfCourts}
+          courtNumbers={dynamicPairing.settings.courtNumbers ?? []}
           sessionAdjustments={dynamicPairing.sessionAdjustments}
           onSetAvailability={(playerId, status) => setFlashMessages(dynamicPairing.setAvailabilityStatus(playerId, status))}
-          onChangeCourts={dynamicPairing.changeCourtCount}
+          onChangeCourtNumbers={dynamicPairing.changeCourtNumbers}
           onSwap={dynamicPairing.swapPlayerInCurrentRound}
           onAddPlayerMidSession={dynamicPairing.addPlayerMidSession}
         />
@@ -1086,17 +1107,43 @@ function App() {
           stats={tierPairings.stats}
           numberOfCourts={tierPairings.settings.numberOfCourts}
           issues={tierPairings.issues}
+          scoreMode={tierPairings.settings.scoreMode}
+          courtNumbers={tierPairings.settings.courtNumbers}
+          ended={tierPairings.ended}
           onStartRound={tierPairings.startRound}
           onNextRound={tierPairings.nextRound}
+          onRecordResult={tierPairings.recordResult}
+          onClearResult={tierPairings.clearResult}
+          onEndSession={tierPairings.endSession}
+          onSetScoreMode={tierPairings.setScoreMode}
+          onSetCourtNumbers={tierPairings.setCourtNumbers}
+          onShowLeaderboard={() => setView('tier-leaderboard')}
           onRegenerate={tierPairings.regenerateRound}
           onSwap={tierPairings.swapPlayers}
-          onSetCourts={tierPairings.setCourts}
           onManagePlayers={() => setView('tier-players')}
           onFlash={setFlashMessages}
         />
       )}
 
-      {view === 'tier-all' && started && <TierPairingsAllRounds rounds={tierPairings.rounds} players={tierPairings.players} />}
+      {view === 'tier-all' && started && (
+        <TierPairingsAllRounds
+          rounds={tierPairings.rounds}
+          players={tierPairings.players}
+          scoreMode={tierPairings.settings.scoreMode}
+          ended={tierPairings.ended}
+          onRecordResult={tierPairings.recordResult}
+          onClearResult={tierPairings.clearResult}
+        />
+      )}
+
+      {view === 'tier-leaderboard' && started && (
+        <TierPairingsLeaderboard
+          standings={tierPairings.leaderboard}
+          scoreMode={tierPairings.settings.scoreMode}
+          final={tierPairings.finalStandings}
+          unrecordedMatches={tierPairings.settings.scoreMode === 'none' ? 0 : unrecordedMatchCount(tierPairings.rounds)}
+        />
+      )}
 
       {view === 'tier-players' && started && (
         <TierPairingsPlayers
@@ -1127,6 +1174,7 @@ function App() {
 
       {view === 'dtq-rounds' && started && (
         <DynamicTeamQualifierRoundsPage
+          courtNumbers={dynamicTeamQualifier.settings.courtNumbers}
           teams={dynamicTeamQualifier.teams}
           rounds={dynamicTeamQualifier.rounds}
           restAssignments={dynamicTeamQualifier.restAssignments}
@@ -1150,6 +1198,7 @@ function App() {
 
       {view === 'dtq-standings' && started && (
         <DynamicTeamQualifierStandings
+          courtNumbers={dynamicTeamQualifier.settings.courtNumbers}
           teams={dynamicTeamQualifier.teams}
           rounds={dynamicTeamQualifier.rounds}
           restAssignments={dynamicTeamQualifier.restAssignments}
@@ -1175,6 +1224,7 @@ function App() {
         started &&
         (isPoolsKnockout ? (
           <PoolsKnockoutPage
+            courtNumbers={poolsKnockout.courtNumbers}
             teams={poolsKnockout.teams}
             pools={poolsKnockout.pools}
             bracket={poolsKnockout.bracket}
@@ -1234,9 +1284,10 @@ function App() {
                 playersPerCourt={playersNeededPerMatch(settings.matchType)}
                 currentRound={rounds.find((round) => round.status === 'current')}
                 courts={settings.courts}
+                courtNumbers={settings.courtNumbers ?? []}
                 sessionAdjustments={sessionAdjustments}
                 onSetAvailability={handleSetPlayerAvailability}
-                onChangeCourts={handleChangeCourts}
+                onChangeCourtNumbers={handleChangeCourtNumbers}
                 onSwap={handleSwapPlayer}
                 onAddPlayerMidSession={handleAddPlayerMidSession}
                 addPlayerDisabledReason={canAddLateJoiner(settings).ok ? undefined : 'Late joiners are disabled for this tournament.'}

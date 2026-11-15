@@ -1,9 +1,12 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState } from 'react';
 import type { KingCourtCourtCycle, KingCourtCycle, KingCourtMovementDirection, ScoreRecordingMode } from '../types';
 import { formatKingCourtRecord } from '../utils/kingCourt';
 
 interface KingCourtMovementPreviewProps {
   cycle: KingCourtCycle;
+  // Courts the NEXT cycle will use (movement targets), by position.
+  courtNumbers: number[];
   nameById: Map<string, string>;
   numberOfCourts: number;
   onSetManualTiebreakOrder: (courtNumber: number, orderedPlayerIds: string[]) => void;
@@ -21,6 +24,7 @@ const MOVEMENT_ICON: Record<KingCourtMovementDirection, string> = { up: '⬆️'
 // that advances every court at once.
 export function KingCourtMovementPreview({
   cycle,
+  courtNumbers,
   nameById,
   numberOfCourts,
   onSetManualTiebreakOrder,
@@ -44,6 +48,8 @@ export function KingCourtMovementPreview({
           <KingCourtMovementCourtCard
             key={court.courtNumber}
             court={court}
+            courtName={courtLabel(cycle.courtNumbers, court.courtNumber)}
+            nextCourtNumbers={courtNumbers}
             nameById={nameById}
             numberOfCourts={numberOfCourts}
             showPoints={showPoints}
@@ -66,6 +72,8 @@ export function KingCourtMovementPreview({
 }
 
 interface KingCourtMovementCourtCardProps {
+  courtName: string;
+  nextCourtNumbers: number[];
   court: KingCourtCourtCycle;
   nameById: Map<string, string>;
   numberOfCourts: number;
@@ -75,6 +83,8 @@ interface KingCourtMovementCourtCardProps {
 }
 
 function KingCourtMovementCourtCard({
+  courtName,
+  nextCourtNumbers,
   court,
   nameById,
   numberOfCourts,
@@ -103,7 +113,7 @@ function KingCourtMovementCourtCard({
 
   return (
     <div className="kc-movement-card">
-      <h3>Court {court.courtNumber}</h3>
+      <h3>{courtName}</h3>
       <ul className="kc-movement-list">
         {court.standings.map((standing) => {
           const movement = movementByPlayer.get(standing.playerId);
@@ -124,7 +134,7 @@ function KingCourtMovementCourtCard({
                 >
                   {courtOptions.map((c) => (
                     <option key={c} value={c}>
-                      Court {c}
+                      {courtLabel(nextCourtNumbers, c)}
                     </option>
                   ))}
                 </select>

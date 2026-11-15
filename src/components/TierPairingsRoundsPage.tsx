@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TierPlayer, TierPlayerStats, TierRound } from '../types';
+import type { TierPlayer, TierPlayerStats, TierRound, TierScoreMode } from '../types';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { planTierSwap, validateTierRound } from '../utils/tierPairings';
-import { MAX_TIER_COURTS, type TierResult } from '../utils/tierSession';
+import type { ResultInput } from '../utils/tierLeaderboard';
+import { matchCourtLabel, planTierSwap, validateTierRound } from '../utils/tierPairings';
+import { scoreModeLabel, type TierResult } from '../utils/tierSession';
 import { TierCourtCard, TierPill } from './TierCourtCard';
+import { CourtNumberChangeControl } from './CourtNumberChangeControl';
+import { TierScoreModePicker } from './TierScoreModePicker';
+import { TierResultEntry } from './TierResultEntry';
 
 interface TierPairingsRoundsPageProps {
   round: TierRound | undefined;
@@ -11,11 +15,19 @@ interface TierPairingsRoundsPageProps {
   stats: Map<string, TierPlayerStats>;
   numberOfCourts: number;
   issues: string[];
+  scoreMode: TierScoreMode;
+  courtNumbers: number[];
+  ended: boolean;
   onStartRound: (roundId: string) => TierResult;
-  onNextRound: (roundId: string) => TierResult;
+  onNextRound: (roundId: string, allowMissingResults?: boolean) => TierResult;
+  onRecordResult: (roundId: string, matchId: string, input: ResultInput, correction: boolean) => TierResult;
+  onClearResult: (roundId: string, matchId: string, correction: boolean) => TierResult;
+  onEndSession: (allowMissingResults?: boolean) => TierResult;
+  onSetScoreMode: (mode: TierScoreMode) => TierResult;
+  onSetCourtNumbers: (courtNumbers: number[], applyToOpen: boolean) => TierResult;
+  onShowLeaderboard: () => void;
   onRegenerate: (roundId: string, allowActive: boolean) => TierResult;
   onSwap: (roundId: string, a: string, b: string) => TierResult;
-  onSetCourts: (courts: number) => void;
   onManagePlayers: () => void;
   onFlash: (messages: string[]) => void;
 }
@@ -34,7 +46,7 @@ function statusLabel(round: TierRound): string {
 // preview, Confirm. The preview runs the same validation as the swap itself,
 // so an A/C mix or an unavailable player is refused before confirming.
 export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
-  const { round, players, stats, numberOfCourts, issues } = props;
+  const { round, players, stats, numberOfCourts, issues, scoreMode } = props;
   // The selection is tied to the round it was made in, so Next Round /
   // Regenerate (a new key) clears a half-made swap without an effect.
   const roundKey = round ? `${round.id}:${round.regenerationCount}:${round.status}` : '';
@@ -67,6 +79,18 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  if (props.ended) {
+    return (
+      <section className="card">
+        <h2>Session Ended</h2>
+        <p className="hint">This session is finished and read-only. All completed rounds and results are kept in All Rounds.</p>
+        <button type="button" className="cta-button" onClick={props.onShowLeaderboard}>
+          View Final Results
+        </button>
+      </section>
+    );
+  }
+
   if (!round) {
     return (
       <section className="card">
@@ -81,8 +105,15 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
   const liveTier = (id: string) => playersById.get(id)?.tier ?? openRound.playerTiers[id] ?? 'B';
   const roundIssues = validateTierRound(openRound, players, numberOfCourts);
   const invalidCourts = new Set(
-    openRound.matches.filter((m) => roundIssues.some((i) => i.startsWith(`Court ${m.courtNumber} `) || i.includes(`Court ${m.courtNumber}.`))).map((m) => m.courtNumber),
+    openRound.matches
+      .filter((m) => {
+        const label = matchCourtLabel(m);
+        return roundIssues.some((i) => i.startsWith(`${label} `) || i.includes(`${label}.`));
+      })
+      .map((m) => m.id),
   );
+  const scoring = scoreMode !== 'none';
+  const recorded = openRound.matches.filter((m) => m.result).length;
 
   function pick(id: string) {
     setSelected((prev) => {
@@ -103,6 +134,33 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
     if (isActive && !window.confirm(`Round ${openRound.roundNumber} has already started. Regenerate it anyway? Players will need to move to new courts.`)) return;
     if (!isActive && openRound.manuallyAdjusted && !window.confirm('This round has manual swaps. Regenerating replaces them. Continue?')) return;
     report(props.onRegenerate(openRound.id, isActive), `Round ${openRound.roundNumber} regenerated.`);
+  }
+
+  // Next Round / End Session with unrecorded matches: ask, then carry on
+  // with those matches left unrecorded (never counted as a loss).
+  // Returns whether the action went ahead.
+  function withMissingCheck(run: (allowMissing: boolean) => TierResult, what: string): boolean {
+    const first = run(false);
+    if (first.ok || first.missingResults === undefined) {
+      report(first);
+      return first.ok;
+    }
+    const n = first.missingResults;
+    if (!window.confirm(`${n} match${n === 1 ? ' has' : 'es have'} no result. ${what} anyway? ${n === 1 ? 'It stays' : 'They stay'} unrecorded — not counted as a loss.`)) return false;
+    const second = run(true);
+    report(second);
+    return second.ok;
+  }
+
+  function handleEndSession() {
+    if (!window.confirm('End this session? The final leaderboard will be shown and the session becomes read-only.')) return;
+    if (withMissingCheck((allow) => props.onEndSession(allow), 'End the session')) props.onShowLeaderboard();
+  }
+
+  function handleScoreMode(mode: TierScoreMode) {
+    if (mode === scoreMode) return;
+    if (!window.confirm(`Switch score recording to ${scoreModeLabel(mode)}? Results already recorded are kept.`)) return;
+    report(props.onSetScoreMode(mode));
   }
 
   function handleConfirmSwap() {
@@ -130,7 +188,11 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
                 Start Round
               </button>
             ) : (
-              <button type="button" className="cta-button tier-next-button" onClick={() => guarded(() => report(props.onNextRound(openRound.id)))}>
+              <button
+                type="button"
+                className="cta-button tier-next-button"
+                onClick={() => guarded(() => withMissingCheck((allow) => props.onNextRound(openRound.id, allow), 'Move to the next round'))}
+              >
                 Next Round
               </button>
             )}
@@ -146,6 +208,7 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
         {info && (
           <p className="hint">
             {openRound.matches.length} of {numberOfCourts} court{numberOfCourts === 1 ? '' : 's'} in use
+            {openRound.matches.length > 0 && ` (${openRound.matches.map(matchCourtLabel).join(', ')})`}
             {info.tierLimitedSitOuts > 0
               ? ` — the most the A/C rule allows (${info.tierLimitedSitOuts} extra sit out${info.tierLimitedSitOuts === 1 ? 's' : ''} because of tier mix).`
               : openRound.matches.length < numberOfCourts
@@ -154,6 +217,14 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
             {info.method === 'exhaustive' ? 'Pairings: best of every arrangement.' : 'Pairings: best found by search.'}
             {openRound.regenerationCount > 0 && ` Regenerated ${openRound.regenerationCount}×.`}
             {openRound.manuallyAdjusted && ' Includes manual swaps.'}
+          </p>
+        )}
+        {scoring && (
+          <p className={recorded < openRound.matches.length && openRound.status === 'active' ? 'hint tier-results-progress pending' : 'hint tier-results-progress'}>
+            Scoring: {scoreModeLabel(scoreMode)} —{' '}
+            {openRound.status === 'draft'
+              ? 'start the round to record results.'
+              : `${recorded} of ${openRound.matches.length} results recorded.`}
           </p>
         )}
 
@@ -228,7 +299,21 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
               tierOf={liveTier}
               onPlayerClick={pick}
               selectedIds={selected}
-              invalid={invalidCourts.has(match.courtNumber)}
+              invalid={invalidCourts.has(match.id)}
+              needsResult={scoring && openRound.status === 'active' && !match.result}
+              footer={
+                openRound.status === 'active' && (scoring || match.result) ? (
+                  <TierResultEntry
+                    key={`${match.id}:${match.result?.recordedAt ?? 'none'}:${scoreMode}`}
+                    match={match}
+                    scoreMode={scoreMode}
+                    nameOf={nameOf}
+                    locked={false}
+                    onRecord={(input, correction) => props.onRecordResult(openRound.id, match.id, input, correction)}
+                    onClear={(correction) => props.onClearResult(openRound.id, match.id, correction)}
+                  />
+                ) : undefined
+              }
             />
           ))}
         </div>
@@ -265,22 +350,30 @@ export function TierPairingsRoundsPage(props: TierPairingsRoundsPageProps) {
 
       <section className="card tier-controls">
         <h2>Session Controls</h2>
-        <div className="tier-controls-row">
-          <span>Courts</span>
-          <div className="tier-stepper">
-            <button type="button" className="secondary" onClick={() => props.onSetCourts(numberOfCourts - 1)} disabled={numberOfCourts <= 1} aria-label="One fewer court">
-              −
-            </button>
-            <span className="tier-stepper-value">{numberOfCourts}</span>
-            <button type="button" className="secondary" onClick={() => props.onSetCourts(numberOfCourts + 1)} disabled={numberOfCourts >= MAX_TIER_COURTS} aria-label="One more court">
-              +
-            </button>
-          </div>
-          <span className="hint">Used from the next generated round (or Regenerate Round).</span>
-        </div>
+        <TierScoreModePicker value={scoreMode} onChange={handleScoreMode} />
+        <CourtNumberChangeControl
+          courtNumbers={props.courtNumbers}
+          currentRoundQuestion={(countChanged) =>
+            openRound.status === 'active' && !countChanged
+              ? `Also move Round ${openRound.roundNumber} (in play) to the new courts? Players stay in the same matches.`
+              : null
+          }
+          onApply={(nums, applyToOpen) => report(props.onSetCourtNumbers(nums, applyToOpen))}
+        />
+        <p className="hint">
+          A draft round moves to the new courts straight away; a different number of courts applies from the next
+          generated round (or Regenerate Round). Completed rounds keep their courts.
+        </p>
         <div className="tier-controls-row">
           <button type="button" className="secondary" onClick={props.onManagePlayers}>
             Manage Players, Tiers & Availability
+          </button>
+          <button type="button" className="secondary" onClick={props.onShowLeaderboard}>
+            Leaderboard
+          </button>
+          {/* Not guarded: it never takes another button's place, and it confirms first. */}
+          <button type="button" className="danger tier-end-session" onClick={handleEndSession}>
+            End Session
           </button>
         </div>
       </section>

@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { KingCourtCycle, Player, ScoreRecordingMode } from '../types';
 import { formatKingCourtRecord } from '../utils/kingCourt';
 
@@ -25,7 +26,10 @@ export function KingCourtCycleHistory({ players, cycles, scoreRecordingMode }: K
 
   return (
     <div className="all-rounds-list">
-      {[...completed].reverse().map((cycle) => (
+      {[...completed].reverse().map((cycle) => {
+        // Movement targets are positions in the following cycle.
+        const nextCycle = cycles.find((c) => c.cycleNumber === cycle.cycleNumber + 1);
+        return (
         <section key={cycle.cycleNumber} className="card all-rounds-entry">
           <h3>Cycle {cycle.cycleNumber}</h3>
           <div className="kc-standings-grid">
@@ -33,7 +37,7 @@ export function KingCourtCycleHistory({ players, cycles, scoreRecordingMode }: K
               .sort((a, b) => b.courtNumber - a.courtNumber)
               .map((court) => (
                 <div key={court.courtNumber} className="kc-standings-card">
-                  <h4>Court {court.courtNumber}</h4>
+                  <h4>{courtLabel(cycle.courtNumbers, court.courtNumber)}</h4>
                   <ul className="kc-movement-list">
                     {court.standings.map((standing) => {
                       const movement = court.movementPreview.find((m) => m.playerId === standing.playerId);
@@ -45,7 +49,7 @@ export function KingCourtCycleHistory({ players, cycles, scoreRecordingMode }: K
                           <span className="kc-movement-record">
                             {formatKingCourtRecord(standing.wins, standing.losses, standing.pointDifferential, showPoints)}
                           </span>
-                          {movement && <span className="hint">→ Court {movement.toCourt}</span>}
+                          {movement && <span className="hint">→ {courtLabel(nextCycle?.courtNumbers ?? cycle.courtNumbers, movement.toCourt)}</span>}
                         </li>
                       );
                     })}
@@ -54,7 +58,8 @@ export function KingCourtCycleHistory({ players, cycles, scoreRecordingMode }: K
               ))}
           </div>
         </section>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -1,6 +1,7 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { Player, ScoreRecordingMode } from '../types';
 import { validateKingCourtSetup } from '../utils/kingCourt';
-import { CourtSelector } from './CourtSelector';
+import { CourtNumberPicker } from './CourtNumberPicker';
 import { PlayerList } from './PlayerList';
 import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
@@ -11,7 +12,9 @@ interface KingCourtSetupProps {
   onRemovePlayer: (id: string) => void;
   onRemoveAllPlayers: () => void;
   numberOfCourts: number;
-  onNumberOfCourtsChange: (courts: number) => void;
+  // Physical courts in use, by strength (lowest number = weakest court).
+  courtNumbers: number[];
+  onCourtNumbersChange: (courtNumbers: number[]) => void;
   // True once Cycle 1 has started — the roster and court count lock at
   // that point, same spirit as Tournament Format locking once Start
   // Matches is clicked (see TournamentSetup).
@@ -32,7 +35,8 @@ export function KingCourtSetup({
   onRemovePlayer,
   onRemoveAllPlayers,
   numberOfCourts,
-  onNumberOfCourtsChange,
+  courtNumbers,
+  onCourtNumbersChange,
   locked,
   scoreRecordingMode,
   onScoreRecordingModeChange,
@@ -53,9 +57,10 @@ export function KingCourtSetup({
           Each court seats exactly 5 players — 4 play doubles while 1 rests, rotating every game so everyone partners
           with everyone else once per 5-game cycle.
         </p>
-        <CourtSelector value={numberOfCourts} onChange={onNumberOfCourtsChange} disabled={locked} />
+        <CourtNumberPicker value={courtNumbers} onChange={onCourtNumbersChange} disabled={locked} />
         <p className="hint">
-          Higher court number means stronger court — Court {numberOfCourts} is the strongest, Court 1 the weakest.
+          Higher court number means stronger court — {courtLabel(courtNumbers, numberOfCourts)} is the strongest,{' '}
+          {courtLabel(courtNumbers, 1)} the weakest.
         </p>
         <p className={setupCheck.ok ? 'hint winner-hint' : 'hint error'}>
           {setupCheck.ok

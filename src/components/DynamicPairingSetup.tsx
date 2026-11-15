@@ -19,7 +19,8 @@ import {
   GRADING_DIVISIONS,
   gradingDivisionLabel,
 } from '../utils/dynamicPairingSocial';
-import { CourtSelector } from './CourtSelector';
+import { resolveCourtNumbers } from '../utils/courtNumbers';
+import { CourtNumberPicker } from './CourtNumberPicker';
 import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 const MOVEMENT_LIMITS: CourtMovementLimit[] = ['unrestricted', 'max-1', 'max-2'];
@@ -149,9 +150,9 @@ export function DynamicPairingSetup({
           />
         </div>
 
-        <CourtSelector
-          value={settings.numberOfCourts}
-          onChange={(numberOfCourts) => onChangeSettings({ ...settings, numberOfCourts })}
+        <CourtNumberPicker
+          value={resolveCourtNumbers(settings.courtNumbers, settings.numberOfCourts)}
+          onChange={(courtNumbers) => onChangeSettings({ ...settings, numberOfCourts: courtNumbers.length, courtNumbers })}
           disabled={started}
         />
         <p className="hint">

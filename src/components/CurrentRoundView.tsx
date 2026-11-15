@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState, type FormEvent } from 'react';
 import type { Match, Player, PlayerAvailabilityStatus, ResultSubmission, Round, ScoreRecordingMode, Team, TournamentSettings } from '../types';
 import { scoreRecordingModeLabel } from '../utils/results';
@@ -115,7 +116,7 @@ export function CurrentRoundView({
     const teammateNames = teammateIds.map((id) => playerNameById.get(id) ?? 'Unknown player');
     const scored = hasMatchResult(match);
     const lines = [
-      `Court ${match.court}`,
+      courtLabel(currentRound.courtNumbers, match.court),
       teammateNames.length > 0 ? `Playing with ${teammateNames.join(' & ')}` : 'Playing this round',
     ];
     if (isFixedTeamSide(side.playerIds)) {
@@ -208,6 +209,7 @@ export function CurrentRoundView({
               <MatchCard
                 key={match.id}
                 match={match}
+                courtName={courtLabel(currentRound.courtNumbers, match.court)}
                 teamALabel={teamLabel(match.teamA.playerIds)}
                 teamBLabel={teamLabel(match.teamB.playerIds)}
                 teamAFixedName={fixedTeamNameFor(match.teamA.playerIds, teams)}
@@ -248,6 +250,8 @@ export function CurrentRoundView({
 
 interface MatchCardProps {
   match: Match;
+  // "Court 3" — the physical court (see utils/courtNumbers.ts).
+  courtName: string;
   teamALabel: string;
   teamBLabel: string;
   teamAFixedName?: string;
@@ -265,6 +269,7 @@ function FixedTeamTag() {
 
 function MatchCard({
   match,
+  courtName,
   teamALabel,
   teamBLabel,
   teamAFixedName,
@@ -279,7 +284,7 @@ function MatchCard({
     const winner = getMatchWinner(match);
     return (
       <div className="match-card">
-        <div className="match-header">Court {match.court}</div>
+        <div className="match-header">{courtName}</div>
         <div className="match-teams">
           <div className={winner === 'A' ? 'match-team winner' : 'match-team'}>
             <div className="match-team-name-row">
@@ -313,6 +318,7 @@ function MatchCard({
   return (
     <ScoredMatchCard
       match={match}
+      courtName={courtName}
       teamALabel={teamALabel}
       teamBLabel={teamBLabel}
       teamAFixedName={teamAFixedName}
@@ -326,6 +332,7 @@ function MatchCard({
 
 interface ScoredMatchCardProps {
   match: Match;
+  courtName: string;
   teamALabel: string;
   teamBLabel: string;
   teamAFixedName?: string;
@@ -335,7 +342,7 @@ interface ScoredMatchCardProps {
   onSetScore: (scoreA: number, scoreB: number) => void;
 }
 
-function ScoredMatchCard({ match, teamALabel, teamBLabel, teamAFixedName, teamBFixedName, renderTeamA, renderTeamB, onSetScore }: ScoredMatchCardProps) {
+function ScoredMatchCard({ match, courtName, teamALabel, teamBLabel, teamAFixedName, teamBFixedName, renderTeamA, renderTeamB, onSetScore }: ScoredMatchCardProps) {
   const [scoreA, setScoreA] = useState(match.scoreA != null ? String(match.scoreA) : '');
   const [scoreB, setScoreB] = useState(match.scoreB != null ? String(match.scoreB) : '');
   const [error, setError] = useState<string | null>(null);
@@ -362,7 +369,7 @@ function ScoredMatchCard({ match, teamALabel, teamBLabel, teamAFixedName, teamBF
 
   return (
     <form className="match-card" onSubmit={handleSubmit}>
-      <div className="match-header">Court {match.court}</div>
+      <div className="match-header">{courtName}</div>
 
       <div className="match-teams">
         <div className={winner === 'A' ? 'match-team winner' : 'match-team'}>

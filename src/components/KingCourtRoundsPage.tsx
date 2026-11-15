@@ -20,6 +20,9 @@ type KingCourtRoundsSubView = 'current' | 'all';
 interface KingCourtRoundsPageProps {
   players: Player[];
   numberOfCourts: number;
+  // Physical courts in use (by position) — see utils/courtNumbers.ts.
+  courtNumbers: number[];
+  onChangeCourtNumbers: (courtNumbers: number[], applyToCurrent: boolean) => void;
   cycles: KingCourtCycle[];
   currentCycle: KingCourtCycle;
   sessionAdjustments: SessionAdjustment[];
@@ -33,7 +36,6 @@ interface KingCourtRoundsPageProps {
   onConfirmMovement: () => void;
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
-  onChangeCourts: (newCourts: number) => void;
   onStageForNextCycle: (playerId: string, courtNumber: number | null) => void;
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
 }
@@ -48,6 +50,8 @@ interface KingCourtRoundsPageProps {
 export function KingCourtRoundsPage({
   players,
   numberOfCourts,
+  courtNumbers,
+  onChangeCourtNumbers,
   cycles,
   currentCycle,
   sessionAdjustments,
@@ -61,7 +65,6 @@ export function KingCourtRoundsPage({
   onConfirmMovement,
   onSetAvailability,
   onSubstitute,
-  onChangeCourts,
   onStageForNextCycle,
   onAddPlayerMidSession,
 }: KingCourtRoundsPageProps) {
@@ -93,6 +96,7 @@ export function KingCourtRoundsPage({
           <KingCourtView
             players={players}
             numberOfCourts={numberOfCourts}
+            courtNumbers={courtNumbers}
             currentCycle={currentCycle}
             onSetGameResult={onSetGameResult}
             scoreRecordingMode={scoreRecordingMode}
@@ -107,11 +111,12 @@ export function KingCourtRoundsPage({
             players={players}
             currentCycle={currentCycle}
             numberOfCourts={numberOfCourts}
+            courtNumbers={courtNumbers}
+            onChangeCourtNumbers={onChangeCourtNumbers}
             sessionAdjustments={sessionAdjustments}
             nextCycleStaging={nextCycleStaging}
             onSetAvailability={onSetAvailability}
             onSubstitute={onSubstitute}
-            onChangeCourts={onChangeCourts}
             onStageForNextCycle={onStageForNextCycle}
             onAddPlayerMidSession={onAddPlayerMidSession}
             confirmError={confirmError}

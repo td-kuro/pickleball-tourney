@@ -1,3 +1,4 @@
+import { courtLabel } from './courtNumbers';
 // Pure 5-Player King Court Mode logic: rotation generation, scoring,
 // standings, and court movement. No React or localStorage here, mirroring
 // utils/tournament.ts and utils/poolsKnockout.ts — see src/hooks/useKingCourt.ts
@@ -374,6 +375,8 @@ export function validateKingCourtSeeding(
   assignments: KingCourtPlayerAssignment[],
   players: Player[],
   numberOfCourts: number,
+  // Physical courts for positions 1..numberOfCourts — labels only.
+  courtNumbers?: number[],
 ): { ok: true } | { ok: false; reason: string } {
   const setupCheck = validateKingCourtSetup(players, numberOfCourts);
   if (!setupCheck.ok) return setupCheck;
@@ -386,10 +389,10 @@ export function validateKingCourtSeeding(
   for (let court = 1; court <= numberOfCourts; court++) {
     const count = assignments.filter((a) => a.courtNumber === court).length;
     if (count < 5) {
-      return { ok: false, reason: `Court ${court} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
+      return { ok: false, reason: `${courtLabel(courtNumbers, court)} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
     }
     if (count > 5) {
-      return { ok: false, reason: `Court ${court} has ${count} players — each court can only have 5.` };
+      return { ok: false, reason: `${courtLabel(courtNumbers, court)} has ${count} players — each court can only have 5.` };
     }
   }
 
@@ -433,17 +436,19 @@ export function isCourtFull(
 export function validateNextCycleAssignments(
   assignments: KingCourtPlayerAssignment[],
   numberOfCourts: number,
+  // Physical courts for positions 1..numberOfCourts — labels only.
+  courtNumbers?: number[],
 ): { ok: true } | { ok: false; reason: string } {
   for (let court = 1; court <= numberOfCourts; court++) {
     const count = assignments.filter((a) => a.courtNumber === court).length;
     if (count === 0) {
-      return { ok: false, reason: `Court ${court} has no players assigned — a new court requires exactly 5 players.` };
+      return { ok: false, reason: `${courtLabel(courtNumbers, court)} has no players assigned — a new court requires exactly 5 players.` };
     }
     if (count < 5) {
-      return { ok: false, reason: `Court ${court} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
+      return { ok: false, reason: `${courtLabel(courtNumbers, court)} needs ${5 - count} more player${5 - count === 1 ? '' : 's'}.` };
     }
     if (count > 5) {
-      return { ok: false, reason: `Court ${court} has ${count} players — each court can only have 5.` };
+      return { ok: false, reason: `${courtLabel(courtNumbers, court)} has ${count} players — each court can only have 5.` };
     }
   }
   const orphaned = assignments.filter((a) => a.courtNumber > numberOfCourts);

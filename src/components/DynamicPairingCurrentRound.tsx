@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState, type FormEvent } from 'react';
 import type {
   DynamicPairingCourtAssignment,
@@ -81,12 +82,12 @@ export function DynamicPairingCurrentRound({
     }
     const otherNames = court.playerIds.filter((id) => id !== playerId).map((id) => playerNameById.get(id) ?? 'Unknown player');
     const side = court.team1PlayerIds.includes(playerId) ? court.team1PlayerIds : court.team2PlayerIds;
-    const lines = [`Court ${court.courtNumber}`, `Playing with/against ${otherNames.join(', ')}`];
+    const lines = [courtLabel(round.courtNumbers, court.courtNumber), `Playing with/against ${otherNames.join(', ')}`];
     if (isDynamicPairingFixedTeamSide(side, teams)) lines.push('Fixed team — a swap moves the whole team.');
     if (courtHasResult(court)) {
       return {
         contextLines: lines,
-        swapDisabledReason: `Court ${court.courtNumber} already has a result. Reset it first (on the court card) to change its players.`,
+        swapDisabledReason: `${courtLabel(round.courtNumbers, court.courtNumber)} already has a result. Reset it first (on the court card) to change its players.`,
       };
     }
     return { contextLines: lines };
@@ -169,6 +170,7 @@ export function DynamicPairingCurrentRound({
                 // in the new round's (blank) inputs.
                 key={`${round.id}-${court.courtNumber}`}
                 court={court}
+                courtName={courtLabel(round.courtNumbers, court.courtNumber)}
                 team1Label={teamLabel(court.team1PlayerIds)}
                 team2Label={teamLabel(court.team2PlayerIds)}
                 team1Badge={sideBadge(court.team1PlayerIds)}
@@ -234,6 +236,8 @@ export function DynamicPairingCurrentRound({
 }
 
 interface DynamicPairingCourtCardProps {
+  // "Court 3" — the physical court (see utils/courtNumbers.ts).
+  courtName: string;
   court: DynamicPairingCourtAssignment;
   team1Label: string;
   team2Label: string;
@@ -249,13 +253,13 @@ interface DynamicPairingCourtCardProps {
 
 // Shown once a court is scored in the current round — the supported way to
 // correct a result or free the court up for a player swap.
-function ResetResultButton({ courtNumber, onReset }: { courtNumber: number; onReset: () => void }) {
+function ResetResultButton({ courtName, onReset }: { courtName: string; onReset: () => void }) {
   return (
     <button
       type="button"
       className="secondary dp-reset-result"
       onClick={() => {
-        if (window.confirm(`Reset the result for Court ${courtNumber}? You can then re-enter it or change its players.`)) onReset();
+        if (window.confirm(`Reset the result for ${courtName}? You can then re-enter it or change its players.`)) onReset();
       }}
     >
       Reset Result
@@ -265,6 +269,7 @@ function ResetResultButton({ courtNumber, onReset }: { courtNumber: number; onRe
 
 function DynamicPairingCourtCard({
   court,
+  courtName,
   team1Label,
   team2Label,
   team1Badge,
@@ -288,7 +293,7 @@ function DynamicPairingCourtCard({
     return (
       <div className="match-card">
         <div className="match-header">
-          Court {court.courtNumber}
+          {courtName}
           {genderTypeLabel && <span className="dp-side-badge dp-gender-match-badge"> {genderTypeLabel}</span>}
         </div>
         <div className="match-teams">
@@ -312,7 +317,7 @@ function DynamicPairingCourtCard({
           locked={locked}
           onSubmit={onSetResult}
         />
-        {locked && <ResetResultButton courtNumber={court.courtNumber} onReset={onResetResult} />}
+        {locked && <ResetResultButton courtName={courtName} onReset={onResetResult} />}
       </div>
     );
   }
@@ -340,7 +345,7 @@ function DynamicPairingCourtCard({
   return (
     <form className="match-card" onSubmit={handleSubmit}>
       <div className="match-header">
-        Court {court.courtNumber}
+        {courtName}
         {genderTypeLabel && <span className="dp-side-badge dp-gender-match-badge"> {genderTypeLabel}</span>}
       </div>
       <div className="match-teams">
@@ -381,7 +386,7 @@ function DynamicPairingCourtCard({
           Save Score
         </button>
       )}
-      {locked && <ResetResultButton courtNumber={court.courtNumber} onReset={onResetResult} />}
+      {locked && <ResetResultButton courtName={courtName} onReset={onResetResult} />}
     </form>
   );
 }

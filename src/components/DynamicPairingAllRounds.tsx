@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { DynamicPairingCourtAssignment, DynamicPairingRound, DynamicPairingRoundStatus, Player } from '../types';
 import { describeResult } from '../utils/results';
 import {
@@ -105,7 +106,7 @@ export function DynamicPairingAllRounds({ rounds, players }: DynamicPairingAllRo
                       return (
                         <li key={court.courtNumber} className="all-rounds-match">
                           <span>
-                            Court {court.courtNumber}: {team1Label}
+                            {courtLabel(round.courtNumbers, court.courtNumber)}: {team1Label}
                             {badge1 && <span className="dp-side-badge"> ({badge1})</span>} vs {team2Label}
                             {badge2 && <span className="dp-side-badge"> ({badge2})</span>}
                             {genderType !== 'standard' && (

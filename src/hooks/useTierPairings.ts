@@ -1,9 +1,15 @@
 import { useMemo } from 'react';
-import type { PlayerTier, TierSession } from '../types';
+import type { PlayerTier, TierScoreMode, TierSession } from '../types';
+import { computeTierLeaderboard, type ResultInput } from '../utils/tierLeaderboard';
 import { computeTierStats } from '../utils/tierPairings';
 import {
   addTierPlayers,
   advanceTierRound,
+  clearTierResult,
+  endTierSession,
+  recordTierResult,
+  setTierCourtNumbers,
+  setTierScoreMode,
   canStartTierSession,
   createTierSession,
   generateNextTierRound,
@@ -62,6 +68,7 @@ export function useTierPairings() {
   const stats = useMemo(() => computeTierStats(session.players, session.rounds), [session.players, session.rounds]);
   const currentRound = openTierRound(session);
   const issues = useMemo(() => openTierRoundIssues(session), [session]);
+  const leaderboard = useMemo(() => computeTierLeaderboard(session.players, session.rounds), [session.players, session.rounds]);
 
   function apply(op: (s: TierSession) => TierResult): TierResult {
     const result = op(session);
@@ -81,7 +88,10 @@ export function useTierPairings() {
     rounds: session.rounds,
     events: session.events,
     started: session.started,
+    ended: session.endedAt !== undefined,
+    finalStandings: session.finalStandings,
     stats,
+    leaderboard,
     currentRound,
     issues,
     addPlayers: (entries: NewTierPlayer[]) => update((s) => addTierPlayers(s, entries)),
@@ -99,7 +109,13 @@ export function useTierPairings() {
     })(),
     generateNext: () => apply((s) => generateNextTierRound(s)),
     startRound: (roundId: string) => apply((s) => startTierRound(s, roundId)),
-    nextRound: (roundId: string) => apply((s) => advanceTierRound(s, roundId)),
+    nextRound: (roundId: string, allowMissingResults = false) => apply((s) => advanceTierRound(s, roundId, { allowMissingResults })),
+    endSession: (allowMissingResults = false) => apply((s) => endTierSession(s, { allowMissingResults })),
+    setCourtNumbers: (courtNumbers: number[], applyToOpen = false) => apply((s) => setTierCourtNumbers(s, courtNumbers, { applyToOpen })),
+    setScoreMode: (mode: TierScoreMode) => apply((s) => setTierScoreMode(s, mode)),
+    recordResult: (roundId: string, matchId: string, input: ResultInput, correction = false) =>
+      apply((s) => recordTierResult(s, roundId, matchId, input, { correction })),
+    clearResult: (roundId: string, matchId: string, correction = false) => apply((s) => clearTierResult(s, roundId, matchId, { correction })),
     regenerateRound: (roundId: string, allowActive: boolean) => apply((s) => regenerateTierRound(s, roundId, { allowActive })),
     swapPlayers: (roundId: string, a: string, b: string) => apply((s) => swapTierPlayers(s, roundId, a, b)),
     reset: () => update(resetTierSession),

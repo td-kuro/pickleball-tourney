@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { AddPlayerMidSessionResult, MidSessionJoinTiming, Player, PlayerAvailabilityStatus, Round, SessionAdjustment, Team } from '../types';
 import { availabilityStatusLabel, canIncreaseCourts, countAvailableForScheduling, isFixedTeamSide } from '../utils/tournament';
 import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
-import { CourtSelector } from './CourtSelector';
+import { CourtNumberChangeControl } from './CourtNumberChangeControl';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
 
@@ -19,9 +19,11 @@ interface SessionControlsProps {
   playersPerCourt: number;
   currentRound: Round | undefined;
   courts: number;
+  // Physical court numbers in use (courts === courtNumbers.length).
+  courtNumbers: number[];
   sessionAdjustments: SessionAdjustment[];
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
-  onChangeCourts: (newCourts: number, regenerateCurrent: boolean) => void;
+  onChangeCourtNumbers: (courtNumbers: number[], applyToCurrent: boolean) => void;
   onSwap: (activePlayerId: string, byePlayerId: string) => { ok: boolean; reason?: string };
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
   // Set when adding new players is blocked for this session (Tournament
@@ -45,15 +47,15 @@ export function SessionControls({
   playersPerCourt,
   currentRound,
   courts,
+  courtNumbers,
   sessionAdjustments,
   onSetAvailability,
-  onChangeCourts,
+  onChangeCourtNumbers,
   onSwap,
   onAddPlayerMidSession,
   addPlayerDisabledReason,
   title = 'Session Controls',
 }: SessionControlsProps) {
-  const [pendingCourts, setPendingCourts] = useState(courts);
   const [swapOpen, setSwapOpen] = useState(false);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
@@ -65,26 +67,6 @@ export function SessionControls({
   // has 12); 10 players / 2 courts with 2 on bye can't (needs 12, has 10).
   // See README's "Mid-session player and court changes".
   const availableCount = countAvailableForScheduling(players, teams, teamPlayers);
-  const courtsCheck = canIncreaseCourts(pendingCourts, courts, playersPerCourt, availableCount);
-
-  function handleApplyCourts() {
-    if (pendingCourts === courts || !courtsCheck.ok) return;
-    const message =
-      pendingCourts > courts
-        ? `Change from ${courts} court${courts === 1 ? '' : 's'} to ${pendingCourts} courts? This will apply from the next round.`
-        : `Change from ${courts} court${courts === 1 ? '' : 's'} to ${pendingCourts} court${pendingCourts === 1 ? '' : 's'}? More players may sit out from the next round.`;
-    if (!window.confirm(message)) {
-      setPendingCourts(courts);
-      return;
-    }
-    let regenerateCurrent = false;
-    if (!currentRoundHasScores && currentRound) {
-      regenerateCurrent = window.confirm('Apply this to the current round too? It has no scores entered yet.');
-    }
-    onChangeCourts(pendingCourts, regenerateCurrent);
-    setNoticeDismissed(false);
-  }
-
   // Only individual (non-fixed-team) players are eligible for a swap — see
   // isFixedTeamSide and canSwapPlayerInRound's file comment in
   // utils/tournament.ts.
@@ -120,21 +102,23 @@ export function SessionControls({
       <section className="card">
         <h2>{title}</h2>
 
-        <div className="form-row">
-          <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
-          <div className="session-controls-actions">
-            <button
-              type="button"
-              className="secondary"
-              onClick={handleApplyCourts}
-              disabled={pendingCourts === courts || !courtsCheck.ok}
-            >
-              Change Courts
-            </button>
-            <p className="hint">Applies from the next round by default; completed and locked rounds are never changed.</p>
-          </div>
-          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
-        </div>
+        <CourtNumberChangeControl
+          courtNumbers={courtNumbers}
+          checkCount={(count) => canIncreaseCourts(count, courts, playersPerCourt, availableCount)}
+          currentRoundQuestion={(countChanged) =>
+            !currentRound
+              ? null
+              : countChanged
+                ? currentRoundHasScores
+                  ? null
+                  : 'Apply this to the current round too? It has no scores entered yet, so it will be regenerated.'
+                : 'Also move the current round to the new courts? Players stay in the same matches.'
+          }
+          onApply={(nums, applyToCurrent) => {
+            onChangeCourtNumbers(nums, applyToCurrent);
+            setNoticeDismissed(false);
+          }}
+        />
 
         <div className="form-row">
           <span>Byes / Sitting Out This Round</span>

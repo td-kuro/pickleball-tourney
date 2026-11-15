@@ -1,7 +1,8 @@
 import type { ChangeEvent } from 'react';
 import type { DynamicTeamQualifierSettings } from '../types';
 import { DTQ_WIN_LOSS_WARNING } from '../utils/results';
-import { CourtSelector } from './CourtSelector';
+import { resolveCourtNumbers } from '../utils/courtNumbers';
+import { CourtNumberPicker } from './CourtNumberPicker';
 import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 interface DynamicTeamQualifierSetupProps {
@@ -42,7 +43,11 @@ export function DynamicTeamQualifierSetup({ settings, onChangeSettings, started 
         />
       </div>
 
-      <CourtSelector value={settings.numberOfCourts} onChange={(numberOfCourts) => onChangeSettings({ ...settings, numberOfCourts })} disabled={started} />
+      <CourtNumberPicker
+        value={resolveCourtNumbers(settings.courtNumbers, settings.numberOfCourts)}
+        onChange={(courtNumbers) => onChangeSettings({ ...settings, numberOfCourts: courtNumbers.length, courtNumbers })}
+        disabled={started}
+      />
 
       <div className="form-row">
         <label htmlFor="dtq-number-of-teams">Number of teams (planning target)</label>

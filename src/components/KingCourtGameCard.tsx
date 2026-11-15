@@ -4,6 +4,8 @@ import { getKingCourtGameWinner } from '../utils/kingCourt';
 import { MatchResultEntry } from './MatchResultEntry';
 
 interface KingCourtGameCardProps {
+  // "Court 3" — the physical court (see utils/courtNumbers.ts).
+  courtName: string;
   court: KingCourtCourtCycle;
   gameNumber: number;
   nameById: Map<string, string>;
@@ -19,7 +21,7 @@ interface KingCourtGameCardProps {
 // component a `key` that changes with the game/cycle number where it's
 // rendered (see KingCourtView) so its local score-input state doesn't
 // leak between games.
-export function KingCourtGameCard({ court, gameNumber, nameById, scoreMode, onSetResult, onSelectPlayer }: KingCourtGameCardProps) {
+export function KingCourtGameCard({ court, courtName, gameNumber, nameById, scoreMode, onSetResult, onSelectPlayer }: KingCourtGameCardProps) {
   const game = court.games.find((g) => g.gameNumber === gameNumber);
   const [team1Score, setTeam1Score] = useState(game?.team1Score != null ? String(game.team1Score) : '');
   const [team2Score, setTeam2Score] = useState(game?.team2Score != null ? String(game.team2Score) : '');
@@ -73,7 +75,7 @@ export function KingCourtGameCard({ court, gameNumber, nameById, scoreMode, onSe
     return (
       <div className="match-card">
         <div className="match-header">
-          Court {court.courtNumber} — Game {gameNumber} of 5
+          {courtName} — Game {gameNumber} of 5
         </div>
         <p className="hint kc-resting-hint">
           Resting:{' '}
@@ -102,7 +104,7 @@ export function KingCourtGameCard({ court, gameNumber, nameById, scoreMode, onSe
   return (
     <form className="match-card" onSubmit={handleSubmit}>
       <div className="match-header">
-        Court {court.courtNumber} — Game {gameNumber} of 5
+        {courtName} — Game {gameNumber} of 5
       </div>
       <p className="hint kc-resting-hint">
         Resting:{' '}

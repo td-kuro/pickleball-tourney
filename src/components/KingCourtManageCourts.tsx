@@ -14,7 +14,8 @@ import type {
 import { availabilityStatusLabel, canIncreaseCourts, isPlayerAvailableForScheduling } from '../utils/tournament';
 import { availableSubstitutes, playerHasRemainingGamesOnCourt } from '../utils/kingCourt';
 import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
-import { CourtSelector } from './CourtSelector';
+import { courtLabel } from '../utils/courtNumbers';
+import { CourtNumberChangeControl } from './CourtNumberChangeControl';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 
 const PLAYERS_PER_COURT = 5; // King Court's fixed court size.
@@ -30,7 +31,9 @@ interface KingCourtManageCourtsProps {
   nextCycleStaging: KingCourtPlayerAssignment[];
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
   onSubstitute: (courtNumber: number, outgoingId: string, incomingId: string) => void;
-  onChangeCourts: (newCourts: number) => void;
+  // Physical courts in use by position (the next cycle uses these).
+  courtNumbers: number[];
+  onChangeCourtNumbers: (courtNumbers: number[], applyToCurrent: boolean) => void;
   onStageForNextCycle: (playerId: string, courtNumber: number | null) => void;
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
   confirmError: string | null;
@@ -52,17 +55,17 @@ export function KingCourtManageCourts({
   players,
   currentCycle,
   numberOfCourts,
+  courtNumbers,
   sessionAdjustments,
   nextCycleStaging,
   onSetAvailability,
   onSubstitute,
-  onChangeCourts,
+  onChangeCourtNumbers,
   onStageForNextCycle,
   onAddPlayerMidSession,
   confirmError,
 }: KingCourtManageCourtsProps) {
   const [noticeDismissed, setNoticeDismissed] = useState(false);
-  const [pendingCourts, setPendingCourts] = useState(numberOfCourts);
   const nameById = new Map(players.map((p) => [p.id, p.name]));
   const lastNotice = sessionAdjustments[sessionAdjustments.length - 1];
 
@@ -73,20 +76,6 @@ export function KingCourtManageCourts({
   // override before the next cycle can start (validateNextCycleAssignments
   // — surfaced as confirmError below — blocks it otherwise).
   const availableCount = players.filter(isPlayerAvailableForScheduling).length;
-  const courtsCheck = canIncreaseCourts(pendingCourts, numberOfCourts, PLAYERS_PER_COURT, availableCount);
-
-  function handleApplyCourts() {
-    if (pendingCourts === numberOfCourts || !courtsCheck.ok) return;
-    const message =
-      pendingCourts > numberOfCourts
-        ? `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} courts? Seed the new court with 5 players via the Movement Preview's court override before the next cycle starts.`
-        : `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} court${pendingCourts === 1 ? '' : 's'}? Players on the removed court will need to be manually redistributed before the next cycle starts.`;
-    if (!window.confirm(message)) {
-      setPendingCourts(numberOfCourts);
-      return;
-    }
-    onChangeCourts(pendingCourts);
-  }
 
   const warnings = players
     .filter((p) => {
@@ -127,27 +116,27 @@ export function KingCourtManageCourts({
       <section className="card">
         <h2>Manage Courts / Players</h2>
 
-        <div className="form-row">
-          <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
-          <div className="session-controls-actions">
-            <button
-              type="button"
-              className="secondary"
-              onClick={handleApplyCourts}
-              disabled={pendingCourts === numberOfCourts || !courtsCheck.ok}
-            >
-              Change Courts
-            </button>
-            <p className="hint">Takes effect at the next cycle boundary — the current cycle's games are never reshuffled.</p>
-          </div>
-          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
-        </div>
+        <CourtNumberChangeControl
+          courtNumbers={courtNumbers}
+          checkCount={(count) => canIncreaseCourts(count, numberOfCourts, PLAYERS_PER_COURT, availableCount)}
+          currentRoundQuestion={(countChanged) =>
+            countChanged
+              ? null
+              : 'Also move the cycle in progress to the new courts? Players stay on the same court positions.'
+          }
+          onApply={onChangeCourtNumbers}
+        />
+        <p className="hint">
+          A different number of courts takes effect at the next cycle boundary — seed a new court with 5 players via the
+          Movement Preview's court override, or redistribute players from a removed court. The current cycle's games are
+          never reshuffled.
+        </p>
 
         {warnings.length > 0 && (
           <div className="hint error">
             {warnings.map(({ player, courtNumber }) => (
               <p key={`${player.id}-${courtNumber}`}>
-                Court {courtNumber} — {player.name} is marked {availabilityStatusLabel(player.availabilityStatus ?? 'available')} but
+                {courtLabel(currentCycle.courtNumbers, courtNumber)} — {player.name} is marked {availabilityStatusLabel(player.availabilityStatus ?? 'available')} but
                 still has games left this cycle. Substitute a replacement below, or resolve manually.
               </p>
             ))}
@@ -158,6 +147,7 @@ export function KingCourtManageCourts({
 
         <StageForNextCycleForm
           numberOfCourts={numberOfCourts}
+          physicalCourts={courtNumbers}
           waitingPlayers={substitutes.filter((p) => !nextCycleStaging.some((a) => a.playerId === p.id))}
           staged={nextCycleStaging}
           nameById={nameById}
@@ -222,7 +212,7 @@ function SubstituteForm({ cycle, nameById, substitutes, onSubstitute }: Substitu
               <select value={courtNumber} onChange={(event) => handleCourtChange(Number(event.target.value))}>
                 {courts.map((court) => (
                   <option key={court.courtNumber} value={court.courtNumber}>
-                    Court {court.courtNumber}
+                    {courtLabel(cycle.courtNumbers, court.courtNumber)}
                   </option>
                 ))}
               </select>
@@ -261,6 +251,7 @@ function SubstituteForm({ cycle, nameById, substitutes, onSubstitute }: Substitu
 
 interface StageForNextCycleFormProps {
   numberOfCourts: number;
+  physicalCourts: number[];
   waitingPlayers: Player[];
   staged: KingCourtPlayerAssignment[];
   nameById: Map<string, string>;
@@ -275,7 +266,7 @@ interface StageForNextCycleFormProps {
 // this form can't see) — see confirmMovementAndAdvance and
 // validateNextCycleAssignments, whose error surfaces above this section
 // if the placement doesn't work out.
-function StageForNextCycleForm({ numberOfCourts, waitingPlayers, staged, nameById, onStage }: StageForNextCycleFormProps) {
+function StageForNextCycleForm({ numberOfCourts, physicalCourts, waitingPlayers, staged, nameById, onStage }: StageForNextCycleFormProps) {
   const courtNumbers = Array.from({ length: numberOfCourts }, (_, i) => i + 1);
   const [playerId, setPlayerId] = useState(waitingPlayers[0]?.id ?? '');
   const [courtNumber, setCourtNumber] = useState(courtNumbers[0] ?? 1);
@@ -292,7 +283,7 @@ function StageForNextCycleForm({ numberOfCourts, waitingPlayers, staged, nameByI
         <ul className="bye-list">
           {staged.map((assignment) => (
             <li key={assignment.playerId} className="bye-chip">
-              {nameById.get(assignment.playerId) ?? 'Unknown player'} → Court {assignment.courtNumber}{' '}
+              {nameById.get(assignment.playerId) ?? 'Unknown player'} → {courtLabel(physicalCourts, assignment.courtNumber)}{' '}
               <button type="button" className="secondary" onClick={() => onStage(assignment.playerId, null)}>
                 Remove
               </button>
@@ -320,7 +311,7 @@ function StageForNextCycleForm({ numberOfCourts, waitingPlayers, staged, nameByI
               <select value={courtNumber} onChange={(event) => setCourtNumber(Number(event.target.value))}>
                 {courtNumbers.map((court) => (
                   <option key={court} value={court}>
-                    Court {court}
+                    {courtLabel(physicalCourts, court)}
                   </option>
                 ))}
               </select>

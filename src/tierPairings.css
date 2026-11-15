@@ -626,3 +626,286 @@
     flex: 1 1 auto;
   }
 }
+
+/* --- courts: Manage Courts --- */
+
+.tier-court-manager {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.tier-court-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 8px;
+}
+
+.tier-court-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code-bg);
+}
+
+.tier-court-index {
+  min-width: 2ch;
+  text-align: center;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.tier-court-name-input {
+  flex: 1 1 120px;
+  min-width: 0;
+  min-height: 38px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 600;
+}
+
+.tier-court-error {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.tier-court-disabled,
+.tier-court-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-manage-courts {
+  margin: 8px 0;
+}
+
+.tier-manage-courts summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--text-h);
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  list-style: none;
+}
+
+.tier-manage-courts summary::-webkit-details-marker {
+  display: none;
+}
+
+/* display:flex hides the native disclosure triangle, so draw one. */
+.tier-manage-courts summary::before {
+  content: '▸';
+  color: var(--accent);
+  transition: transform 0.15s;
+}
+
+.tier-manage-courts[open] summary::before {
+  transform: rotate(90deg);
+}
+
+/* --- results --- */
+
+.tier-result {
+  margin: 10px 0 0;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.tier-result-text {
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.tier-result-missing .tier-result-text,
+p.tier-result-missing {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.tier-result-recorded {
+  color: var(--accent-2);
+  font-weight: 600;
+}
+
+.tier-result-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.tier-result-label {
+  flex-basis: 100%;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text);
+}
+
+.tier-winner-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+
+.tier-winner-button {
+  min-height: 48px;
+  padding: 8px 10px;
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text-h);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  overflow-wrap: break-word;
+}
+
+.tier-winner-button:hover {
+  border-color: var(--accent-2-border);
+}
+
+.tier-winner-button.selected {
+  border-color: var(--accent-2);
+  background: var(--accent-2-bg);
+}
+
+.tier-score-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+}
+
+.tier-score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 600;
+  color: var(--text-h);
+}
+
+.tier-score-row input {
+  width: 72px;
+  min-height: 44px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text-h);
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.tier-court.needs-result {
+  border-top-color: var(--accent-fill);
+}
+
+.tier-result-needed {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.tier-results-progress.pending {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.tier-end-session {
+  margin-left: auto;
+}
+
+/* --- leaderboard --- */
+
+.tier-winner-banner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px;
+  border: 2px solid var(--accent-2-border);
+  border-radius: 12px;
+  background: var(--accent-2-bg);
+  text-align: center;
+}
+
+.tier-winner-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--accent-2);
+}
+
+.tier-winner-names {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-h);
+  overflow-wrap: break-word;
+}
+
+.tier-podium {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px 20px;
+  font-size: 17px;
+  color: var(--text-h);
+}
+
+.tier-leaderboard-table tr.tier-leader td {
+  font-weight: 700;
+  color: var(--text-h);
+}
+
+.tier-leaderboard-table tr.tier-unranked td {
+  opacity: 0.75;
+}
+
+.tier-decided {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.large-display .tier-winner-button {
+  font-size: 20px;
+  min-height: 60px;
+}

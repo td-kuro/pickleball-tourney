@@ -1,17 +1,25 @@
 import { useMemo } from 'react';
-import type { TierPlayer, TierRound } from '../types';
+import type { TierPlayer, TierRound, TierScoreMode } from '../types';
+import { describeResult, type ResultInput } from '../utils/tierLeaderboard';
+import type { TierResult } from '../utils/tierSession';
 import { TierCourtCard, TierPill } from './TierCourtCard';
+import { TierResultEntry } from './TierResultEntry';
 
 interface TierPairingsAllRoundsProps {
   rounds: TierRound[];
   players: TierPlayer[];
+  scoreMode: TierScoreMode;
+  ended: boolean;
+  onRecordResult: (roundId: string, matchId: string, input: ResultInput, correction: boolean) => TierResult;
+  onClearResult: (roundId: string, matchId: string, correction: boolean) => TierResult;
 }
 
 // Every saved round, newest first: the open round exactly as Current Round
 // shows it, completed rounds as played (tiers as they were then). Reads the
 // same saved rounds array — never a separately generated display copy.
-export function TierPairingsAllRounds({ rounds, players }: TierPairingsAllRoundsProps) {
+export function TierPairingsAllRounds({ rounds, players, scoreMode, ended, onRecordResult, onClearResult }: TierPairingsAllRoundsProps) {
   const playersById = useMemo(() => new Map(players.map((p) => [p.id, p])), [players]);
+  const nameOf = (id: string) => playersById.get(id)?.name ?? 'Unknown';
   const ordered = [...rounds].sort((a, b) => b.roundNumber - a.roundNumber);
   if (ordered.length === 0) {
     return (
@@ -42,7 +50,33 @@ export function TierPairingsAllRounds({ rounds, players }: TierPairingsAllRounds
               </h3>
               <div className="tier-court-grid compact">
                 {round.matches.map((match) => (
-                  <TierCourtCard key={match.id} match={match} playersById={playersById} tierOf={tierOf} compact />
+                  <TierCourtCard
+                    key={match.id}
+                    match={match}
+                    playersById={playersById}
+                    tierOf={tierOf}
+                    compact
+                    footer={
+                      // Completed rounds: the result, with Correct Result
+                      // (locked → explicit correction). The round in play is
+                      // scored on Current Round; here it is shown only.
+                      round.status === 'completed' && !ended && (scoreMode !== 'none' || match.result) ? (
+                        <TierResultEntry
+                          key={`${match.id}:${match.result?.recordedAt ?? 'none'}:${scoreMode}`}
+                          match={match}
+                          scoreMode={scoreMode}
+                          nameOf={nameOf}
+                          locked
+                          onRecord={(input, correction) => onRecordResult(round.id, match.id, input, correction)}
+                          onClear={(correction) => onClearResult(round.id, match.id, correction)}
+                        />
+                      ) : match.result || (round.status === 'completed' && scoreMode !== 'none') ? (
+                        <p className={match.result ? 'tier-result tier-result-recorded' : 'tier-result tier-result-missing'}>
+                          {match.result ? describeResult(match, nameOf) : 'No result recorded'}
+                        </p>
+                      ) : undefined
+                    }
+                  />
                 ))}
               </div>
               <p className="hint tier-round-resting">

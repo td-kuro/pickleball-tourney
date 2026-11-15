@@ -1,3 +1,4 @@
+import { resolveCourtNumbers } from '../utils/courtNumbers';
 import { useState } from 'react';
 import type {
   AuditEvent,
@@ -67,6 +68,7 @@ export function useDynamicTeamQualifier() {
   const settings: DynamicTeamQualifierSettings = {
     ...storedSettings,
     scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode),
+    courtNumbers: resolveCourtNumbers(storedSettings.courtNumbers, storedSettings.numberOfCourts),
   };
   const [teams, setTeams] = useLocalStorage<DynamicTeam[]>(TEAMS_KEY, []);
   const [restAssignments, setRestAssignments] = useLocalStorage<RestAssignment[]>(REST_KEY, []);

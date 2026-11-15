@@ -278,6 +278,10 @@ export type RoundStatus = 'upcoming' | 'current' | 'completed';
 export interface Round {
   id: string;
   roundNumber: number;
+  // Match.court is the match's position (1..courts). The physical court it
+  // is played on is courtNumbers[court - 1] — the selection when this round
+  // was generated (see utils/courtNumbers.ts). Absent on older saves.
+  courtNumbers?: number[];
   matches: Match[];
   // Players sitting out this round (didn't fit on a court, or were
   // selected for a fair bye rotation). Always populated — for fixed-team
@@ -366,7 +370,11 @@ export interface TournamentSettings {
   // Always present (even in Tournament Mode, where it's ignored) so
   // components don't need to deal with an optional field.
   socialScoringMode: SocialScoringMode;
+  // Active court COUNT — what round generation uses. The physical court
+  // numbers in use are `courtNumbers` (see utils/courtNumbers.ts); always
+  // courtNumbers.length === courts once normalised by useTournament.
   courts: number;
+  courtNumbers?: number[];
   matchType: MatchType;
   sessionTiming: SessionTiming;
   // Both always present (even outside Tournament Mode / outside Pools &
@@ -658,7 +666,10 @@ export type CourtMovementLimit = 'unrestricted' | 'max-1' | 'max-2';
 
 export interface DynamicPairingSettings {
   sessionName: string;
+  // Active court COUNT; the physical courts are `courtNumbers` (always
+  // numberOfCourts long once normalised — see utils/courtNumbers.ts).
   numberOfCourts: number;
+  courtNumbers?: number[];
   // The first N rounds are "grading" rounds — see generateDynamicPairingRound.
   gradingRounds: number;
   gameFormat: DynamicGameFormat;
@@ -812,6 +823,9 @@ export interface DynamicPairingCourtAssignment {
 }
 
 export interface DynamicPairingRound {
+  // Physical court for each court position (courts[].courtNumber is the
+  // position) — see utils/courtNumbers.ts. Absent on older saves.
+  courtNumbers?: number[];
   id: string;
   roundNumber: number;
   phase: DynamicPairingRoundPhase;
@@ -932,6 +946,10 @@ export type KingCourtCycleStatus = 'in-progress' | 'awaiting-movement' | 'comple
 
 export interface KingCourtCycle {
   cycleNumber: number;
+  // Physical court for each court position (courts[].courtNumber is the
+  // position; higher position = stronger court) — see
+  // utils/courtNumbers.ts. Absent on older saves.
+  courtNumbers?: number[];
   courts: KingCourtCourtCycle[];
   // Shared across every court — all courts play Game 1, then all play
   // Game 2, and so on, together (see the "App flow" walkthrough in the
@@ -970,7 +988,11 @@ export interface KingCourtPlayerStats {
 
 export interface DynamicTeamQualifierSettings {
   divisionName: string;
+  // Active court COUNT; the physical courts are `courtNumbers` (position i
+  // → courtNumbers[i - 1]). Both lock when qualifying starts, so the saved
+  // selection is also the record of where each match was played.
   numberOfCourts: number;
+  courtNumbers?: number[];
   // The number of teams the organiser is planning for — a planning target
   // only. The actual schedule is always generated from however many teams
   // are checked in and non-withdrawn when Round 1 starts (see
@@ -1216,9 +1238,33 @@ export interface TierPlayer {
 
 export interface TierMatch {
   id: string;
+  // Position of the match within its round (1 = first court used).
   courtNumber: number;
+  // The physical court it is played on (e.g. 3 or 6) — the session's
+  // selected court numbers in order (see utils/courtNumbers.ts). Kept
+  // current while the round is a draft, frozen once it is in play or
+  // completed so history keeps the real court.
+  physicalCourt?: number;
   teamAPlayerIds: [string, string];
   teamBPlayerIds: [string, string];
+  // The single source of truth for results — the leaderboard is derived
+  // from these. Absent = not recorded (never treated as a loss or draw).
+  result?: TierMatchResult;
+}
+
+// Tier-Based Pairings' own scoring setting. Separate from the shared
+// ScoreRecordingMode (which has no "none" option and is used by other
+// modes).
+export type TierScoreMode = 'none' | 'win-loss-only' | 'full-score';
+
+export interface TierMatchResult {
+  // The mode the result was recorded under.
+  recordingMode: 'win-loss-only' | 'full-score';
+  winner: 'A' | 'B'; // team A or team B of the match
+  // Only for full-score results — never fabricated for win/loss.
+  scoreA?: number;
+  scoreB?: number;
+  recordedAt: number;
 }
 
 // draft: generated, not yet started — can be regenerated freely.
@@ -1262,7 +1308,11 @@ export interface TierArrangementInfo {
 
 export interface TierSettings {
   sessionName: string;
+  // Active court COUNT — always courtNumbers.length.
   numberOfCourts: number;
+  // Physical court numbers in use, sorted (e.g. [3, 6]).
+  courtNumbers: number[];
+  scoreMode: TierScoreMode;
 }
 
 export type TierEventType =
@@ -1276,6 +1326,11 @@ export type TierEventType =
   | 'tier-changed'
   | 'availability-changed'
   | 'courts-changed'
+  | 'score-mode-changed'
+  | 'result-recorded'
+  | 'result-corrected'
+  | 'result-cleared'
+  | 'session-ended'
   | 'swap';
 
 export interface TierEvent {
@@ -1288,11 +1343,18 @@ export interface TierEvent {
   // round-regenerated: the discarded assignments, for audit only — never
   // counted as played encounters or sit-outs.
   discarded?: { matches: TierMatch[]; restingPlayerIds: string[] };
+  // result-corrected / result-cleared: the result that was replaced.
+  previousResult?: TierMatchResult;
+  matchId?: string;
 }
 
 export interface TierSession {
   version: 1;
   started: boolean;
+  // Set by End Session. An ended session is read-only.
+  endedAt?: number;
+  // Standings frozen at End Session (see utils/tierLeaderboard.ts).
+  finalStandings?: TierFinalStandings;
   settings: TierSettings;
   players: TierPlayer[];
   rounds: TierRound[];
@@ -1318,4 +1380,37 @@ export interface TierPlayerStats {
   opponentHistory: Record<string, number>;
   lastPartnerRound: Record<string, number>;
   lastOpponentRound: Record<string, number>;
+}
+
+// One player's line on the Tier-Based Pairings leaderboard, derived from
+// recorded results (see computeTierLeaderboard).
+export interface TierStanding {
+  playerId: string;
+  name: string;
+  tier: PlayerTier;
+  gamesPlayed: number; // every completed game, recorded or not
+  recordedGames: number; // games with a result
+  wins: number;
+  losses: number;
+  // null when the player has no recorded result — shown as unranked.
+  winPct: number | null;
+  // Present only when every recorded game of theirs has a full score.
+  pointsFor?: number;
+  pointsAgainst?: number;
+  pointDiff?: number;
+  sitOuts: number;
+  // Competition ranking (1, 1, 3, ...); null = unranked.
+  rank: number | null;
+  // Which rule separated this player from the one above, for display.
+  decidedBy?: 'win-pct' | 'wins' | 'point-diff' | 'head-to-head' | 'tied';
+}
+
+export interface TierFinalStandings {
+  endedAt: number;
+  scoreMode: TierScoreMode;
+  standings: TierStanding[];
+  // Everyone ranked 1 (joint winners if more than one). Empty when the
+  // session had no recorded results or used No Scoring.
+  winnerIds: string[];
+  unrecordedMatches: number;
 }

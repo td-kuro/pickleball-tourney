@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
+import { adjustCourtNumbers, courtLabel, formatCourtList, resolveCourtNumbers, sameCourtNumbers, stampCourtNumbers } from '../utils/courtNumbers';
 import type {
   AddPlayerMidSessionResult,
   DynamicPairingRound,
@@ -53,6 +54,7 @@ import { activateDueNewJoiners, revertRestingPlayers } from '../utils/tournament
 import { useLocalStorage } from './useLocalStorage';
 
 const SETTINGS_KEY = 'pickleball-tourney:dp:settings';
+const DP_ROUND_STATUSES = { upcoming: ['upcoming', 'pending-results'], open: ['current'] } as const;
 const PLAYERS_KEY = 'pickleball-tourney:dp:players';
 const TEAMS_KEY = 'pickleball-tourney:dp:teams';
 const ROUNDS_KEY = 'pickleball-tourney:dp:rounds';
@@ -112,7 +114,17 @@ export function useDynamicPairingSocial() {
   // buildDynamicPairingEntrants for how the two views (physical roster vs.
   // entrant list) are derived from `players` + `teams` together.
   const [teams, setTeams] = useLocalStorage<DynamicPairingTeam[]>(TEAMS_KEY, []);
-  const [rounds, setRounds] = useLocalStorage<DynamicPairingRound[]>(ROUNDS_KEY, []);
+  const [rounds, setStoredRounds] = useLocalStorage<DynamicPairingRound[]>(ROUNDS_KEY, []);
+  // Every save records which physical courts each unplayed round uses (see
+  // stampCourtNumbers). `courtNumbers` defaults to the current selection;
+  // a court change passes the new one, since settings haven't re-rendered.
+  const setRounds = useCallback(
+    (next: DynamicPairingRound[], courtNumbers?: number[], reassignCurrent = false) =>
+      setStoredRounds(
+        stampCourtNumbers(next, courtNumbers ?? settings.courtNumbers ?? [], DP_ROUND_STATUSES, reassignCurrent),
+      ),
+    [setStoredRounds, settings.courtNumbers],
+  );
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
 
   // Functional update, so several events logged in one handler (e.g. a
@@ -305,14 +317,29 @@ export function useDynamicPairingSocial() {
   // generated against `nextSettings` explicitly since setSettings above
   // hasn't taken effect in this render yet.
   function changeCourtCount(newCourts: number) {
-    if (newCourts === settings.numberOfCourts) return;
-    const nextSettings = { ...settings, numberOfCourts: newCourts };
-    setSettings(nextSettings);
-    logAdjustment('court-count-changed', { oldValue: String(settings.numberOfCourts), newValue: String(newCourts) });
+    changeCourtNumbers(adjustCourtNumbers(settings.courtNumbers ?? [], newCourts), false);
+  }
 
-    const regenerated = regenerateUpcomingRoundsForEntrants(players, teams, nextSettings, rounds);
+  // Court Number Selection mid-session. A new COUNT regenerates upcoming
+  // rounds (as before); the same count with different numbers only moves
+  // upcoming rounds to the new courts. The current round moves only when
+  // `applyToCurrent` (explicit — players stay in the same matches).
+  // Completed rounds keep their courts.
+  function changeCourtNumbers(courtNumbers: number[], applyToCurrent: boolean) {
+    const nums = resolveCourtNumbers(courtNumbers, courtNumbers.length);
+    if (sameCourtNumbers(nums, settings.courtNumbers)) return;
+    const newCourts = nums.length;
+    const nextSettings = { ...settings, numberOfCourts: newCourts, courtNumbers: nums };
+    setSettings(nextSettings);
+    logAdjustment('court-count-changed', {
+      oldValue: formatCourtList(settings.courtNumbers ?? []),
+      newValue: formatCourtList(nums),
+    });
+
+    const regenerated =
+      newCourts === settings.numberOfCourts ? rounds : regenerateUpcomingRoundsForEntrants(players, teams, nextSettings, rounds);
+    setRounds(regenerated, nums, applyToCurrent && newCourts === settings.numberOfCourts);
     if (regenerated !== rounds) {
-      setRounds(regenerated);
       logAdjustment('future-rounds-regenerated', { note: 'Future rounds were regenerated due to player/court changes.' });
     }
   }
@@ -367,7 +394,7 @@ export function useDynamicPairingSocial() {
     setRounds(rounds.map((r) => (r.id === currentRound.id ? clearDynamicPairingCourtResult(r, courtNumber) : r)));
     logAdjustment('result-reset', {
       roundNumber: currentRound.roundNumber,
-      note: `Court ${courtNumber}: result reset.`,
+      note: `${courtLabel(currentRound.courtNumbers, courtNumber)}: result reset.`,
     });
   }
 
@@ -608,8 +635,8 @@ export function useDynamicPairingSocial() {
       roundNumber: round?.roundNumber,
       note:
         result.kind === 'score'
-          ? `Court ${courtNumber}: score ${result.scoreA}–${result.scoreB} recorded.`
-          : `Court ${courtNumber}: winner recorded (score not recorded).`,
+          ? `${courtLabel(round?.courtNumbers, courtNumber)}: score ${result.scoreA}–${result.scoreB} recorded.`
+          : `${courtLabel(round?.courtNumbers, courtNumber)}: winner recorded (score not recorded).`,
     });
   }
 
@@ -649,6 +676,7 @@ export function useDynamicPairingSocial() {
     resumeSavedCurrentRound,
     setCourtResult,
     changeCourtCount,
+    changeCourtNumbers,
     swapPlayerInCurrentRound,
     swapPlayers,
     previewSwap,

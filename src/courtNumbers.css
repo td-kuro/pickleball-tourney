@@ -1,0 +1,17 @@
+/* Court Number Selection (CourtNumberPicker). */
+.court-number-add {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.court-number-add .court-selector-other-input {
+  margin-top: 0;
+  width: 120px;
+}
+
+.court-number-summary strong {
+  color: var(--text-h);
+}

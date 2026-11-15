@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { Player, Round, RoundStatus, Team, TournamentSettings } from '../types';
 import { describeResult } from '../utils/results';
 import { getMatchWinner, isScoringEnabled, teamKey } from '../utils/tournament';
@@ -89,7 +90,7 @@ export function AllRoundsView({ rounds, players, settings, teams = [] }: AllRoun
                   return (
                     <li key={match.id} className="all-rounds-match">
                       <span>
-                        Court {match.court}: {teamALabel} vs {teamBLabel}
+                        {courtLabel(round.courtNumbers, match.court)}: {teamALabel} vs {teamBLabel}
                       </span>
                       {showScoring && result && <span className="all-rounds-score">{result}</span>}
                     </li>

@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { Pool, PoolMatch, ResultSubmission, ScoreRecordingMode, Team } from '../types';
 import { allPoolsComplete, isPoolComplete, poolMatchWinnerId } from '../utils/poolsKnockout';
 import { POINT_DIFFERENTIAL_UNAVAILABLE_NOTE, SCORE_NOT_RECORDED, scoreRecordingModeLabel } from '../utils/results';
@@ -12,6 +13,8 @@ interface PoolStageViewProps {
   onSetResult: (poolId: string, matchId: string, result: ResultSubmission) => void;
   onAdvanceToKnockout: () => void;
   scoreRecordingMode: ScoreRecordingMode;
+  // Physical courts for match positions (see utils/courtNumbers.ts).
+  courtNumbers?: number[];
 }
 
 // Every pool, each showing its own match list (score entry for anything
@@ -27,6 +30,7 @@ export function PoolStageView({
   onSetResult,
   onAdvanceToKnockout,
   scoreRecordingMode,
+  courtNumbers,
 }: PoolStageViewProps) {
   const teamNameById = new Map(teams.map((team) => [team.id, team.name]));
   const allComplete = allPoolsComplete(pools);
@@ -62,6 +66,7 @@ export function PoolStageView({
                 teamAName={teamNameById.get(match.teamAId) ?? 'Unknown team'}
                 teamBName={teamNameById.get(match.teamBId) ?? 'Unknown team'}
                 scoreMode={scoreRecordingMode}
+                courtName={courtLabel(courtNumbers, match.court)}
                 onSetResult={(result) => onSetResult(pool.id, match.id, result)}
               />
             ))}
@@ -84,6 +89,7 @@ interface PoolMatchCardProps {
   teamAName: string;
   teamBName: string;
   scoreMode: ScoreRecordingMode;
+  courtName: string;
   onSetResult: (result: ResultSubmission) => void;
 }
 
@@ -92,13 +98,13 @@ interface PoolMatchCardProps {
 // with whatever was recorded. A match skipped because a team became
 // unavailable (see usePoolsKnockout.setTeamAvailability) has no entry at
 // all until it's restored.
-function PoolMatchCard({ match, teamAName, teamBName, scoreMode, onSetResult }: PoolMatchCardProps) {
+function PoolMatchCard({ match, teamAName, teamBName, scoreMode, courtName, onSetResult }: PoolMatchCardProps) {
   const winnerId = poolMatchWinnerId(match);
   const winner = winnerId === match.teamAId ? 'A' : winnerId === match.teamBId ? 'B' : undefined;
 
   return (
     <div className="match-card">
-      <div className="match-header">Court {match.court}</div>
+      <div className="match-header">{courtName}</div>
       <div className="match-teams">
         <div className={winner === 'A' ? 'match-team winner' : 'match-team'}>
           <span className="match-team-name">{teamAName}</span>

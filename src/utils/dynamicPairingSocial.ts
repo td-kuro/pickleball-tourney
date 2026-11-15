@@ -1,3 +1,4 @@
+import { courtLabel, resolveCourtNumbers } from './courtNumbers';
 // Pure logic for Dynamic Pairing Social — a doubles-only, ranking-driven
 // Social Play format (see SocialFormat in ../types.ts). Deliberately
 // self-contained: nothing here is imported by (or imports from)
@@ -2474,7 +2475,7 @@ export function planDynamicPairingSwap(
   for (const loc of [locA, locB]) {
     if (loc.kind === 'court' && courtHasResult(round.courts[loc.courtIndex])) {
       const courtNumber = round.courts[loc.courtIndex].courtNumber;
-      return { ok: false, reason: `Court ${courtNumber} already has a result. Reset that result before changing its players.` };
+      return { ok: false, reason: `${courtLabel(round.courtNumbers, courtNumber)} already has a result. Reset that result before changing its players.` };
     }
   }
 
@@ -2514,14 +2515,14 @@ export function planDynamicPairingSwap(
       setSide(locA, unitB);
       setSide(locB, unitA);
       movedPlayerIds = [...unitA, ...unitB];
-      summary = `${unitA.map(nameOf).join(' / ')} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${unitB.map(nameOf).join(' / ')} (Court ${courts[locB.courtIndex].courtNumber})`;
+      summary = `${unitA.map(nameOf).join(' / ')} (${courtLabel(round.courtNumbers, courts[locA.courtIndex].courtNumber)}) ↔ ${unitB.map(nameOf).join(' / ')} (${courtLabel(round.courtNumbers, courts[locB.courtIndex].courtNumber)})`;
     } else if (bRestingTeam && bTeam) {
       const unavailable = bTeam.playerIds.find((id) => !canTakeCourtSpot(playersById.get(id), round.roundNumber));
       if (unavailable) return { ok: false, reason: `${nameOf(unavailable)} isn't available to play — make them available first.` };
       setSide(locA, [...bTeam.playerIds]);
       resting = [...resting.filter((id) => !bTeam.playerIds.includes(id)), ...unitA];
       movedPlayerIds = [...unitA, ...bTeam.playerIds];
-      summary = `${unitA.map(nameOf).join(' / ')} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${bTeam.playerIds.map(nameOf).join(' / ')} (resting)`;
+      summary = `${unitA.map(nameOf).join(' / ')} (${courtLabel(round.courtNumbers, courts[locA.courtIndex].courtNumber)}) ↔ ${bTeam.playerIds.map(nameOf).join(' / ')} (resting)`;
     } else {
       return {
         ok: false,
@@ -2537,8 +2538,8 @@ export function planDynamicPairingSwap(
     movedPlayerIds = [aId, bId];
     summary =
       locA.courtIndex === locB.courtIndex
-        ? `${nameOf(aId)} ↔ ${nameOf(bId)} (Court ${courts[locA.courtIndex].courtNumber}, swapping sides)`
-        : `${nameOf(aId)} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${nameOf(bId)} (Court ${courts[locB.courtIndex].courtNumber})`;
+        ? `${nameOf(aId)} ↔ ${nameOf(bId)} (${courtLabel(round.courtNumbers, courts[locA.courtIndex].courtNumber)}, swapping sides)`
+        : `${nameOf(aId)} (${courtLabel(round.courtNumbers, courts[locA.courtIndex].courtNumber)}) ↔ ${nameOf(bId)} (${courtLabel(round.courtNumbers, courts[locB.courtIndex].courtNumber)})`;
   } else {
     // A player on a court swaps with someone resting or not yet scheduled.
     const playerB = playersById.get(bId);
@@ -2559,7 +2560,7 @@ export function planDynamicPairingSwap(
     const aStillHere = playerA != null && (isPlayerAvailable(playerA, round.roundNumber) || statusOfPlayer(playerA) === 'resting-this-round');
     resting = [...resting.filter((id) => id !== bId), ...(aStillHere ? [aId] : [])];
     movedPlayerIds = [aId, bId];
-    summary = `${nameOf(aId)} (Court ${courts[locA.courtIndex].courtNumber}) ↔ ${nameOf(bId)} (${locB.kind === 'resting' ? 'resting' : 'not scheduled'})`;
+    summary = `${nameOf(aId)} (${courtLabel(round.courtNumbers, courts[locA.courtIndex].courtNumber)}) ↔ ${nameOf(bId)} (${locB.kind === 'resting' ? 'resting' : 'not scheduled'})`;
   }
 
   const hasEntrantIds = round.courts.some((c) => c.team1EntrantIds != null) || teams.length > 0;
@@ -2594,7 +2595,7 @@ export function planDynamicPairingSwap(
   if (!valid) return { ok: false, reason: 'That swap would leave the round in an invalid state, so it was not applied.' };
 
   const courtLine = (court: DynamicPairingCourtAssignment) =>
-    `Court ${court.courtNumber}: ${court.team1PlayerIds.map(nameOf).join(' / ')} vs ${court.team2PlayerIds.map(nameOf).join(' / ')}`;
+    `${courtLabel(round.courtNumbers, court.courtNumber)}: ${court.team1PlayerIds.map(nameOf).join(' / ')} vs ${court.team2PlayerIds.map(nameOf).join(' / ')}`;
   const restLine = (ids: string[]) => `Resting: ${ids.length > 0 ? ids.map(nameOf).join(', ') : 'nobody'}`;
   const changedIndexes = nextCourts.map((court, index) => (court !== round.courts[index] ? index : -1)).filter((i) => i !== -1);
   const before = changedIndexes.map((i) => courtLine(round.courts[i]));
@@ -2737,6 +2738,7 @@ export function normalizeDynamicPairingSettings(stored: DynamicPairingSettings):
     ...stored,
     scoreRecordingMode: normalizeScoreRecordingMode(stored.scoreRecordingMode),
     useGradingDivisions: stored.useGradingDivisions === true,
+    courtNumbers: resolveCourtNumbers(stored.courtNumbers, stored.numberOfCourts),
   };
 }
 

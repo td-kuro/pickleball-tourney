@@ -1,5 +1,6 @@
+import type { ReactNode } from 'react';
 import type { PlayerTier, TierMatch, TierPlayer } from '../types';
-import { courtTierLabel, matchPlayerIds, TIER_NAMES } from '../utils/tierPairings';
+import { courtTierLabel, matchCourtLabel, matchPlayerIds, TIER_NAMES } from '../utils/tierPairings';
 
 export function TierPill({ tier, long = false }: { tier: PlayerTier; long?: boolean }) {
   return (
@@ -20,12 +21,16 @@ interface TierCourtCardProps {
   selectedIds?: string[];
   compact?: boolean;
   invalid?: boolean;
+  // Result entry / recorded result, shown under the teams.
+  footer?: ReactNode;
+  // Highlights a court still waiting for its result.
+  needsResult?: boolean;
 }
 
 // One court: "Court 1 – Top / Inbetween", then team A vs team B with each
 // player's tier beside their name. Used by Current Round (large, clickable)
 // and All Rounds (compact, read-only) so both render the same saved match.
-export function TierCourtCard({ match, playersById, tierOf, onPlayerClick, selectedIds = [], compact = false, invalid = false }: TierCourtCardProps) {
+export function TierCourtCard({ match, playersById, tierOf, onPlayerClick, selectedIds = [], compact = false, invalid = false, footer, needsResult = false }: TierCourtCardProps) {
   const tiers = matchPlayerIds(match).map(tierOf);
   const side = tiers.includes('A') ? 'top' : tiers.includes('C') ? 'lower' : 'mid';
   const name = (id: string) => playersById.get(id)?.name ?? 'Unknown';
@@ -53,16 +58,20 @@ export function TierCourtCard({ match, playersById, tierOf, onPlayerClick, selec
   }
 
   return (
-    <article className={`tier-court tier-court-${side}${compact ? ' compact' : ''}${invalid ? ' invalid' : ''}`}>
+    <article className={`tier-court tier-court-${side}${compact ? ' compact' : ''}${invalid ? ' invalid' : ''}${needsResult ? ' needs-result' : ''}`}>
       <header className="tier-court-header">
-        <span className="tier-court-number">Court {match.courtNumber}</span>
-        <span className="tier-court-label">{courtTierLabel(tiers)}</span>
+        <span className="tier-court-number">{matchCourtLabel(match)}</span>
+        <span className="tier-court-label">
+          {courtTierLabel(tiers)}
+          {needsResult && <span className="tier-result-needed">Result needed</span>}
+        </span>
       </header>
       <div className="tier-court-teams">
         <div className="tier-team">{match.teamAPlayerIds.map(renderPlayer)}</div>
         <div className="tier-vs">vs</div>
         <div className="tier-team">{match.teamBPlayerIds.map(renderPlayer)}</div>
       </div>
+      {footer}
     </article>
   );
 }

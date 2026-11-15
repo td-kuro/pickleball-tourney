@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState } from 'react';
 import type { DynamicPairingRound, Player } from '../types';
 import { isPlayerAvailable, type DynamicPairingSwapPlan } from '../utils/dynamicPairingSocial';
@@ -33,7 +34,7 @@ export function DynamicPairingSwapDialog({ round, players, playerId, onPreview, 
   const unscheduled = players.filter((p) => !scheduled.has(p.id) && isPlayerAvailable(p, round.roundNumber)).map((p) => p.id);
   const groups = [
     ...round.courts.map((court) => ({
-      label: `Court ${court.courtNumber}`,
+      label: courtLabel(round.courtNumbers, court.courtNumber),
       ids: court.playerIds,
     })),
     { label: 'Resting', ids: round.restingPlayerIds },

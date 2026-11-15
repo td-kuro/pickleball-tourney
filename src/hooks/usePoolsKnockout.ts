@@ -1,3 +1,4 @@
+import { resolveCourtNumbers } from '../utils/courtNumbers';
 import type { KnockoutBracket, Player, Pool, ResultSubmission, ScoreRecordingMode, Team, TournamentSettings, TournamentStage } from '../types';
 import {
   addTeamToPool,
@@ -24,6 +25,7 @@ const POOLS_KEY = 'pickleball-tourney:pk:pools';
 const BRACKET_KEY = 'pickleball-tourney:pk:bracket';
 const STAGE_KEY = 'pickleball-tourney:pk:stage';
 const UNAVAILABLE_TEAMS_KEY = 'pickleball-tourney:pk:unavailableTeamIds';
+const COURT_NUMBERS_KEY = 'pickleball-tourney:pk:courtNumbers';
 
 // Manages Pools & Knockout state, persisted to localStorage, completely
 // independent of useTournament's rounds/plannedRounds (Leaderboard/Social
@@ -38,6 +40,10 @@ export function usePoolsKnockout() {
   // matches were actually taken off the schedule is recorded on the matches
   // themselves (PoolMatch.skipped).
   const [unavailableTeamIds, setUnavailableTeamIds] = useLocalStorage<string[]>(UNAVAILABLE_TEAMS_KEY, []);
+  // Physical court numbers the pool matches were scheduled on (PoolMatch.court
+  // is a position 1..courts — see utils/courtNumbers.ts). Fixed when the pool
+  // stage starts; null on sessions saved before court numbers existed.
+  const [courtNumbers, setCourtNumbers] = useLocalStorage<number[] | null>(COURT_NUMBERS_KEY, null);
 
   // Called by "Start Matches" when Pools & Knockout is selected: sources
   // teams from both the declared fixed-teams roster (used directly, so
@@ -57,6 +63,7 @@ export function usePoolsKnockout() {
     }));
     setTeams(newTeams);
     setPools(newPools);
+    setCourtNumbers(resolveCourtNumbers(settings.courtNumbers, settings.courts));
     setBracket(null);
     setStage('pool-stage');
   }
@@ -144,6 +151,7 @@ export function usePoolsKnockout() {
     setBracket(null);
     setStage('setup');
     setUnavailableTeamIds([]);
+    setCourtNumbers(null);
   }
 
   return {
@@ -151,6 +159,7 @@ export function usePoolsKnockout() {
     pools,
     bracket,
     stage,
+    courtNumbers: courtNumbers ?? undefined,
     startPoolStage,
     setPoolMatchResult,
     advanceToKnockout,

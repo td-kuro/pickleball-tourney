@@ -7,6 +7,7 @@ import { DynamicTeamQualifierCurrentRound } from './DynamicTeamQualifierCurrentR
 type RoundsSubView = 'current' | 'all';
 
 interface DynamicTeamQualifierRoundsPageProps {
+  courtNumbers?: number[];
   teams: DynamicTeam[];
   rounds: QualifyingRound[];
   restAssignments: RestAssignment[];
@@ -24,6 +25,7 @@ interface DynamicTeamQualifierRoundsPageProps {
 // Parent for Dynamic Team Qualifier's "Rounds" tab — a Current Round / All
 // Rounds toggle, mirroring DynamicPairingRoundsPage's shape.
 export function DynamicTeamQualifierRoundsPage({
+  courtNumbers,
   teams,
   rounds,
   restAssignments,
@@ -130,6 +132,7 @@ export function DynamicTeamQualifierRoundsPage({
 
       {subView === 'current' ? (
         <DynamicTeamQualifierCurrentRound
+          courtNumbers={courtNumbers}
           teams={teams}
           rounds={rounds}
           restAssignments={restAssignments}
@@ -143,7 +146,7 @@ export function DynamicTeamQualifierRoundsPage({
           onViewAllRounds={() => setSubView('all')}
         />
       ) : (
-        <DynamicTeamQualifierAllRounds teams={teams} rounds={rounds} medalBracket={medalBracket} />
+        <DynamicTeamQualifierAllRounds courtNumbers={courtNumbers} teams={teams} rounds={rounds} medalBracket={medalBracket} />
       )}
     </>
   );

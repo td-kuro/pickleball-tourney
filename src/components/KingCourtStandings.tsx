@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { KingCourtCycle, Player, ScoreRecordingMode } from '../types';
 import { calculateCourtStandings, computeKingCourtPlayerStats } from '../utils/kingCourt';
 import { POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
@@ -86,7 +87,7 @@ export function KingCourtStandings({ players, cycles, scoreRecordingMode }: King
               const standings = court.standings.length > 0 ? court.standings : calculateCourtStandings(court);
               return (
                 <div key={court.courtNumber} className="kc-standings-card">
-                  <h3>Court {court.courtNumber}</h3>
+                  <h3>{courtLabel(currentCycle.courtNumbers, court.courtNumber)}</h3>
                   <table className="leaderboard-table">
                     <thead>
                       <tr>

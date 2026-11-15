@@ -1,3 +1,4 @@
+import { adjustCourtNumbers, courtLabel, formatCourtList, resolveCourtNumbers, sameCourtNumbers } from '../utils/courtNumbers';
 import type {
   KingCourtCycle,
   KingCourtPlayerAssignment,
@@ -27,6 +28,7 @@ import {
 import { useLocalStorage } from './useLocalStorage';
 
 const COURTS_KEY = 'pickleball-tourney:kc:numberOfCourts';
+const COURT_NUMBERS_KEY = 'pickleball-tourney:kc:courtNumbers';
 const ASSIGNMENTS_KEY = 'pickleball-tourney:kc:assignments';
 const CYCLES_KEY = 'pickleball-tourney:kc:cycles';
 const SESSION_ADJUSTMENTS_KEY = 'pickleball-tourney:kc:sessionAdjustments';
@@ -45,6 +47,10 @@ function makeAdjustmentId(): string {
 // rather than keeping a separate player list.
 export function useKingCourt() {
   const [numberOfCourts, setNumberOfCourts] = useLocalStorage<number>(COURTS_KEY, DEFAULT_COURTS);
+  // Physical court numbers in use, by position (position 1 = weakest).
+  // Always numberOfCourts long — see utils/courtNumbers.ts.
+  const [storedCourtNumbers, setStoredCourtNumbers] = useLocalStorage<number[] | null>(COURT_NUMBERS_KEY, null);
+  const courtNumbers = resolveCourtNumbers(storedCourtNumbers, numberOfCourts);
   const [assignments, setAssignments] = useLocalStorage<KingCourtPlayerAssignment[]>(ASSIGNMENTS_KEY, []);
   const [cycles, setCycles] = useLocalStorage<KingCourtCycle[]>(CYCLES_KEY, []);
   const [sessionAdjustments, setSessionAdjustments] = useLocalStorage<SessionAdjustment[]>(SESSION_ADJUSTMENTS_KEY, []);
@@ -119,9 +125,29 @@ export function useKingCourt() {
   // updates the target and the court-option range the Movement Preview's
   // per-player override offers.
   function changeCourtsSession(newCourts: number) {
-    if (newCourts === numberOfCourts) return;
-    logAdjustment('court-count-changed', { oldValue: String(numberOfCourts), newValue: String(newCourts) });
-    setNumberOfCourts(newCourts);
+    changeCourtNumbersSession(adjustCourtNumbers(courtNumbers, newCourts), false);
+  }
+
+  // Pre-session Setup: pick the physical courts (no adjustment logged).
+  function setCourtNumbers(nums: number[]) {
+    const clean = resolveCourtNumbers(nums, nums.length);
+    setStoredCourtNumbers(clean);
+    setNumberOfCourts(clean.length);
+  }
+
+  // Mid-session Court Number Selection. The court COUNT takes effect at the
+  // next cycle (as before). With the same count, `applyToCurrent` also moves
+  // the cycle in progress to the new courts — players stay on the same
+  // court positions; otherwise only the next cycle uses them.
+  function changeCourtNumbersSession(nums: number[], applyToCurrent: boolean) {
+    const clean = resolveCourtNumbers(nums, nums.length);
+    if (sameCourtNumbers(clean, courtNumbers)) return;
+    logAdjustment('court-count-changed', { oldValue: formatCourtList(courtNumbers), newValue: formatCourtList(clean) });
+    setStoredCourtNumbers(clean);
+    setNumberOfCourts(clean.length);
+    if (applyToCurrent && clean.length === numberOfCourts && currentCycle) {
+      setCycles(cycles.map((cycle, index) => (index !== cycles.length - 1 ? cycle : { ...cycle, courtNumbers: clean })));
+    }
   }
 
   // --- Seeding (pre-Cycle-1) ----------------------------------------------
@@ -172,7 +198,7 @@ export function useKingCourt() {
 
   function startCycle1(players: Player[]) {
     const cycle1 = generateNextKingCourtCycle(assignments, players, 1, {});
-    setCycles([cycle1]);
+    setCycles([{ ...cycle1, courtNumbers }]);
   }
 
   // --- Scoring / game progression ------------------------------------------
@@ -308,12 +334,12 @@ export function useKingCourt() {
       currentCycle.cycleNumber + 1,
     );
 
-    const check = validateNextCycleAssignments(nextAssignments, numberOfCourts);
+    const check = validateNextCycleAssignments(nextAssignments, numberOfCourts, courtNumbers);
     if (!check.ok) {
       if (removed.length === 0) return check;
       const nameById = new Map(players.map((p) => [p.id, p.name]));
       const removedText = removed
-        .map((a) => `${nameById.get(a.playerId) ?? 'A player'} (Court ${a.courtNumber})`)
+        .map((a) => `${nameById.get(a.playerId) ?? 'A player'} (${courtLabel(currentCycle.courtNumbers, a.courtNumber)})`)
         .join(', ');
       return {
         ok: false,
@@ -325,7 +351,7 @@ export function useKingCourt() {
     const partnerHistory = buildKingCourtPartnerHistory(completed);
     const nextCycle = generateNextKingCourtCycle(nextAssignments, players, currentCycle.cycleNumber + 1, partnerHistory);
 
-    setCycles([...completed, nextCycle]);
+    setCycles([...completed, { ...nextCycle, courtNumbers }]);
     setAssignments([]); // consumed — fresh staging area for the next cycle's manual additions
     return { ok: true };
   }
@@ -345,6 +371,7 @@ export function useKingCourt() {
 
   function resetKingCourt() {
     setNumberOfCourts(DEFAULT_COURTS);
+    setStoredCourtNumbers(null);
     setAssignments([]);
     setCycles([]);
     setSessionAdjustments([]);
@@ -353,8 +380,11 @@ export function useKingCourt() {
 
   return {
     numberOfCourts,
+    courtNumbers,
     setNumberOfCourts,
+    setCourtNumbers,
     changeCourtsSession,
+    changeCourtNumbersSession,
     assignments,
     assignPlayerToCourt,
     reorderPlayerInCourt,

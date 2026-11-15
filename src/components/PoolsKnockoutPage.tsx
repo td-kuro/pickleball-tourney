@@ -17,6 +17,8 @@ import { PoolStageView } from './PoolStageView';
 type PoolsKnockoutSubView = 'pool' | 'knockout';
 
 interface PoolsKnockoutPageProps {
+  // Physical courts the pool matches are on (see utils/courtNumbers.ts).
+  courtNumbers?: number[];
   teams: Team[];
   pools: Pool[];
   bracket: KnockoutBracket | null;
@@ -38,6 +40,7 @@ interface PoolsKnockoutPageProps {
 // remounts (and the sub-view resets) each time the tab is re-entered, same
 // as RoundsPage.
 export function PoolsKnockoutPage({
+  courtNumbers,
   teams,
   pools,
   bracket,
@@ -143,6 +146,7 @@ export function PoolsKnockoutPage({
           onSetResult={onSetPoolMatchResult}
           onAdvanceToKnockout={onAdvanceToKnockout}
           scoreRecordingMode={scoreRecordingMode}
+          courtNumbers={courtNumbers}
         />
       ) : (
         bracket && (

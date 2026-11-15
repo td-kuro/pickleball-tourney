@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { KingCourtCycle, Player, RoundStatus } from '../types';
 import { getKingCourtGameStatus, getKingCourtGameWinner } from '../utils/kingCourt';
 import { describeResult } from '../utils/results';
@@ -73,7 +74,7 @@ export function KingCourtAllRoundsView({ players, cycles }: KingCourtAllRoundsVi
                         return (
                           <li key={court.courtNumber} className="all-rounds-match">
                             <span>
-                              Court {court.courtNumber}: {team1Label} vs {team2Label}, Rest:{' '}
+                              {courtLabel(cycle.courtNumbers, court.courtNumber)}: {team1Label} vs {team2Label}, Rest:{' '}
                               {nameById.get(game.restingPlayerId) ?? 'Unknown player'}
                             </span>
                             {result && <span className="all-rounds-score">{result}</span>}

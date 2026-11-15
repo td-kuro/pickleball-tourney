@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import type { DynamicTeam, DynamicTeamQualifierStage, QualifyingRound, RestAssignment, ScoreRecordingMode } from '../types';
 import { calculateFinalStandings, calculateProvisionalStandings, formatSignedPoints } from '../utils/dynamicTeamQualifier';
 import { DTQ_WIN_LOSS_WARNING, POINT_STATS_UNAVAILABLE_NOTE } from '../utils/results';
@@ -8,6 +9,7 @@ interface DynamicTeamQualifierStandingsProps {
   restAssignments: RestAssignment[];
   stage: DynamicTeamQualifierStage;
   scoreRecordingMode: ScoreRecordingMode;
+  courtNumbers?: number[];
 }
 
 // Standings tab — Provisional Standings while qualifying is still in
@@ -18,7 +20,7 @@ interface DynamicTeamQualifierStandingsProps {
 // opponent win % → head-to-head → capped point differential → total
 // points — see calculateFinalStandings). Both read from the same
 // TeamStanding shape, just ranked differently, so this is one component.
-export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, stage, scoreRecordingMode }: DynamicTeamQualifierStandingsProps) {
+export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, stage, scoreRecordingMode, courtNumbers }: DynamicTeamQualifierStandingsProps) {
   const showPoints = scoreRecordingMode === 'full-score';
   const activeTeamIds = teams.filter((t) => t.checkedIn && !t.withdrawn).map((t) => t.id);
   if (activeTeamIds.length === 0) {
@@ -48,7 +50,7 @@ export function DynamicTeamQualifierStandings({ teams, rounds, restAssignments, 
     if (currentRound.restingTeamIds.includes(teamId)) return 'Resting';
     const match = currentRound.matches.find((m) => m.teamAId === teamId || m.teamBId === teamId);
     if (!match) return '—';
-    return `Court ${match.courtNumber}`;
+    return courtLabel(courtNumbers, match.courtNumber);
   }
 
   return (

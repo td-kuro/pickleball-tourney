@@ -1,8 +1,9 @@
 import { useState, type FormEvent } from 'react';
-import type { PlayerTier, TierPlayer, TierPlayerStats } from '../types';
+import type { PlayerTier, TierPlayer, TierPlayerStats, TierScoreMode } from '../types';
 import { TIER_NAMES, TIERS } from '../utils/tierPairings';
-import { DEFAULT_TIER, MAX_TIER_COURTS, parseTierPlayerLines, type NewTierPlayer } from '../utils/tierSession';
-import { CourtSelector } from './CourtSelector';
+import { DEFAULT_TIER, MAX_TIER_COURTS, parseTierPlayerLines, type NewTierPlayer, type TierResult } from '../utils/tierSession';
+import { CourtNumberPicker } from './CourtNumberPicker';
+import { TierScoreModePicker } from './TierScoreModePicker';
 import { TierPill } from './TierCourtCard';
 
 function TierPicker({ value, onChange, label }: { value: PlayerTier; onChange: (tier: PlayerTier) => void; label: string }) {
@@ -156,6 +157,7 @@ interface TierPairingsSetupProps {
   players: TierPlayer[];
   numberOfCourts: number;
   started: boolean;
+  ended: boolean;
   startError: string | null;
   onAddPlayers: (entries: NewTierPlayer[]) => void;
   onSetTier: (id: string, tier: PlayerTier) => void;
@@ -163,26 +165,40 @@ interface TierPairingsSetupProps {
   onRename: (id: string, name: string) => void;
   onRemove: (id: string) => void;
   onRemoveAll: () => void;
-  onSetCourts: (courts: number) => void;
+  courtNumbers: number[];
+  scoreMode: TierScoreMode;
+  onSetScoreMode: (mode: TierScoreMode) => TierResult;
+  onSetCourtNumbers: (courtNumbers: number[]) => TierResult;
   onStart: () => void;
   onGoToRounds: () => void;
 }
 
 export function TierPairingsSetup(props: TierPairingsSetupProps) {
-  const { players, numberOfCourts, started, startError } = props;
+  const { players, started, startError } = props;
   const visible = players.filter((p) => !p.removed);
   const available = visible.filter((p) => p.available).length;
   return (
     <>
+      {props.ended && (
+        <section className="card session-adjustment-notice" role="status">
+          <p className="hint">
+            This session has ended and is read-only. Use <strong>Reset Tier-Based Pairings</strong> to start a new
+            session with the same players and courts.
+          </p>
+        </section>
+      )}
       <section className="card">
         <h2>Courts</h2>
-        <CourtSelector value={numberOfCourts} onChange={props.onSetCourts} />
+        <CourtNumberPicker value={props.courtNumbers} onChange={(nums) => void props.onSetCourtNumbers(nums)} disabled={props.ended} />
         <p className="hint">
-          {started
-            ? 'Changing courts applies to the next generated round — the current round is left as is unless you regenerate it.'
-            : 'Every round fills as many of these courts as the A/C rule allows.'}{' '}
-          Up to {MAX_TIER_COURTS} courts{numberOfCourts === MAX_TIER_COURTS ? ` — using ${MAX_TIER_COURTS}` : ''}.
+          Pick the venue's numbered courts in use — e.g. 3 and 6. Matches fill them in order. Up to {MAX_TIER_COURTS}{' '}
+          courts.
         </p>
+      </section>
+
+      <section className="card">
+        <h2>Results</h2>
+        <TierScoreModePicker value={props.scoreMode} onChange={(mode) => void props.onSetScoreMode(mode)} />
       </section>
 
       <section className="card">
@@ -229,7 +245,7 @@ export function TierPairingsSetup(props: TierPairingsSetupProps) {
           </>
         ) : (
           <button type="button" className="cta-button start-button" onClick={props.onGoToRounds}>
-            Go to Current Round
+            {props.ended ? 'View Final Results' : 'Go to Current Round'}
           </button>
         )}
       </section>

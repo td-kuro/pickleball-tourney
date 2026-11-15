@@ -16,7 +16,8 @@ import {
   socialScoringModeLabel,
   validateSessionTiming,
 } from '../utils/tournament';
-import { CourtSelector } from './CourtSelector';
+import { resolveCourtNumbers } from '../utils/courtNumbers';
+import { CourtNumberPicker } from './CourtNumberPicker';
 import { ScoreRecordingSelector } from './ScoreRecordingSelector';
 
 interface TournamentSetupProps {
@@ -278,8 +279,11 @@ interface NumberOfCourtsSetupProps {
 export function NumberOfCourtsSetup({ settings, onChange }: NumberOfCourtsSetupProps) {
   return (
     <section className="card">
-      <h2>Number of Courts</h2>
-      <CourtSelector value={settings.courts} onChange={(courts) => onChange({ ...settings, courts })} />
+      <h2>Courts</h2>
+      <CourtNumberPicker
+        value={resolveCourtNumbers(settings.courtNumbers, settings.courts)}
+        onChange={(courtNumbers) => onChange({ ...settings, courts: courtNumbers.length, courtNumbers })}
+      />
     </section>
   );
 }

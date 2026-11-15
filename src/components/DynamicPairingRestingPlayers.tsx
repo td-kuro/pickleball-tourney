@@ -22,7 +22,7 @@ import {
 // shared rather than duplicated.
 import { canIncreaseCourts } from '../utils/tournament';
 import { AddPlayerMidSessionButton, type AddPlayerMidSessionFields } from './AddPlayerMidSessionModal';
-import { CourtSelector } from './CourtSelector';
+import { CourtNumberChangeControl } from './CourtNumberChangeControl';
 import { PlayerAvailabilityControls } from './PlayerAvailabilityControls';
 import { SwapPlayerModal } from './SwapPlayerModal';
 
@@ -34,9 +34,11 @@ interface DynamicPairingRestingPlayersProps {
   rounds: DynamicPairingRound[];
   currentRound: DynamicPairingRound | undefined;
   numberOfCourts: number;
+  // Physical court numbers in use (numberOfCourts long).
+  courtNumbers: number[];
   sessionAdjustments: SessionAdjustment[];
   onSetAvailability: (playerId: string, status: PlayerAvailabilityStatus) => void;
-  onChangeCourts: (newCourts: number) => void;
+  onChangeCourtNumbers: (courtNumbers: number[], applyToCurrent: boolean) => void;
   onSwap: (activePlayerId: string, restingPlayerId: string) => { ok: boolean; reason?: string };
   onAddPlayerMidSession: (fields: AddPlayerMidSessionFields, joinTiming: MidSessionJoinTiming) => AddPlayerMidSessionResult;
 }
@@ -59,13 +61,13 @@ export function DynamicPairingRestingPlayers({
   rounds,
   currentRound,
   numberOfCourts,
+  courtNumbers,
   sessionAdjustments,
   onSetAvailability,
-  onChangeCourts,
+  onChangeCourtNumbers,
   onSwap,
   onAddPlayerMidSession,
 }: DynamicPairingRestingPlayersProps) {
-  const [pendingCourts, setPendingCourts] = useState(numberOfCourts);
   const [swapOpen, setSwapOpen] = useState(false);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
 
@@ -88,21 +90,6 @@ export function DynamicPairingRestingPlayers({
   // resting can go to 3 (needs 12, has 12); 10 players / 2 courts with 2
   // resting can't (needs 12, has 10).
   const availableCount = players.filter(isPlayerAvailable).length;
-  const courtsCheck = canIncreaseCourts(pendingCourts, numberOfCourts, PLAYERS_PER_COURT, availableCount);
-
-  function handleApplyCourts() {
-    if (pendingCourts === numberOfCourts || !courtsCheck.ok) return;
-    const message =
-      pendingCourts > numberOfCourts
-        ? `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} courts? This will apply from the next round.`
-        : `Change from ${numberOfCourts} court${numberOfCourts === 1 ? '' : 's'} to ${pendingCourts} court${pendingCourts === 1 ? '' : 's'}? More players may rest from the next round.`;
-    if (!window.confirm(message)) {
-      setPendingCourts(numberOfCourts);
-      return;
-    }
-    onChangeCourts(pendingCourts);
-    setNoticeDismissed(false);
-  }
 
   // Excludes fixed-team sides (can't be split by a swap — see
   // planDynamicPairingSwap) and, on the resting side, any
@@ -143,24 +130,17 @@ export function DynamicPairingRestingPlayers({
 
       <section className="card">
         <h2>Session Controls</h2>
-        <div className="form-row">
-          <CourtSelector value={pendingCourts} onChange={setPendingCourts} label="Number of Courts" />
-          <div className="session-controls-actions">
-            <button
-              type="button"
-              className="secondary"
-              onClick={handleApplyCourts}
-              disabled={pendingCourts === numberOfCourts || !courtsCheck.ok}
-            >
-              Change Courts
-            </button>
-            <p className="hint">
-              Applies to the still-upcoming pre-generated grading rounds; Round 4+ picks up the new count automatically.
-              Locked/completed rounds are never changed.
-            </p>
-          </div>
-          {!courtsCheck.ok && <p className="hint error">{courtsCheck.reason}</p>}
-        </div>
+        <CourtNumberChangeControl
+          courtNumbers={courtNumbers}
+          checkCount={(count) => canIncreaseCourts(count, numberOfCourts, PLAYERS_PER_COURT, availableCount)}
+          currentRoundQuestion={(countChanged) =>
+            currentRound && !countChanged ? 'Also move the current round to the new courts? Players stay in the same matches.' : null
+          }
+          onApply={(nums, applyToCurrent) => {
+            onChangeCourtNumbers(nums, applyToCurrent);
+            setNoticeDismissed(false);
+          }}
+        />
         <div className="form-actions">
           <button type="button" className="secondary" onClick={() => setSwapOpen(true)} disabled={!currentRound}>
             Swap Active Player with Resting Player

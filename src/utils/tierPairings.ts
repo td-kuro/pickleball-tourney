@@ -32,6 +32,7 @@ import type {
   TierPlayerStats,
   TierRound,
 } from '../types';
+import { courtLabel } from './courtNumbers';
 
 export type RandomSource = () => number;
 
@@ -604,6 +605,9 @@ export interface GenerateTierRoundInput {
   rng: RandomSource;
   nowMs?: number;
   arrangeOptions?: ArrangeOptions;
+  // Physical court numbers in use; match i is played on courtNumbers[i - 1].
+  // Without them, match i is shown as Court i.
+  courtNumbers?: number[];
 }
 
 export function eligibleTierPlayers(players: TierPlayer[]): TierPlayer[] {
@@ -641,6 +645,7 @@ export function generateTierRound(input: GenerateTierRoundInput): TierRound {
   const matches: TierMatch[] = courtIds.map(({ ids }, i) => ({
     id: makeTierId('tier-match', rng),
     courtNumber: i + 1,
+    ...(input.courtNumbers?.[i] !== undefined ? { physicalCourt: input.courtNumbers[i] } : {}),
     teamAPlayerIds: [ids[0], ids[1]],
     teamBPlayerIds: [ids[2], ids[3]],
   }));
@@ -694,21 +699,23 @@ export function validateTierRound(round: TierRound, players: TierPlayer[], numbe
   const byId = new Map(players.map((p) => [p.id, p]));
   const name = (id: string) => byId.get(id)?.name ?? id;
   const seen = new Set<string>();
-  const courtNumbers = new Set<number>();
+  const courtNumbers = new Set<string>();
   for (const match of round.matches) {
     const ids = matchPlayerIds(match);
-    if (ids.length !== 4 || new Set(ids).size !== 4) issues.push(`Court ${match.courtNumber} does not have four different players.`);
-    if (courtNumbers.has(match.courtNumber)) issues.push(`Court ${match.courtNumber} is used twice.`);
-    courtNumbers.add(match.courtNumber);
+    const label = matchCourtLabel(match);
+    if (ids.length !== 4 || new Set(ids).size !== 4) issues.push(`${label} does not have four different players.`);
+    const courtKey = String(match.physicalCourt ?? `#${match.courtNumber}`);
+    if (courtNumbers.has(courtKey)) issues.push(`${label} is used twice.`);
+    courtNumbers.add(courtKey);
     for (const id of ids) {
       if (seen.has(id)) issues.push(`${name(id)} is assigned more than once.`);
       seen.add(id);
       const player = byId.get(id);
-      if (!player) issues.push(`Court ${match.courtNumber} has an unknown player.`);
-      else if (!player.available || player.removed) issues.push(`${player.name} is unavailable but assigned to Court ${match.courtNumber}.`);
+      if (!player) issues.push(`${label} has an unknown player.`);
+      else if (!player.available || player.removed) issues.push(`${player.name} is unavailable but assigned to ${label}.`);
     }
     const tiers = ids.map((id) => byId.get(id)?.tier).filter((t): t is PlayerTier => t !== undefined);
-    if (!isValidTierMix(tiers)) issues.push(`Court ${match.courtNumber} mixes Top (A) and Lower (C) players.`);
+    if (!isValidTierMix(tiers)) issues.push(`${label} mixes Top (A) and Lower (C) players.`);
   }
   for (const id of round.restingPlayerIds) {
     if (seen.has(id)) issues.push(`${name(id)} is both playing and sitting out.`);
@@ -738,7 +745,7 @@ export function findTierSlot(round: TierRound, playerId: string): TierSlot | nul
 }
 
 export function describeTierSlot(round: TierRound, slot: TierSlot): string {
-  return slot.kind === 'resting' ? 'Sitting Out' : `Court ${round.matches[slot.matchIndex].courtNumber}`;
+  return slot.kind === 'resting' ? 'Sitting Out' : matchCourtLabel(round.matches[slot.matchIndex]);
 }
 
 export function describeTierMatch(match: TierMatch, players: TierPlayer[]): string {
@@ -747,7 +754,7 @@ export function describeTierMatch(match: TierMatch, players: TierPlayer[]): stri
     const p = byId.get(id);
     return p ? `${p.name} (${p.tier})` : id;
   };
-  return `Court ${match.courtNumber}: ${match.teamAPlayerIds.map(label).join(' / ')} vs ${match.teamBPlayerIds.map(label).join(' / ')}`;
+  return `${matchCourtLabel(match)}: ${match.teamAPlayerIds.map(label).join(' / ')} vs ${match.teamBPlayerIds.map(label).join(' / ')}`;
 }
 
 export type TierSwapPlan =
@@ -784,6 +791,14 @@ export function planTierSwap(round: TierRound, playerAId: string, playerBId: str
     return { ok: false, reason: `${nameA} and ${nameB} are already partners — swapping them changes nothing.` };
   }
 
+  // A recorded result belongs to the four players who played it; moving
+  // someone onto or off that court would hand it to the wrong people.
+  for (const slot of [slotA, slotB]) {
+    if (slot.kind === 'court' && round.matches[slot.matchIndex].result) {
+      return { ok: false, reason: `${matchCourtLabel(round.matches[slot.matchIndex])} already has a result. Clear the result before swapping players there.` };
+    }
+  }
+
   const next: TierRound = {
     ...round,
     matches: round.matches.map((m) => ({ ...m })),
@@ -805,11 +820,11 @@ export function planTierSwap(round: TierRound, playerAId: string, playerBId: str
     for (const id of ids) {
       const p = byId.get(id);
       if (!p || !p.available || p.removed) {
-        return { ok: false, reason: `${p?.name ?? 'That player'} is unavailable and can't be put on Court ${match.courtNumber}.` };
+        return { ok: false, reason: `${p?.name ?? 'That player'} is unavailable and can't be put on ${matchCourtLabel(match)}.` };
       }
     }
     if (!isValidTierMix(ids.map((id) => byId.get(id)!.tier))) {
-      return { ok: false, reason: `Not allowed: Court ${match.courtNumber} would have Top (A) and Lower (C) players in the same match.` };
+      return { ok: false, reason: `Not allowed: ${matchCourtLabel(match)} would have Top (A) and Lower (C) players in the same match.` };
     }
   }
   const allIds = [...next.matches.flatMap(matchPlayerIds), ...next.restingPlayerIds];
@@ -842,4 +857,9 @@ export function planTierSwap(round: TierRound, playerAId: string, playerBId: str
     before,
     after,
   };
+}
+
+// "Court 3" — the physical court a match is on (position for older saves).
+export function matchCourtLabel(match: Pick<TierMatch, 'physicalCourt' | 'courtNumber'>): string {
+  return match.physicalCourt !== undefined ? `Court ${match.physicalCourt}` : courtLabel(undefined, match.courtNumber);
 }

@@ -1,3 +1,4 @@
+import { courtLabel } from '../utils/courtNumbers';
 import { useState } from 'react';
 import type { KingCourtCycle, Player, PlayerAvailabilityStatus, ResultSubmission, ScoreRecordingMode } from '../types';
 import { scoreRecordingModeLabel } from '../utils/results';
@@ -10,6 +11,7 @@ import { PlayerActionMenu, type PlayerActionMenuReplacement } from './PlayerActi
 interface KingCourtViewProps {
   players: Player[];
   numberOfCourts: number;
+  courtNumbers: number[];
   currentCycle: KingCourtCycle;
   onSetGameResult: (courtNumber: number, gameNumber: number, result: ResultSubmission) => void;
   scoreRecordingMode: ScoreRecordingMode;
@@ -32,6 +34,7 @@ interface KingCourtViewProps {
 export function KingCourtView({
   players,
   numberOfCourts,
+  courtNumbers,
   currentCycle,
   onSetGameResult,
   scoreRecordingMode,
@@ -53,6 +56,7 @@ export function KingCourtView({
         cycle={currentCycle}
         nameById={nameById}
         numberOfCourts={numberOfCourts}
+        courtNumbers={courtNumbers}
         onSetManualTiebreakOrder={onSetManualTiebreakOrder}
         onSetManualMovementOverride={onSetManualMovementOverride}
         onConfirm={onConfirmMovement}
@@ -69,11 +73,11 @@ export function KingCourtView({
     const court = currentCycle.courts.find((c) => c.playerIds.includes(playerId));
     if (!court) return { contextLines: [], replacement: undefined };
     const game = court.games.find((g) => g.gameNumber === currentCycle.currentGameNumber);
-    const lines = [`Court ${court.courtNumber}`];
+    const lines = [courtLabel(currentCycle.courtNumbers, court.courtNumber)];
     if (!game) return { contextLines: lines, replacement: undefined };
 
     if (game.restingPlayerId === playerId) {
-      lines.push(`Resting this game (Game ${game.gameNumber} of 5) — still on Court ${court.courtNumber} for the cycle.`);
+      lines.push(`Resting this game (Game ${game.gameNumber} of 5) — still on ${courtLabel(currentCycle.courtNumbers, court.courtNumber)} for the cycle.`);
       return { contextLines: lines, replacement: undefined };
     }
 
@@ -117,6 +121,7 @@ export function KingCourtView({
             <KingCourtGameCard
               key={`${currentCycle.cycleNumber}-${court.courtNumber}-${currentCycle.currentGameNumber}`}
               court={court}
+              courtName={courtLabel(currentCycle.courtNumbers, court.courtNumber)}
               gameNumber={currentCycle.currentGameNumber}
               nameById={nameById}
               scoreMode={scoreRecordingMode}

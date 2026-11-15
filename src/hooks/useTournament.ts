@@ -8,6 +8,7 @@ import type {
   Team,
   TournamentSettings,
 } from '../types';
+import { adjustCourtNumbers, formatCourtList, resolveCourtNumbers, sameCourtNumbers } from '../utils/courtNumbers';
 import { availabilityAdjustmentType, playersForFutureRounds } from '../utils/availability';
 import { generateLeaderboardRound } from '../utils/pairing';
 import { DEFAULT_POOL_KNOCKOUT_SETTINGS } from '../utils/poolsKnockout';
@@ -78,6 +79,8 @@ export function useTournament() {
     socialFormat: storedSettings.socialFormat ?? 'standard-social',
     allowLateJoiners: storedSettings.allowLateJoiners ?? true,
     scoreRecordingMode: normalizeScoreRecordingMode(storedSettings.scoreRecordingMode),
+    // Physical court numbers in use; Courts 1..N for older saves.
+    courtNumbers: resolveCourtNumbers(storedSettings.courtNumbers, storedSettings.courts),
   };
   const [storedRounds, setRounds] = useLocalStorage<Round[]>(ROUNDS_KEY, []);
   const rounds = normalizeRounds(storedRounds);
@@ -128,11 +131,13 @@ export function useTournament() {
   ): Round {
     const pairingStyle =
       withSettings.playMode === 'tournament' && withSettings.tournamentFormat === 'leaderboard' ? withSettings.pairingStyle : 'balanced';
+    // Every round records the physical courts it was generated for.
+    const courtNumbers = resolveCourtNumbers(withSettings.courtNumbers, withSettings.courts);
     // roundNumber threaded through so a mid-session-added player's
     // effectiveFromRound is honoured exactly at (and after) that round —
     // see isPlayerAvailableForScheduling.
     const { availablePlayers, availableTeams, availableTeamPlayers } = filterSchedulableRoster(players, teams, teamPlayers, roundNumber);
-    return generateLeaderboardRound(
+    const round = generateLeaderboardRound(
       availablePlayers,
       availableTeams,
       availableTeamPlayers,
@@ -142,6 +147,7 @@ export function useTournament() {
       status,
       pairingStyle,
     );
+    return { ...round, courtNumbers };
   }
 
   // Convenience wrapper for the common case (generate against whatever
@@ -370,10 +376,48 @@ export function useTournament() {
   // SessionControls), the current round too. Generates against
   // `nextSettings` explicitly (see generateRoundWith) since setSettings
   // above hasn't taken effect in this render yet.
-  function changeCourtCount(newCourts: number, players: Player[], teams: Team[], teamPlayers: Player[], regenerateCurrent: boolean) {
+  // Court Number Selection mid-session. Physical numbers and the active
+  // count are separate: a different count goes through the court-count
+  // change below (upcoming rounds regenerated, current round only if
+  // confirmed); the same count with different numbers only relabels the
+  // upcoming rounds — and the current round only if `applyToCurrent` (an
+  // explicit reassignment). Completed rounds keep their courts.
+  function changeCourtNumbers(
+    courtNumbers: number[],
+    players: Player[],
+    teams: Team[],
+    teamPlayers: Player[],
+    applyToCurrent: boolean,
+  ) {
+    const nums = resolveCourtNumbers(courtNumbers, courtNumbers.length);
+    if (nums.length !== settings.courts) {
+      changeCourtCount(nums.length, players, teams, teamPlayers, applyToCurrent, nums);
+      return;
+    }
+    if (sameCourtNumbers(nums, settings.courtNumbers)) return;
+    setSettings({ ...settings, courtNumbers: nums });
+    logAdjustment('court-count-changed', { oldValue: formatCourtList(settings.courtNumbers ?? []), newValue: formatCourtList(nums) });
+    setRounds(
+      rounds.map((round) =>
+        round.status === 'upcoming' || (applyToCurrent && round.status === 'current') ? { ...round, courtNumbers: nums } : round,
+      ),
+    );
+  }
+
+  function changeCourtCount(
+    newCourts: number,
+    players: Player[],
+    teams: Team[],
+    teamPlayers: Player[],
+    regenerateCurrent: boolean,
+    courtNumbers?: number[],
+  ) {
     const oldCourts = settings.courts;
     if (newCourts === oldCourts) return;
-    const nextSettings = { ...settings, courts: newCourts };
+    // Without explicit numbers, keep the courts already selected and add
+    // the next free numbers (or drop the highest) to reach the new count.
+    const nums = courtNumbers ?? adjustCourtNumbers(settings.courtNumbers ?? [], newCourts);
+    const nextSettings = { ...settings, courts: newCourts, courtNumbers: nums };
     setSettings(nextSettings);
     logAdjustment('court-count-changed', { oldValue: String(oldCourts), newValue: String(newCourts) });
 
@@ -441,6 +485,7 @@ export function useTournament() {
     regenerateCurrentRound,
     recordPlayerAddedMidSession,
     changeCourtCount,
+    changeCourtNumbers,
     swapPlayerInCurrentRound,
   };
 }
